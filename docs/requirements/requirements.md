@@ -68,10 +68,14 @@ BindingはCoreのv1主要機能をDesktop / Mobile Applicationへ公開する薄
 #### Profileパスワードと利用時の責任境界
 
 - Profileごとに1つのProfileパスワードを使用し、Profile配下のMnemonic、Derived Software Key、Imported Software Key、Generated Software Keyを同じProfile保護単位として扱う。
+- Profileパスワードは、Profile作成およびパスワード変更時に、未指定でも空でもない値として提示されなければならない。未指定または空の値、およびCoreが内部で補った既定値による作成・変更は許可しない。具体的な文字種、長さ、正規化は仕様設計で決定する。
 - Software Keyごとの個別パスワードはv1で設けない。
 - CoreはProfileパスワードを永続保存または継続的にキャッシュしない。
 - Applicationは、秘密情報を必要とする処理の実行時に、ProfileパスワードをBinding経由でCoreへ渡せる。Bindingは受け取ったProfileパスワードを永続保存または継続的にキャッシュしない。
 - 秘密情報を必要とする処理ごとにProfileパスワードを受け取り、必要な秘密情報を一時的に利用する。CoreはProfileまたはSoftware Keyを継続的なUnlocked状態として保持しない。
+- v1のロックは、処理単位のProfileパスワードが提示されるまでProfile配下の秘密情報を利用できない状態を指す。アンロックは、正しいProfileパスワードにより現在の秘密情報処理だけを許可する処理単位の扱いを指し、継続的なUnlocked状態を提供するものではない。
+- Profileパスワードを紛失または不明とした場合の復旧・リセット機能はv1で提供せず、正しいProfileパスワードを必要とする秘密情報処理、パスワード変更、削除を成功させない。
+- Profileパスワードを必要とする処理の認可判定はCoreが担う。BindingおよびApplicationは処理の開始とパスワードの受渡しを担うが、正しいパスワードなしにCoreの認可を代替または回避しない。
 - 処理終了後、Coreは平文のMnemonicまたは秘密鍵を継続的に利用可能な状態として保持しない。具体的なメモリ保持・消去方式は仕様設計で決定する。
 
 ### 対象外
@@ -126,7 +130,7 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 
 - SymbolとNEMの双方を対象とする。Mnemonic生成、秘密鍵導出、暗号化を含むProfile・Software Key管理処理は共通に扱い、署名処理は対象チェーン固有として区別する。
 - MainnetとTestnetを明示的に区別する。
-- HD Walletの導出パスは、現行のSymbol / NEMにおけるMainnet / Testnetの区分に合わせる。具体的なパス値と参照バージョンは仕様設計で確認する。
+- HD Walletの導出パスは、v1で承認されたSymbolおよびNEMそれぞれの対象プロトコル版、Mainnet / Testnetの区分、互換性基準および基準時点に合わせる。対象プロトコル版、互換性基準、基準時点および承認済み参照資料はOPEN-001で確定し、具体的なパス値は仕様設計で決定する。
 - Rust製のポータブルCoreとして提供し、Desktop / Mobile双方からCoreの主要機能を利用するBindingをv1対象とする。Bindingの具体的な実装方式、対象OS・バージョン、配布方式は仕様設計またはリリース要件で決定する。
 
 ### 制約
@@ -137,7 +141,9 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 - Derived / Imported / Generated Software Keyは、すべて既存Profile配下で管理する。
 - 同一Profile内で同一秘密鍵に対応するSoftware Keyを、由来をまたいで重複登録しない。
 - Profile配下のMnemonicおよびすべてのSoftware Keyは、Profile単位の1つのProfileパスワードで保護する。Software Keyごとの個別パスワードは設けない。
+- Profile作成およびProfileパスワード変更では、未指定または空のProfileパスワードを受け付けない。Profileパスワードの紛失・不明時の復旧・リセットはv1対象外とする。
 - CoreはProfileパスワードを永続保存または継続的にキャッシュせず、継続的なUnlocked状態を保持しない。
+- ロックは処理単位のパスワード提示前の利用不可を、アンロックは正しいパスワードによる現在の処理だけの利用許可を意味し、処理をまたぐUnlocked状態は保持しない。
 - BindingもProfileパスワードを永続保存または継続的にキャッシュせず、Bindingを秘密情報の継続的な保存・管理主体としない。
 - Desktop / Mobile Applicationは、Binding経由でCoreのv1主要機能を利用できる。Bindingの方式が異なっても、Coreの秘密情報管理方針は変わらない。
 - ニーモニックおよび秘密鍵の入力形式、バイト表現、API、データ形式は本書で決定しない。
@@ -153,7 +159,7 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 - 経路1（新規Profile作成）: ProfileパスワードとMainnetまたはTestnetを受け取り、Coreが新規Mnemonicを生成してProfileを作成する。
 - 経路2（MnemonicからProfile復元）: 既存Mnemonic、Profileパスワード、MainnetまたはTestnetを受け取り、指定Mnemonicを持つProfileを復元・作成する。
 - 期待結果: いずれの経路でもMnemonicを必ず1つ持つProfileが作成され、指定NetworkがProfile管理下へ保存される。MnemonicはProfile管理下のルート秘密情報として保存対象になる。
-- 主な失敗条件: MnemonicなしProfileが作成される。同一Mnemonicと同一NetworkのProfileが重複登録される。ProfileパスワードまたはNetworkがない状態でProfile作成が成功する。
+- 主な失敗条件: MnemonicなしProfileが作成される。同一Mnemonicと同一NetworkのProfileが重複登録される。ProfileパスワードまたはNetworkがない状態、または空のProfileパスワードでProfile作成が成功する。
 
 ### UC-002: 保存済みMnemonicからアカウントを追加導出する
 
@@ -184,8 +190,8 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 - 利用者: Desktop / Mobileウォレット開発者
 - 目的: Profileパスワードを処理ごとに使用し、Profile配下のMnemonicまたはSoftware Keyを必要な処理で利用する。
 - 事前条件: Mnemonicを持つProfile、対象秘密情報、Profileパスワードが存在する。
-- 期待結果: 正しいProfileパスワードが与えられた場合に限り、対象秘密情報を必要とする処理を成功させられる。Coreは継続的なUnlocked状態を保持しない。
-- 主な失敗条件: 誤ったProfileパスワードで処理が成功する。処理終了後も平文秘密情報が継続利用可能な状態で保持される。
+- 期待結果: Profileは処理単位のロック状態として扱われ、正しいProfileパスワードが処理ごとに与えられた場合に限り、現在の対象秘密情報を必要とする処理を成功させられる。アンロックは現在の処理に限って有効であり、Coreは処理をまたぐUnlocked状態を保持しない。
+- 主な失敗条件: 誤った、未指定または空のProfileパスワードで処理が成功する。Profileパスワードを紛失・不明とした状態で復旧・リセットまたは秘密情報処理が成功する。処理終了後も平文秘密情報が継続利用可能な状態で保持される。
 
 ### UC-006: Software Keyで署名する
 
@@ -211,7 +217,7 @@ TransactionかMessageかなどのアプリケーション上の意味の判断�
 - 目的: 個別Software Keyの削除とProfile全体の削除を区別して実行する。
 - 事前条件: Mnemonicを持つProfile、対象のSoftware KeyまたはProfile、正しいProfileパスワードが存在する。
 - 期待結果: 正しいProfileパスワードにより、個別Software Keyの削除では対象だけを削除してProfileとMnemonicを残し、Profile削除ではMnemonic、Derived / Imported / Generated Software KeyおよびProfile全体を破棄する。Derived Software Keyを削除しても、Mnemonicが残るProfileでは再導出できる。
-- 主な失敗条件: 誤ったProfileパスワードで削除が成功する。Profile削除後の秘密情報が署名、追加アカウント導出その他の秘密情報を必要とする処理へ利用できる。Profile削除と個別Software Key削除が同じ結果として扱われる。
+- 主な失敗条件: 誤った、未指定または空のProfileパスワードで削除が成功する。Profileパスワードを紛失・不明とした状態で復旧・リセットまたは削除が成功する。Profile削除後の秘密情報が署名、追加アカウント導出その他の秘密情報を必要とする処理へ利用できる。Profile削除と個別Software Key削除が同じ結果として扱われる。
 
 ### UC-009: Symbol / NEMおよびMainnet / Testnetを区別して利用する
 
@@ -226,32 +232,35 @@ TransactionかMessageかなどのアプリケーション上の意味の判断�
 - 利用者: Desktop / Mobileウォレット開発者
 - 目的: Desktop / Mobile Applicationから、同じ責任範囲のRust Wallet CoreをBinding経由で利用する。
 - 事前条件: DesktopまたはMobile ApplicationがBindingを利用できる。
-- 期待結果: Binding経由で、FR-019に列挙するv1 Core主要機能を利用できる。Profile情報・公開情報の取得は、Mnemonic、秘密鍵、Profileパスワードそのものを返すことを意味しない。
+- 期待結果: Binding経由で、FR-019に列挙するv1 Core主要機能を利用できる。取得できる公開情報はProfileの所属Network、Chainに対応するアカウント情報、公開鍵およびアドレスに限り、Mnemonic、秘密鍵、Profileパスワードそのものを返すことを意味しない。
 - 主な失敗条件: DesktopまたはMobileの一方からCore機能を利用できない。BindingがCoreと別の秘密情報管理や署名ロジックを実行する。Core管理下のMnemonicまたは秘密鍵が通常の処理結果としてApplicationへ返される。
 
 ## 6. 機能要件
 
+根拠欄の「ユーザー確定事項 §…」は、本要件定義の更新依頼（ユーザー入力）に記載された同番号の確定事項を示す。独立した承認記録は本リポジトリに提供されていないため、これを承認記録そのものとは扱わない。コンセプト由来の要件は `docs/consept/concept-sheet.md` の該当節を根拠とする。
+
 | ID | 優先度 | 要件 | 根拠 | 対応ユースケース |
 | --- | --- | --- | --- | --- |
-| FR-001 | MUST | Coreは、ProfileパスワードとMainnetまたはTestnetを受け取り、新規Mnemonicを生成してProfileを作成できること。また、既存Mnemonic、Profileパスワード、Networkを受け取り、Profileを復元・作成できること。いずれの場合も1つのMnemonicを持つProfileを作成し、Mnemonicを持たないProfileを作成できないこと。 | ユーザー確定事項 §1、§2、§11 | UC-001 |
+| FR-001 | MUST | Coreは、未指定でも空でもないProfileパスワードとMainnetまたはTestnetを受け取り、新規Mnemonicを生成してProfileを作成できること。また、既存Mnemonic、未指定でも空でもないProfileパスワード、Networkを受け取り、Profileを復元・作成できること。いずれの場合も1つのMnemonicを持つProfileを作成し、Mnemonicを持たないProfileを作成できないこと。 | ユーザー確定事項 §1、§2、§11 | UC-001 |
 | FR-002 | MUST | Coreは、ProfileのMnemonicをProfile管理下のルート秘密情報として保存すること。 | ユーザー確定事項 §2、§6 | UC-001、UC-005 |
 | FR-003 | MUST | Coreは、保存済みProfileのMnemonicから、Profileに保存されたNetworkと指定Chainに対応する追加アカウントおよび秘密鍵を導出し、Derived Software KeyとしてProfile配下へ保存できること。導出処理ごとに上流側がNetworkを指定することは要件としない。 | ユーザー確定事項 §3、§4、§5、§12 | UC-002 |
 | FR-004 | MUST | Coreは、外部から直接取り込んだ秘密鍵を、Mnemonicを持つ既存Profile配下のImported Software Keyとして保存できること。 | ユーザー確定事項 §1、§5 | UC-003 |
 | FR-005 | MUST | Coreは、独立して生成した秘密鍵を、Mnemonicを持つ既存Profile配下のGenerated Software Keyとして保存できること。 | ユーザー確定事項 §1、§5 | UC-004 |
-| FR-006 | MUST | Coreは、Mnemonic、Derived / Imported / Generated Software Keyを暗号化保存の対象として扱えること。 | ユーザー確定事項 §2、§3、§6、§11 | UC-001、UC-002、UC-003、UC-004 |
-| FR-007 | MUST | Coreは、Profile配下の秘密情報を必要とする処理ごとにProfileパスワードを使用し、ProfileまたはSoftware Keyを継続的なUnlocked状態として保持しないこと。 | ユーザー確定事項 §6、§7 | UC-005、UC-006 |
+| FR-006 | MUST | Coreは、Mnemonic、Derived / Imported / Generated Software Keyを暗号化保存の対象として扱えること。保存状態のこれらの秘密情報を平文で永続保存しないこと。 | ユーザー確定事項 §2、§3、§6、§11 | UC-001、UC-002、UC-003、UC-004 |
+| FR-007 | MUST | Coreは、Profile配下の秘密情報を必要とする処理ごとにProfileパスワードを使用すること。ロックはパスワード提示前の利用不可、アンロックは正しいパスワードによる現在の処理だけの利用許可を意味し、ProfileまたはSoftware Keyを処理をまたぐ継続的なUnlocked状態として保持しないこと。 | ユーザー確定事項 §6、§7 | UC-005、UC-006 |
 | FR-008 | MUST | Coreは、Derived / Imported / Generatedの由来にかかわらず、Software Keyを同じ秘密鍵利用ライフサイクルの対象として扱えること。 | ユーザー確定事項 §3 | UC-002、UC-003、UC-004、UC-006 |
 | FR-009 | MUST | Coreは、対象Chain、指定されたSoftware Key、Profileパスワードを使用し、上流から渡された署名対象データに対する署名を生成できること。ProfileのNetworkと矛盾する処理を許可せず、Transaction等のアプリケーション上の意味を判断しないこと。 | ユーザー確定事項 §6、§10 | UC-006 |
 | FR-010 | MUST | Coreは、正しい現在のProfileパスワードを要求したうえで、Profile単位のProfileパスワードを変更できること。変更後はProfile配下のすべての秘密情報を新しいパスワードで利用できること。 | ユーザー確定事項 §8 | UC-007 |
 | FR-011 | MUST | Coreは、正しいProfileパスワードを要求したうえで、Profileを残したまま個別Software Keyを削除できること。削除対象以外のSoftware Key、Mnemonic、Profileは保持し、Derived Software Keyを削除してもMnemonicを持つProfile自体は削除しないこと。 | ユーザー確定事項 §9、§10、§14、§16 | UC-008 |
 | FR-012 | MUST | Coreは、正しいProfileパスワードを要求したうえで、Profile削除時に、ProfileのMnemonic、すべてのDerived / Imported / Generated Software KeyおよびProfile自体を破棄できること。Profile削除は不可逆な操作として扱うこと。 | ユーザー確定事項 §9、§14、§16 | UC-008 |
 | FR-013 | MUST | CoreはProfileをSymbolまたはNEMの特定Chainへ固定せず、同一Profile内でProfileのNetworkに対応する両ChainのSoftware Keyを扱えること。Software Keyによる署名では対象Chain、鍵、上流から渡された署名対象データを使用し、Transaction等のアプリケーション上の意味を判断しないこと。 | コンセプト §3、§7、ユーザー確定事項 §5、§6、§10 | UC-006、UC-009 |
-| FR-014 | MUST | Coreは、Mnemonic生成、秘密鍵導出、暗号化を含むProfile・Software Key管理処理をSymbol / NEMで共通の管理方針として扱えること。 | ユーザー確定事項 冒頭、§10 | UC-002、UC-005、UC-009 |
+| FR-014 | MUST | Coreは、Mnemonic生成、秘密鍵導出、暗号化を含むProfile・Software Key管理処理をSymbol / NEMで共通の管理方針として扱えること。 | 要件定義更新依頼（チェーン共通処理の確定指示）、§10 | UC-002、UC-005、UC-009 |
 | FR-015 | MUST | Coreは、Profile作成時にMainnetまたはTestnetのNetworkを必ず指定させ、指定されたNetworkをProfile管理情報として保存できること。 | ユーザー確定事項 §2、§11、§15 | UC-001、UC-009 |
 | FR-016 | MUST | Coreは、Profile作成後にProfileのNetworkを変更できないこと。異なるNetworkを利用する場合は、別Profileとして作成できること。 | ユーザー確定事項 §3 | UC-009 |
 | FR-017 | MUST | Coreは、同一Mnemonicと同一NetworkのProfile重複登録を拒否し、同一Mnemonicと異なるNetworkのProfile作成を許可できること。 | ユーザー確定事項 §7、§11 | UC-001 |
 | FR-018 | MUST | Coreは、同一Profile内で、Derived / Imported / Generatedの由来をまたいだ同一秘密鍵に対応するSoftware Keyの重複登録を拒否し、新しいSoftware Keyとして追加しないこと。 | ユーザー確定事項 §8、§13 | UC-002、UC-003、UC-004 |
-| FR-019 | MUST | v1のBindingは、DesktopおよびMobile Applicationから、Mnemonicの新規生成によるProfile作成、既存MnemonicによるProfile復元・作成、Profile情報の取得、アカウント・公開鍵・アドレス等の公開情報の取得、Mnemonicからの追加アカウント / Derived Software Key導出、秘密鍵の直接インポート、Software Keyの個別生成、Software Keyを使用した署名、Profileパスワード変更、個別Software Key削除、Profile削除を利用可能にすること。Profile情報・公開情報の取得は、Mnemonic、秘密鍵、Profileパスワードそのものを返すことを意味しない。 | ユーザー確定事項 §1、§2、§9、§10 | UC-010 |
+| FR-019 | MUST | v1のBindingは、DesktopおよびMobile Applicationから、Mnemonicの新規生成によるProfile作成、既存MnemonicによるProfile復元・作成、Profile情報の取得、Profileの所属Network・Chainに対応するアカウント情報・公開鍵・アドレスの取得、Mnemonicからの追加アカウント / Derived Software Key導出、秘密鍵の直接インポート、Software Keyの個別生成、Software Keyを使用した署名、Profileパスワード変更、個別Software Key削除、Profile削除を利用可能にすること。Profile情報・公開情報の取得は、Mnemonic、秘密鍵、Profileパスワードそのものを返すことを意味しない。 | ユーザー確定事項 §1、§2、§9、§10 | UC-010 |
+| FR-020 | MUST | Coreは、Profile作成およびProfileパスワード変更で、未指定または空のProfileパスワードを受け付けず、Profileパスワードを内部で補って処理を成功させないこと。 | レビュー指摘 RR-002、ユーザー確定事項 §6、§8 | UC-001、UC-007 |
 
 ## 7. 非機能要件
 
@@ -266,18 +275,21 @@ TransactionかMessageかなどのアプリケーション上の意味の判断�
 
 | ID | 優先度 | 要件 | 根拠 | 対応ユースケース |
 | --- | --- | --- | --- | --- |
-| SEC-001 | MUST | Profileの保存状態にあるMnemonicおよびすべてのSoftware Keyを、平文で永続保存しないこと。 | ユーザー確定事項 §2、§3、§6、§11 | UC-001、UC-002、UC-003、UC-004 |
+| SEC-001 | MUST | Profileの保存状態にあるMnemonicおよびすべてのSoftware Keyを、暗号化保存の対象とし、平文で永続保存しないこと。 | ユーザー確定事項 §2、§3、§6、§11 | UC-001、UC-002、UC-003、UC-004 |
 | SEC-002 | MUST | 正しいProfileパスワードが与えられない場合、MnemonicまたはSoftware Keyを必要とする処理を成功させないこと。 | ユーザー確定事項 §6、§7、§11 | UC-002、UC-005、UC-006、UC-007 |
 | SEC-003 | MUST | 秘密情報を必要とする処理の終了後、CoreがMnemonicまたは秘密鍵を平文のまま継続利用可能な状態として保持しないこと。 | ユーザー確定事項 §7、§11 | UC-005、UC-006 |
 | SEC-004 | MUST | 破損または認証に失敗した保存データを、正常なMnemonicまたはSoftware Keyとして秘密情報利用処理へ使用しないこと。 | ユーザー確定事項 §11 | UC-001、UC-002、UC-003、UC-005 |
 | SEC-005 | MUST | 削除済みSoftware Keyまたは削除済みProfile配下の秘密情報を、署名、追加アカウント導出その他の秘密情報を必要とする処理へ使用できないこと。 | ユーザー確定事項 §9、§11 | UC-002、UC-006、UC-008 |
-| SEC-006 | MUST | Profileパスワード変更は正しい現在のProfileパスワードを要求し、変更後はProfile配下のすべての秘密情報を新しいパスワードで利用でき、旧パスワードでは利用できないこと。 | ユーザー確定事項 §8 | UC-007 |
+| SEC-006 | MUST | Profileパスワード変更は正しい現在のProfileパスワードと未指定でも空でもない新しいProfileパスワードを要求し、変更後はProfile配下のすべての秘密情報を新しいパスワードで利用でき、旧パスワードでは利用できないこと。認可判定はCoreが行うこと。 | ユーザー確定事項 §8、レビュー指摘 RR-002、RR-007 | UC-007 |
 | SEC-007 | MUST | CoreはProfileパスワードを永続保存または継続的にキャッシュしないこと。上流側が利便性のため一時保持する場合、その管理責任は上流側にあること。 | ユーザー確定事項 §6 | UC-005、UC-007 |
-| SEC-008 | MUST | Profile削除は正しいProfileパスワードを要求し、誤ったProfileパスワードによる削除要求ではProfileまたは配下の秘密情報の状態を変更しないこと。 | ユーザー確定事項 §9、§14、§16 | UC-008 |
-| SEC-009 | MUST | 個別Software Key削除は正しいProfileパスワードを要求し、誤ったProfileパスワードによる削除要求では対象Software Keyまたはその他のProfile配下の秘密情報の状態を変更しないこと。 | ユーザー確定事項 §10、§14、§16 | UC-008 |
+| SEC-008 | MUST | Profile削除は正しいProfileパスワードを要求し、認可判定をCoreが行うこと。誤った、未指定または空のProfileパスワードによる削除要求ではProfileまたは配下の秘密情報の状態を変更しないこと。 | ユーザー確定事項 §9、§14、§16、レビュー指摘 RR-007 | UC-008 |
+| SEC-009 | MUST | 個別Software Key削除は正しいProfileパスワードを要求し、認可判定をCoreが行うこと。誤った、未指定または空のProfileパスワードによる削除要求では対象Software Keyまたはその他のProfile配下の秘密情報の状態を変更しないこと。 | ユーザー確定事項 §10、§14、§16、レビュー指摘 RR-007 | UC-008 |
 | SEC-010 | MUST | Bindingは、Core管理下のMnemonicまたは秘密鍵を、通常のProfile管理、追加導出、署名その他の処理結果としてApplicationへ返さないこと。 | ユーザー確定事項 §4、§9 | UC-001、UC-002、UC-006、UC-010 |
 | SEC-011 | MUST | BindingはMnemonic、秘密鍵、Profileパスワードの永続保存または継続的なキャッシュを行わず、Coreとは別の秘密情報管理主体にならないこと。Applicationが利便性のためProfileパスワードを一時保持する場合の管理責任はApplication / 上流側にあること。 | ユーザー確定事項 §4、§5、§7 | UC-005、UC-010 |
 | SEC-012 | MUST | 秘密情報がBinding境界を通過する場合、不必要な複製や長期保持を前提としないこと。具体的な受渡し・所有権・消去方式は仕様設計で決定する。 | ユーザー確定事項 §6 | UC-001、UC-002、UC-003、UC-005、UC-006、UC-010 |
+| SEC-013 | MUST | Profileパスワードを紛失または不明とした場合、v1はProfileパスワードの復旧・リセットを提供せず、正しいProfileパスワードを必要とする秘密情報処理、パスワード変更、Software Key削除およびProfile削除を成功させないこと。 | レビュー指摘 RR-007、ユーザー確定事項 §6、§8、§9、§10 | UC-005、UC-007、UC-008 |
+| SEC-014 | MUST | Profileパスワードを必要とする処理の認可判定はCoreが行い、BindingまたはApplicationからの要求は正しいProfileパスワードなしに認可を回避できないこと。BindingおよびApplicationは操作の開始と入力の受渡しを担うが、Coreに代わる認可主体とはならない。 | レビュー指摘 RR-007、ユーザー確定事項 §4、§5、§9、§10 | UC-007、UC-008、UC-010 |
+| SEC-015 | MUST | CoreおよびBindingがApplicationへ返す通常結果、失敗結果、認証失敗、入力エラー、破損データの処理結果、診断・補助出力に、Mnemonic、秘密鍵、Profileパスワードまたはそれらを復元可能な表現を含めないこと。Applicationも、これらの秘密情報を診断・補助出力へ含めない責任を負う。 | レビュー指摘 RR-008、ユーザー確定事項 §4、§6 | UC-001、UC-002、UC-003、UC-005、UC-006、UC-010 |
 
 暗号方式、KDF、salt / nonce等の具体形式、Vault形式、再暗号化の方法、メモリ保持・消去方式および具体的な消去保証は仕様設計で決定する。
 
@@ -292,6 +304,7 @@ TransactionかMessageかなどのアプリケーション上の意味の判断�
 | DR-005 | MUST | Profileは作成時に確定したMainnetまたはTestnetのNetwork情報を持ち、ライフサイクル中に変更できないこと。ProfileはSymbolまたはNEMのChainへ固定せず、Derived Software Keyは指定ChainとProfileのNetworkに対応する結果として扱うこと。 | ユーザー確定事項 §2、§3、§4、§5、§15 | UC-002、UC-006、UC-009 |
 | DR-006 | MUST | Profileの重複関係はMnemonicとNetworkの組み合わせで扱い、同一Mnemonicと同一Networkは重複登録せず、同一Mnemonicと異なるNetworkは別Profileとして管理できること。 | ユーザー確定事項 §7、§15 | UC-001 |
 | DR-007 | MUST | 同一Profile内のSoftware Keyは、Derived / Imported / Generatedの由来をまたいで同一秘密鍵を重複して管理しないこと。 | ユーザー確定事項 §8、§13、§15 | UC-002、UC-003、UC-004 |
+| DR-008 | MUST | HD Walletからの導出結果およびChain / Networkに対応するアカウント・公開情報は、v1で承認されたSymbolおよびNEMそれぞれの対象プロトコル版、互換性基準、基準時点および参照資料と整合すること。具体的な導出パス値および識別形式は仕様設計で決定する。 | レビュー指摘 RR-001、OPEN-001 | UC-002、UC-009 |
 
 Profile ID、フィールド名、型、スキーマ、保存レコード構造、バイト配置、署名入力の具体形式は本書では定めない。
 
@@ -299,13 +312,13 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 
 | ID | 対応要件 | 受け入れ条件 |
 | --- | --- | --- |
-| AC-001 | FR-001、FR-015、DR-001 | Given: ProfileパスワードとMainnetまたはTestnetが与えられる。When: Coreが新規Mnemonicを生成してProfileを作成する。Then: 生成されたMnemonicを1つ持ち、指定Networkを保存したProfileが作成され、MnemonicなしProfileは作成されない。 |
-| AC-002 | FR-002、SEC-001 | Given: Mnemonicを持つProfileを作成する。When: Profileを保存状態として扱う。Then: MnemonicがProfileのルート秘密情報として管理対象になり、平文で永続保存されない。 |
+| AC-001 | FR-001、FR-015、FR-020、DR-001 | Given: 未指定でも空でもないProfileパスワードとMainnetまたはTestnetが与えられる。When: Coreが新規Mnemonicを生成してProfileを作成する。Then: 生成されたMnemonicを1つ持ち、指定Networkを保存したProfileが作成され、MnemonicなしProfileは作成されない。When: Profileパスワードが未指定または空である。Then: Profileは作成されない。 |
+| AC-002 | FR-002、FR-006、SEC-001 | Given: Mnemonicを持つProfileを作成する。When: Profileを保存状態として扱う。Then: MnemonicがProfileのルート秘密情報として暗号化保存の対象になり、平文で永続保存されない。 |
 | AC-003 | FR-003、DR-002、DR-005、DR-007 | Given: 保存済みMnemonicを持つProfile、Profileに保存されたNetwork、正しいProfileパスワード、対象ChainとしてSymbolまたはNEMが存在する。When: 追加アカウントを導出する。Then: ProfileのNetworkと指定Chainに対応する秘密鍵がDerived Software KeyとしてProfile配下へ保存され、同じ秘密鍵が既に存在する場合は新規登録されない。 |
 | AC-004 | FR-004、FR-018、DR-001、DR-007 | Given: Mnemonicを持つ既存Profileと外部からの秘密鍵が存在する。When: 直接インポートする。Then: 未登録の秘密鍵であればImported Software KeyがProfile配下へ保存され、MnemonicなしProfileは作成されない。同じ秘密鍵が既存のDerived / Imported / Generated Software Keyに対応する場合は追加されない。 |
 | AC-005 | FR-005、FR-018、DR-001、DR-007 | Given: Mnemonicを持つ既存Profileが存在する。When: Coreが独立したSoftware Keyを生成する。Then: 既存鍵と重複しない生成結果であればGenerated Software KeyがProfile配下へ保存され、Profileなしで管理されない。同じ秘密鍵が既存のDerived / Imported / Generated Software Keyに対応する場合は追加されない。 |
 | AC-006 | FR-006、SEC-001 | Given: Derived / Imported / Generated Software KeyをProfileへ追加する。When: 保存状態を確認する。Then: すべてのSoftware Keyが暗号化保存の対象であり、平文で永続保存されない。 |
-| AC-007 | FR-007、SEC-002、SEC-003、SEC-007 | Given: Profile配下の秘密情報を必要とする処理がある。When: Profileパスワードを処理ごとに渡して処理を行い、処理を終了する。Then: 正しいパスワードの場合だけ処理が成功し、Coreは継続的なUnlocked状態または平文秘密情報を継続利用可能な状態で保持せず、Profileパスワードを永続保存・継続キャッシュしない。 |
+| AC-007 | FR-007、SEC-002、SEC-003、SEC-007 | Given: Profile配下の秘密情報を必要とする処理がある。When: Profileパスワードを処理ごとに渡して処理を行い、処理を終了する。Then: 正しいパスワードの場合だけ現在の処理が成功し、Coreは継続的なUnlocked状態または平文秘密情報を継続利用可能な状態で保持せず、Profileパスワードを永続保存・継続キャッシュしない。処理終了後のProfileは次の処理に対してロック状態として扱われる。 |
 | AC-008 | FR-008、DR-004 | Given: Derived / Imported / GeneratedのいずれかのSoftware Keyが存在する。When: 同じ種類の秘密鍵利用処理を行う。Then: 由来にかかわらず同じProfile管理ライフサイクルの対象として扱われる。 |
 | AC-009 | FR-009 | Given: Profile、対象Software Key、正しいProfileパスワード、対象ChainとしてSymbolまたはNEM、上流から渡された署名対象データが存在する。When: 対象Chainを指定して署名を要求する。Then: 指定Chainに対応する署名処理により、Software Keyの由来にかかわらず署名結果を得られ、ProfileのNetworkと矛盾する処理は成功せず、CoreがTransaction等のアプリケーション上の意味を判断することを前提としない。 |
 | AC-010 | FR-010、SEC-006 | Given: Profileと正しい現在のProfileパスワードが存在する。When: Profileパスワードを新しいパスワードへ変更する。Then: Profile配下のMnemonicおよびすべてのSoftware Keyを新しいパスワードで利用でき、旧パスワードでは利用できない。 |
@@ -319,20 +332,29 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 | AC-018 | FR-001、FR-017、DR-006 | Given: 既存Mnemonic、Profileパスワード、MainnetまたはTestnetが与えられる。When: MnemonicからProfileを復元・作成する。Then: 指定Mnemonicを1つ持ち、指定Networkを保存したProfileが作成される。同一Mnemonicと同一NetworkのProfileが既に存在する場合は作成されず、同一Mnemonicと異なるNetworkであれば別Profileとして作成できる。 |
 | AC-019 | FR-016、DR-005 | Given: MainnetまたはTestnetで作成済みのProfileが存在する。When: ProfileのNetworkを別Networkへ変更する。Then: 変更は成功せず、Profileは作成時のNetworkを保持する。ProfileはSymbolまたはNEMに固定されず、ProfileのNetworkに対応する両ChainのSoftware Keyを同一Profile内で扱える。 |
 | AC-020 | FR-018、DR-007 | Given: Derived / Imported / GeneratedのいずれかのSoftware Keyが既にProfile配下に存在する。When: 同じ秘密鍵に対応するSoftware Keyを別の由来で追加する、または同じ導出結果を再登録する。Then: 新しいSoftware Keyとして追加されず、既存Profile配下の秘密情報の状態は重複登録によって変更されない。 |
-| AC-021 | FR-019、NFR-001 | Given: Desktop ApplicationがBindingを利用する。When: FR-019に列挙されたv1 Core主要機能を要求する。Then: すべての機能をBinding経由で利用できる。 |
-| AC-022 | FR-019、NFR-001 | Given: Mobile ApplicationがBindingを利用する。When: FR-019に列挙されたv1 Core主要機能を要求する。Then: すべての機能をBinding経由で利用できる。 |
+| AC-021 | FR-019、NFR-001 | Given: Desktop ApplicationがBindingを利用する。When: FR-019に列挙されたv1 Core主要機能を要求する。Then: すべての機能をBinding経由で利用でき、取得できる公開情報はProfileの所属Network、Chainに対応するアカウント情報、公開鍵およびアドレスに限られる。 |
+| AC-022 | FR-019、NFR-001 | Given: Mobile ApplicationがBindingを利用する。When: FR-019に列挙されたv1 Core主要機能を要求する。Then: すべての機能をBinding経由で利用でき、取得できる公開情報はProfileの所属Network、Chainに対応するアカウント情報、公開鍵およびアドレスに限られる。 |
 | AC-023 | NFR-002 | Given: DesktopまたはMobile ApplicationがBinding経由でCore機能を利用する。When: Profile、Mnemonic、Software Key、暗号化保存、導出、署名、Profileパスワード管理の責任範囲を確認する。Then: これらのCore責任をBindingが独自実装せず、Wallet固有ロジック、Network通信、Transaction構築もBindingへ移されない。 |
 | AC-024 | NFR-004 | Given: Desktop / MobileでBinding方式が異なる。When: Profile、Mnemonic、Software Key、Profileパスワードの管理方針を確認する。Then: Coreの秘密情報管理方針と責任境界はBinding方式によって変わらない。 |
 | AC-025 | SEC-010 | Given: Core管理下のSoftware Keyが存在する。When: Binding経由で署名その他の通常処理を実行する。Then: 秘密鍵そのものが通常の処理結果としてApplicationへ返されない。 |
 | AC-026 | SEC-010 | Given: 保存済みMnemonicを持つProfileが存在する。When: Binding経由で追加導出その他の通常処理を実行する。Then: 保存済みMnemonicそのものが通常の処理結果としてApplicationへ返されない。 |
 | AC-027 | SEC-011 | Given: ApplicationからBinding経由でProfileパスワードを渡して処理を実行する。When: 処理が終了する。Then: BindingおよびCoreがProfileパスワードを永続保存または継続的にキャッシュせず、Bindingが別の秘密情報保存主体にならない。 |
 | AC-028 | SEC-012 | Given: 秘密情報がBinding境界を通過する処理がある。When: その処理の秘密情報管理方針を確認する。Then: Binding境界で不必要な複製や長期保持を前提とせず、具体的な受渡し・所有権・消去方式は仕様設計へ引き継がれている。 |
+| AC-029 | FR-020、SEC-006 | Given: ProfileまたはProfileパスワード変更の対象が存在する。When: Profileパスワードが未指定または空のまま作成・変更を要求する。Then: 処理は成功せず、CoreがProfileパスワードを補って成功させない。 |
+| AC-030 | SEC-013 | Given: Profileパスワードが紛失または不明である。When: 秘密情報処理、パスワード変更、Software Key削除またはProfile削除を要求する。Then: v1で復旧・リセットは行われず、処理は成功しない。 |
+| AC-031 | SEC-014 | Given: Binding経由でProfileパスワードを必要とする処理を要求する。When: ApplicationまたはBindingが正しいProfileパスワードを提示しない。Then: Coreが認可せず、ApplicationまたはBindingの要求だけで処理を成功させられない。 |
+| AC-032 | SEC-015 | Given: 認証失敗、入力エラー、破損データまたは通常処理の結果を外部へ返す。When: Core、BindingまたはApplicationが結果、診断・補助出力を生成する。Then: Mnemonic、秘密鍵、Profileパスワードまたはそれらを復元可能な表現を出力に含めない。 |
+| AC-033 | DR-008、OPEN-001 | Given: v1のSymbolおよびNEMそれぞれの対象プロトコル版、互換性基準、基準時点および承認済み参照資料が確定している。When: HD Walletからの導出結果およびChain / Networkに対応する公開情報の互換性を判定する。Then: 判定は確定した対象版・基準・参照資料に基づき、具体的な導出パス値を要件から推測しない。 |
 
 ## 11. 未決定事項
 
-本要件定義時点で、仕様設計へ進むことを妨げる要件レベルの未決定事項はない。
+次の要件レベルの事項は、HD Wallet導出およびアカウント互換性の受け入れ判定に必要なため、仕様設計開始前に確定する。
 
-旧 `OPEN-003`（Desktop / MobileからCoreを利用するBindingの対象範囲）は、v1でDesktop / Mobile双方から利用できるBindingを提供し、Bindingを薄い境界層とすることを確定したため解消した。Mnemonic生成・復元、ProfileのNetwork所属と変更禁止、Chain非固定、MnemonicとNetworkによるProfile重複判定、Software Key重複拒否、Profile / Software Key削除時のパスワード要求も未決定事項ではない。旧 `OPEN-001`、旧 `OPEN-002`、旧 `OPEN-004`、旧 `OPEN-005` も未決定事項ではない。暗号方式、Binding方式、対象OSなどの具体事項は仕様設計またはリリース要件へ引き継ぐ。
+| ID | 未決定事項 | 理由・影響 | 対応する要件 |
+| --- | --- | --- | --- |
+| OPEN-001 | v1で対象とするSymbolおよびNEMそれぞれのプロトコル版、互換性基準、基準時点および承認済み参照資料 | 導出結果、アカウント・公開情報の互換性および受け入れ判定を一意にするため。具体的な導出パス値はこの決定後に仕様設計で定める。 | FR-003、FR-013、DR-008、AC-033 |
+
+旧 `OPEN-003`（Desktop / MobileからCoreを利用するBindingの対象範囲）は、v1でDesktop / Mobile双方から利用できるBindingを提供し、Bindingを薄い境界層とすることを確定したため解消した。Mnemonic生成・復元、ProfileのNetwork所属と変更禁止、Chain非固定、MnemonicとNetworkによるProfile重複判定、Software Key重複拒否、Profile / Software Key削除時のパスワード要求も未決定事項ではない。旧 `OPEN-002`、旧 `OPEN-004`、旧 `OPEN-005` も未決定事項ではない。暗号方式、Binding方式、対象OSなどの具体事項は仕様設計またはリリース要件へ引き継ぐ。
 
 ## 12. 仕様設計への引継ぎ
 
@@ -349,11 +371,13 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 - 同一Profile内の同一秘密鍵に対応するSoftware Keyを、由来をまたいで重複登録しない。
 - すべてのSoftware Keyを、由来にかかわらず同じ秘密鍵利用ライフサイクルで扱う。
 - Profile単位で1つのProfileパスワードを使用し、Profile配下のすべての秘密情報を保護する。
-- Profileパスワードを処理ごとに使用し、Core自身は継続的なUnlocked状態を保持しない。
+- Profileパスワードを処理ごとに使用する。ロックは処理単位のパスワード提示前の利用不可、アンロックは正しいパスワードによる現在の処理だけの利用許可を意味し、Core自身は処理をまたぐ継続的なUnlocked状態を保持しない。
+- Profile作成およびパスワード変更では未指定または空のProfileパスワードを受け付けず、パスワード紛失・不明時の復旧・リセットはv1で提供しない。Profileパスワードを必要とする処理の認可判定はCoreが行う。
 - Profileパスワードを変更でき、正しい現在パスワードが必要である。
 - 正しいProfileパスワードを要求して個別Software Keyを削除でき、削除対象以外を保持する。正しいProfileパスワードを要求してProfileを削除し、Mnemonicと配下の全Software Keyを破棄する。
 - 上流から渡された署名対象データを、指定Chainおよび指定Software Keyで署名できる。Transaction構築・シリアライズはCoreの対象外とする。
-- Profile配下のMnemonicおよびSoftware Keyを平文で永続保存せず、誤ったパスワード、破損・認証失敗データ、削除済み秘密情報を秘密情報利用処理の成功へ使用しない。
+- Profile配下のMnemonicおよびSoftware Keyを暗号化保存の対象とし、平文で永続保存せず、誤ったパスワード、破損・認証失敗データ、削除済み秘密情報を秘密情報利用処理の成功へ使用しない。
+- 認証失敗、入力エラー、破損データおよび診断・補助出力を含む外部出力に、Mnemonic、秘密鍵、Profileパスワードまたはそれらを復元可能な表現を含めない。
 - Mnemonic生成、秘密鍵導出、暗号化を含むProfile・Software Key管理処理をSymbol / NEMで共通に扱い、署名処理を対象チェーン固有として区別する。
 - Desktop / Mobile双方からRust Wallet Coreのv1主要機能を利用するBindingを提供する。
 - BindingをCoreとApplicationの薄い境界層とし、Coreの主要機能をApplicationへ公開する。Bindingは独自の秘密情報管理、署名、導出、暗号化保存、Profileパスワード管理を行わない。
@@ -364,15 +388,16 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 
 - Hardware Wallet、External Signer、OS固有の鍵保管機能、Watch-only、SNIF、CLI、署名専用アプリ、認証・SSO向けクライアントはv1対象外とする。
 - REST、WebSocket、ノード選択、Explorer、Transaction構築・シリアライズ、UI、特定ウォレットアプリ専用ロジックはCoreの責任外とする。
-- HD Walletの導出パスは、現行のSymbol / NEMにおけるMainnet / Testnetの区分に合わせる。
+- HD Walletの導出パスは、OPEN-001で承認されたSymbolおよびNEMそれぞれの対象プロトコル版、Mainnet / Testnetの区分、互換性基準および基準時点に合わせる。具体的なパス値は仕様設計で決定する。
 - CoreはProfileパスワードを永続保存または継続的にキャッシュしない。上流側が一時保持する場合の管理責任は上流側にある。
 - Profile削除および個別Software Key削除には、正しいProfileパスワードを必須とする。誤ったパスワードによる削除要求で秘密情報の状態を変更しない。
+- Profileパスワードを必要とする破壊的または影響の大きい操作の認可判定はCoreが行い、BindingおよびApplicationは認可を回避しない。
 - BindingはCoreの責任範囲を重複実装せず、UI、Application状態管理、OS Keychain、Secure Enclave、TPM、Hardware Wallet、External Signer、Network通信、Transaction構築、Wallet固有設定、Application側のProfileパスワードキャッシュを担わない。
 
 ### 仕様設計で決定する事項
 
 - Mnemonicの具体的な生成・検証方式、正規化・重複比較方式。
-- HD Walletの具体的な導出パスの値、index表現、Chain / Networkとの対応表、参照バージョン。
+- OPEN-001で承認された対象プロトコル版、互換性基準、基準時点および参照資料に基づく、HD Walletの具体的な導出パスの値、index表現、Chain / Networkとの対応表。
 - Chain / Networkの具体的な識別形式、Software Keyの重複判定方式。
 - Profile、Mnemonic、Software Key、Profileパスワードの具体的なデータ形式、ID、スキーマ、保存レコード構造。
 - API、暗号方式、KDF、salt / nonce等の具体形式、Vault形式、保存方式、再暗号化の方法。
@@ -384,7 +409,7 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 
 ### 要件レベルの未決定事項
 
-- なし。
+- `OPEN-001`: v1で対象とするSymbolおよびNEMそれぞれのプロトコル版、互換性基準、基準時点および承認済み参照資料。仕様設計開始前に確定する。
 
 ### 参照資料
 
@@ -393,5 +418,6 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 | `docs/consept/concept-sheet.md` | §1–§13 | 背景、目的、v1範囲、Software Keyの由来、責任境界、提供価値、未決定事項の上位根拠 |
 | `docs/knowledge/symbol-technicalref-jp.pdf` | 1.1、3.1、3.2、5 | Symbolのネットワーク、鍵、署名、アカウント・アドレス概念の確認 |
 | `docs/knowledge/nem-technicalref.pdf` | 2、3.1、3.2、9 | NEMのアカウント、鍵、署名、ネットワーク概念の確認 |
+| 要件定義更新依頼（本タスク入力） | §1–§20、およびチェーン共通処理の確定指示 | Profile、Network、Chain、Binding、秘密情報管理、署名、削除および責任境界に関する確定事項の根拠 |
 
-上記技術資料はチェーン、ネットワーク、鍵、署名、アカウントの前提確認に使用した。Profile、Mnemonicの保持、Software Keyの由来、Profileパスワード、削除・署名ライフサイクルはユーザー確定事項として反映し、暗号方式・保存形式・Binding方式は本書で確定していない。
+上記技術資料はチェーン、ネットワーク、鍵、署名、アカウントの前提確認に使用した。Profile、Mnemonicの保持、Software Keyの由来、Profileパスワード、削除・署名ライフサイクルは要件定義更新依頼（本タスク入力）として反映し、暗号方式・保存形式・Binding方式は本書で確定していない。
