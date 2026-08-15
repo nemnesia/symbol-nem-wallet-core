@@ -2,10 +2,12 @@
 
 ## 1. 概要
 
-- 一言で説明: symbol-nem-wallet-core v1 は、Symbol / NEMウォレット向けに、ニーモニックとSoftware Keyの鍵管理・署名をRust製Coreへ集約し、UI / Applicationが秘密鍵そのものを保持せず利用できるようにする。
+- 一言で説明: symbol-nem-wallet-core v1 は、Symbol / NEMウォレット向けに、ニーモニックとSoftware Keyの鍵管理・署名をRust製Coreへ集約し、UI / Applicationが秘密鍵そのものの継続的な管理・保存主体にならずにCoreを利用できるようにする。
 - 背景: Symbol / NEMウォレットでは、ニーモニック、秘密鍵、HD Wallet、暗号化保存、ロック、署名などの高リスクな処理を扱う。これらがUIや実行環境ごとに分散すると、秘密情報の露出箇所、実装差異、レビュー対象が増える可能性がある。
 
 v1では、製品像をソフトウェアウォレットの秘密鍵ライフサイクルを担う鍵管理Coreに絞る。外部署名者やOS固有の鍵保管機能を同じ製品責任へ含めず、将来の拡張候補として分離する。
+
+秘密鍵またはニーモニックの取込み時には、UI / Applicationがユーザー入力を一時的に仲介する場合がある。取込み後の秘密情報の管理責任はCoreが担い、Core管理下の秘密鍵は通常の処理結果としてUI / Applicationへ返さない。
 
 ## 2. 解決したい課題
 
@@ -25,7 +27,8 @@ symbol-nem-wallet-core v1 は、DesktopまたはMobileのSymbol / NEMウォレ�
 2. HD Walletから導出された秘密鍵、外部から直接取り込んだ秘密鍵、Core内で独立して生成した秘密鍵を、いずれもSoftware KeyとしてCoreの管理下で扱う。
 3. Software Keyの暗号化保存、ロック、アンロック、署名への利用、破棄までをCoreの鍵管理責任として扱う。
 4. Symbol / NEMおよびMainnet / Testnetを区別し、HD Walletの導出パスを対象ネットワークに合わせる。
-5. UI / Applicationが秘密鍵そのものを保持せずに、Coreの鍵管理・署名の結果を利用できる状態を作る。
+5. 秘密鍵またはニーモニックの取込み時にUI / Applicationがユーザー入力を一時的に仲介する場合があっても、取込み後の秘密情報の管理責任をCoreが担う状態を作る。
+6. UI / Applicationを秘密鍵やニーモニックの継続的な管理・保存主体とせず、Core管理下の秘密鍵を通常の処理結果として返さずに、Coreの鍵管理・署名の結果を利用できる状態を作る。
 
 ## 4. 対象ユーザーと主要利用場面
 
@@ -38,9 +41,9 @@ symbol-nem-wallet-core v1 は、DesktopまたはMobileのSymbol / NEMウォレ�
 ### 主要利用場面
 
 - 誰が: Symbol / NEMウォレットの開発者が。
-- どのような状況で: DesktopまたはMobileウォレットに、HD Walletからのアカウント導出、秘密鍵の直接取込み、Software Keyの生成・保管・ロック、署名を組み込むときに。
-- 何に困っており: UI / Applicationが秘密鍵を保持したまま鍵管理と署名を実装することに困っている。
-- どのような状態になることを期待するか: ウォレットが、鍵の由来にかかわらずSoftware KeyとしてCoreが担う鍵管理・署名を利用し、秘密鍵そのものをUIへ返さない状態。
+- どのような状況で: DesktopまたはMobileウォレットに、HD Walletからのアカウント導出、秘密鍵の直接取込み、Software Keyの生成・保管・ロック、署名を組み込むときに。秘密鍵またはニーモニックの取込み時には、UI / Applicationがユーザー入力を一時的に仲介する場合がある。
+- 何に困っており: UI / Applicationが秘密鍵を継続的に保持・管理したまま鍵管理と署名を実装することに困っている。
+- どのような状態になることを期待するか: 取込み後の秘密情報をCoreが管理し、ウォレットが鍵の由来にかかわらずSoftware KeyとしてCoreが担う鍵管理・署名を利用できる状態。Core管理下の秘密鍵は通常の処理結果としてUI / Applicationへ返さない。
 
 CLI、署名専用アプリ、認証・SSO向けクライアントは、v1の成功判定対象ではなく、将来の利用候補とする。一般利用者がCoreを直接操作することは想定しない。
 
@@ -77,9 +80,10 @@ v1は、Desktop / MobileのSymbol / NEMウォレット向けソフトウェア�
 - Symbol / NEMおよびMainnet / Testnetを区別したアカウント導出。
 - 現行のSymbol / NEMのMainnet / Testnetに合わせたHD Wallet導出パスの扱い。
 - Software Keyの暗号化保存、ロック、アンロック、署名への利用、破棄。
-- UI / Applicationへ秘密鍵そのものを直接返さない責任境界。
+- 取込み時のユーザー入力をUI / Applicationが一時的に仲介する場合を含め、取込み後の秘密情報の管理責任をCoreへ集約する責任境界。
+- Core管理下の秘密鍵を、通常の処理結果としてUI / Applicationへ返さない責任境界。
 
-具体的な導出パスの値、秘密鍵の入力形式・検証方法、暗号方式、保存形式、API、データ形式、破棄の安全性保証・メモリ消去方式は後続工程で決定する。
+具体的な導出パスの値、秘密鍵の入力形式・検証方法、暗号方式、保存形式、API、データ形式、受渡し方法、メモリ上の保持方法、破棄の安全性保証・消去方式は後続工程で決定する。
 
 ### v1では実施しないこと
 
@@ -105,9 +109,11 @@ v1では、次の能力を製品責任に含めない。
 
 ### 外部へ委ねること
 
-- UI / Application: アカウント選択、公開情報の表示、ユーザー操作、ウォレット固有の表示や設定。
+- UI / Application: アカウント選択、公開情報の表示、ユーザー操作、ウォレット固有の表示や設定。秘密鍵またはニーモニックの取込み時には、ユーザー入力を一時的に仲介する場合があるが、秘密情報の継続的な保存・管理主体とはしない。
 - Network層: REST、WebSocket、announceなどのネットワーク通信。
 - Transaction構築層: Transactionの生成とシリアライズ。
+
+取込み後の秘密情報の管理責任はCoreが担う。Core管理下の秘密鍵は、通常の処理結果としてUI / Applicationへ返さない。具体的な受渡し方式、メモリ上の保持方法および消去方式は後続工程で決定する。
 
 v1ではOS固有の鍵保管機能、Hardware Wallet、External Signerを外部責任として採用しない。将来採用する場合は、その時点で責任境界を再定義する。
 
@@ -119,11 +125,11 @@ v1ではOS固有の鍵保管機能、Hardware Wallet、External Signerを外部�
 - 理由: 外部署名者やOS固有機能まで同時に扱うと、製品責任と成功判定が不明確になるため。
 - 判断への適用: Hardware Wallet、External Signer、OS-backed Keyはv1のSignerへ追加せず、Watch-onlyもSignerとして扱わない。
 
-### 秘密鍵をUIへ返さない
+### 秘密情報の管理責任をCoreへ集約する
 
-- 原則: UI / Applicationは秘密鍵そのものを保持せず、Coreが担う鍵管理・署名の結果を利用する。
-- 理由: 秘密鍵処理とUIの責任を分離することが本プロジェクトの中心価値であるため。
-- 判断への適用: CoreとUI / Applicationの境界を定めるときに適用する。
+- 原則: UI / Applicationは秘密鍵やニーモニックの継続的な管理・保存主体とならない。取込み時のユーザー入力の一時的な仲介は許容するが、取込み後の秘密情報の管理責任はCoreが担い、Core管理下の秘密鍵を通常の処理結果としてUI / Applicationへ返さない。
+- 理由: 取込み時の利用者操作を妨げずに、秘密鍵処理とUI / Applicationの継続的な管理責任を分離することが本プロジェクトの中心価値であるため。
+- 判断への適用: CoreとUI / Applicationの責任境界、秘密情報の受渡しおよび保持を定めるときに適用する。具体的な方式は後続工程で決定する。
 
 ### Symbol / NEMとネットワークを明示する
 
@@ -139,13 +145,16 @@ v1ではOS固有の鍵保管機能、Hardware Wallet、External Signerを外部�
 
 ### 原則間の優先順位
 
-v1の製品責任の明確さと秘密鍵のUI非公開を、将来拡張や対象環境の拡大より優先する。具体的な安全性要求と共通化範囲は要件定義で定める。
+v1の製品責任の明確さ、秘密情報の継続的なUI / Application管理の回避、およびCore管理下の秘密鍵を通常の処理結果として返さないことを、将来拡張や対象環境の拡大より優先する。具体的な安全性要求と共通化範囲は要件定義で定める。
 
 ## 9. 成功条件
 
 - DesktopまたはMobileのSymbol / NEMウォレットが、秘密鍵処理を個別実装せず、ニーモニックによるHD Walletの復元・導出、秘密鍵の直接インポート、独立したSoftware Keyの生成を共通Coreの責任として利用できる。
 - DesktopまたはMobileのSymbol / NEMウォレットが、鍵の由来にかかわらずSoftware Keyについて、暗号化保存、ロック、アンロック、署名への利用、破棄を利用できる。
-- 秘密鍵処理の実装・レビュー・保守対象をCoreへ集約しやすく、UI / Applicationとの責任境界を説明できる。
+- 秘密鍵またはニーモニックの取込み時にUI / Applicationが入力を一時的に仲介でき、取込み後の秘密情報の管理責任がCoreにあり、Core管理下の秘密鍵を通常の処理結果としてUI / Applicationへ返さないことを説明できる。
+- Desktop / Mobileウォレットに共通する秘密鍵処理を個別に実装せず、Coreの責任範囲として利用できる。
+- UI / Application側で個別に実装・レビュー・保守する範囲と、Coreへ集約する秘密鍵処理の範囲を区別できる。
+- Desktop / Mobileから同じ鍵管理方針を共通して利用でき、CoreとUI / Applicationの責任境界を第三者が説明できる。
 - HD Walletの導出が、Symbol / NEMおよびMainnet / Testnetの区分と整合する。
 - Core、UI / Application、Network層、Transaction構築層の責任境界を説明できる。
 - Hardware Wallet、External Signer、OS固有の鍵保管機能、Watch-only、SNIFがv1の成功判定へ混入していない。
