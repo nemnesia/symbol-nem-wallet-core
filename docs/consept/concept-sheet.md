@@ -22,9 +22,10 @@ v1では、製品像をソフトウェアウォレットの秘密鍵ライフサ
 symbol-nem-wallet-core v1 は、DesktopまたはMobileのSymbol / NEMウォレットから、次の状態を実現することを目的とする。
 
 1. ニーモニックを用いたHD Walletの生成、復元、アカウント導出をCoreの責任領域として扱う。
-2. Software Keyの生成、暗号化保存、ロック、アンロック、署名をCoreの責任領域として扱う。
-3. Symbol / NEMおよびMainnet / Testnetを区別し、HD Walletの導出パスを対象ネットワークに合わせる。
-4. UI / Applicationが秘密鍵そのものを保持せずに、Coreの鍵管理・署名の結果を利用できる状態を作る。
+2. HD Walletから導出された秘密鍵、外部から直接取り込んだ秘密鍵、Core内で独立して生成した秘密鍵を、いずれもSoftware KeyとしてCoreの管理下で扱う。
+3. Software Keyの暗号化保存、ロック、アンロック、署名への利用、破棄までをCoreの鍵管理責任として扱う。
+4. Symbol / NEMおよびMainnet / Testnetを区別し、HD Walletの導出パスを対象ネットワークに合わせる。
+5. UI / Applicationが秘密鍵そのものを保持せずに、Coreの鍵管理・署名の結果を利用できる状態を作る。
 
 ## 4. 対象ユーザーと主要利用場面
 
@@ -37,28 +38,30 @@ symbol-nem-wallet-core v1 は、DesktopまたはMobileのSymbol / NEMウォレ�
 ### 主要利用場面
 
 - 誰が: Symbol / NEMウォレットの開発者が。
-- どのような状況で: DesktopまたはMobileウォレットに、アカウント生成・導出、秘密鍵の保管・ロック、Software Keyによる署名を組み込むときに。
+- どのような状況で: DesktopまたはMobileウォレットに、HD Walletからのアカウント導出、秘密鍵の直接取込み、Software Keyの生成・保管・ロック、署名を組み込むときに。
 - 何に困っており: UI / Applicationが秘密鍵を保持したまま鍵管理と署名を実装することに困っている。
-- どのような状態になることを期待するか: ウォレットが秘密鍵そのものをUIへ返さずに、Coreが担う鍵管理・署名を利用できる状態。
+- どのような状態になることを期待するか: ウォレットが、鍵の由来にかかわらずSoftware KeyとしてCoreが担う鍵管理・署名を利用し、秘密鍵そのものをUIへ返さない状態。
 
 CLI、署名専用アプリ、認証・SSO向けクライアントは、v1の成功判定対象ではなく、将来の利用候補とする。一般利用者がCoreを直接操作することは想定しない。
 
 ## 5. 用語
 
-- 秘密鍵処理: 秘密鍵そのものを利用する処理の総称。生成、導出、署名、暗号化などを含む。
-- 鍵管理: 秘密情報の生成、取込み、保存、ロック、アンロック、破棄までのライフサイクルを扱う領域。
+- 秘密鍵処理: 秘密鍵そのものを利用する処理の総称。生成、導出、直接取込み、署名、暗号化などを含む。
+- HD Wallet: ニーモニックから秘密鍵を決定的に導出する仕組み。HD Walletから導出された秘密鍵は、Coreの管理下ではSoftware Keyとして扱う。
+- 鍵管理: Software Keyについて、生成、ニーモニックによる復元、秘密鍵の直接取込み、HD Walletからの導出、暗号化保存、ロック、アンロック、署名への利用、破棄までを扱う領域。
 - 署名処理: 管理下の秘密鍵を利用して署名結果を生成する処理。
 - Signer: 署名能力を持つ主体。v1ではCoreが管理するSoftware Keyのみを指す。
-- Software Key: Coreが生成・管理・利用するソフトウェア上の鍵を指す。
+- Software Key: Coreがソフトウェア上で管理・利用する秘密鍵の総称。HD Walletから導出された鍵、外部から直接取り込まれた鍵、Coreが独立して生成した鍵を含む。
+- Watch-only: 署名能力を持たないアカウント利用形態。SignerおよびSigner実装候補とは別の概念として扱う。
 
-Hardware Wallet、External Signer、OS-backed Key、Watch-onlyは、v1のSignerには含めず、将来のSigner実装候補として扱う。
+Hardware Wallet、External Signer、OS-backed Keyは、v1には含めず、将来のSigner実装候補として扱う。Watch-onlyはSigner実装候補ではなく、署名能力を持たない別のアカウント利用形態として扱う。
 
 ## 6. 提供価値
 
 | 対象ユーザー | 得られる価値 | 利用する理由 |
 | --- | --- | --- |
 | Desktop / Mobileウォレット開発者 | UI / Applicationから秘密鍵処理を分離し、鍵管理の責任範囲を限定しやすくなる | ウォレットごとの秘密鍵処理の実装・レビュー・保守負担を抑えるため |
-| Desktop / Mobileウォレット開発者 | ニーモニック、HD Wallet、Software Keyの扱いを共通Coreへ集約しやすくなる | 実行環境ごとの鍵管理処理の差異を抑えるため |
+| Desktop / Mobileウォレット開発者 | HD Walletから導出した鍵、直接取り込んだ鍵、Coreが生成した鍵を共通のSoftware KeyとしてCoreへ集約しやすくなる | 実行環境ごとの鍵管理処理の差異を抑えるため |
 | Symbol / NEMウォレット開発者 | Symbol / NEMおよびMainnet / Testnetを区別した鍵管理の前提を共有できる | チェーンやネットワークの混同を避けるため |
 
 ## 7. v1のスコープと責任境界
@@ -68,12 +71,15 @@ Hardware Wallet、External Signer、OS-backed Key、Watch-onlyは、v1のSigner�
 v1は、Desktop / MobileのSymbol / NEMウォレット向けソフトウェア鍵管理Coreとして、次の能力と責任を担う。
 
 - ニーモニックを用いたHD Walletの生成、復元、アカウント導出。
+- HD Walletからの秘密鍵の導出。導出された秘密鍵はSoftware Keyとして扱う。
+- 外部からの秘密鍵そのものの直接インポート。取り込まれた秘密鍵はSoftware Keyとして扱う。
+- Core内で独立したSoftware Keyの新規生成。
 - Symbol / NEMおよびMainnet / Testnetを区別したアカウント導出。
 - 現行のSymbol / NEMのMainnet / Testnetに合わせたHD Wallet導出パスの扱い。
-- Coreが管理するSoftware Keyの生成、暗号化保存、ロック、アンロック、署名。
+- Software Keyの暗号化保存、ロック、アンロック、署名への利用、破棄。
 - UI / Applicationへ秘密鍵そのものを直接返さない責任境界。
 
-具体的な導出パスの値、暗号方式、保存形式、API、データ形式は後続工程で決定する。
+具体的な導出パスの値、秘密鍵の入力形式・検証方法、暗号方式、保存形式、API、データ形式、破棄の安全性保証・メモリ消去方式は後続工程で決定する。
 
 ### v1では実施しないこと
 
@@ -82,7 +88,7 @@ v1では、次の能力を製品責任に含めない。
 - Hardware Walletとの連携
 - External Signerとの連携
 - OS Keychain、Secure Enclave、TPMなどOS固有の鍵保管機能との連携
-- Watch-onlyアカウントの提供
+- Watch-onlyアカウントの提供。Watch-onlyは署名能力を持たない別のアカウント利用形態であり、Signerには含めない。
 - SNIF連携
 
 これらはv1の対象外であり、v1の成功判定には含めない。
@@ -109,9 +115,9 @@ v1ではOS固有の鍵保管機能、Hardware Wallet、External Signerを外部�
 
 ### v1の製品責任を絞る
 
-- 原則: v1はSoftware KeyをCore自身が管理・利用するウォレット向けCoreとして判断する。
+- 原則: v1は、由来にかかわらずSoftware KeyをCore自身が管理・利用するウォレット向けCoreとして判断する。
 - 理由: 外部署名者やOS固有機能まで同時に扱うと、製品責任と成功判定が不明確になるため。
-- 判断への適用: Hardware Wallet、External Signer、OS-backed Key、Watch-onlyはv1へ追加しない。
+- 判断への適用: Hardware Wallet、External Signer、OS-backed Keyはv1のSignerへ追加せず、Watch-onlyもSignerとして扱わない。
 
 ### 秘密鍵をUIへ返さない
 
@@ -137,8 +143,9 @@ v1の製品責任の明確さと秘密鍵のUI非公開を、将来拡張や対�
 
 ## 9. 成功条件
 
-- DesktopまたはMobileのSymbol / NEMウォレットが、UIへ秘密鍵を返さずに、ニーモニックを用いたHD Walletの生成・復元・アカウント導出を利用できる。
-- DesktopまたはMobileのSymbol / NEMウォレットが、Core管理のSoftware Keyについて、暗号化保存、ロック、アンロック、署名を利用できる。
+- DesktopまたはMobileのSymbol / NEMウォレットが、秘密鍵処理を個別実装せず、ニーモニックによるHD Walletの復元・導出、秘密鍵の直接インポート、独立したSoftware Keyの生成を共通Coreの責任として利用できる。
+- DesktopまたはMobileのSymbol / NEMウォレットが、鍵の由来にかかわらずSoftware Keyについて、暗号化保存、ロック、アンロック、署名への利用、破棄を利用できる。
+- 秘密鍵処理の実装・レビュー・保守対象をCoreへ集約しやすく、UI / Applicationとの責任境界を説明できる。
 - HD Walletの導出が、Symbol / NEMおよびMainnet / Testnetの区分と整合する。
 - Core、UI / Application、Network層、Transaction構築層の責任境界を説明できる。
 - Hardware Wallet、External Signer、OS固有の鍵保管機能、Watch-only、SNIFがv1の成功判定へ混入していない。
@@ -164,7 +171,7 @@ v1の製品責任の明確さと秘密鍵のUI非公開を、将来拡張や対�
 v1の成功判定から分離する将来構想は次のとおりである。
 
 - Hardware Wallet、External Signer、OS-backed KeyなどのSigner実装候補。
-- Watch-onlyアカウント。
+- Watch-onlyアカウントの提供。これはSigner拡張ではなく、署名能力を持たない別のアカウント利用形態として扱う。
 - CLI、署名専用アプリ、認証・SSO向けクライアントでの利用。
 - SNIFによるアカウント、ニーモニック、秘密鍵などのデータ交換。
 - v1で対象としない追加の署名方式やBinding。
@@ -180,7 +187,7 @@ v1の成功判定から分離する将来構想は次のとおりである。
 ## 13. 要件定義への引継ぎ
 
 - Symbol / NEMに共通化する処理と、チェーン固有として扱う処理の範囲を決める。
-- 暗号化保存、ロック、アンロック、秘密情報の保持・破棄に関する安全性要求を決める。暗号方式や保存形式は仕様・設計で決定する。
+- HD Wallet由来、直接インポート、独立生成というSoftware Keyの各由来に共通する、暗号化保存、ロック、アンロック、秘密情報の保持・破棄に関する安全性要求を決める。暗号方式、保存形式、入力形式・検証方法、破棄の安全性保証・メモリ消去方式は仕様・設計で決定する。
 - Desktop / MobileウォレットからCoreを利用するBindingの対象範囲と責任境界を決める。Bindingの実装方式は設計で決定する。
 - HD Walletの導出パスの具体値と、Symbol / NEMおよびMainnet / Testnetとの対応表を、承認済み仕様に基づいて確認する。
 - Software Keyの署名対象、対応する署名処理の範囲、鍵管理ライフサイクルの詳細を決める。
