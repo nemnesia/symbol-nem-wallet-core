@@ -3,7 +3,7 @@
 ## 1. 概要
 
 - 背景: Symbol / NEMウォレットでは、ニーモニック、秘密鍵、HD Wallet、Software Key、署名などの秘密情報を扱う。これらをUI / Applicationや実行環境ごとに管理すると、保存責任、利用時の保護、鍵の由来による処理差異が不明確になる可能性がある。
-- 目的: Desktop / MobileのSymbol / NEMウォレット向けに、MainnetまたはTestnetへ所属するProfileを秘密情報管理の基本単位とし、その配下のMnemonicおよびSoftware Keyを共通のライフサイクルで管理・利用できるRust Wallet Coreと、Desktop / Mobile Applicationから利用するためのBindingを提供する。MnemonicはCoreで生成する場合と既存Mnemonicから復元する場合の両方を扱い、署名処理は対象Chainごとに区別する。
+- 目的: Desktop / Mobile / WebのSymbol / NEMウォレット向けに、MainnetまたはTestnetへ所属するProfileを秘密情報管理の基本単位とし、その配下のMnemonicおよびSoftware Keyを共通のライフサイクルで管理・利用できるRust Wallet Coreと、各実行環境から利用するためのBindingを提供する。WebにはWeb ApplicationおよびBrowser Extensionを含む。MnemonicはCoreで生成する場合と既存Mnemonicから復元する場合の両方を扱い、署名処理は対象Chainごとに区別する。
 - 解決する課題: MnemonicとSoftware Keyの管理単位が分散すること、Derived / Imported / Generated Software Keyの利用処理が別系統になること、Profile単位のパスワード保護と秘密情報利用時の責任境界が不明確になることを解消する。
 
 本書は `docs/consept/concept-sheet.md` の確定方針を、仕様設計へ引き渡せる要件へ整理したものである。API、データ形式、暗号方式、保存形式、アーキテクチャ、Binding方式、内部処理は決定しない。
@@ -12,7 +12,7 @@
 
 ### 対象
 
-v1では、Desktop / MobileのSymbol / NEMウォレットから利用する、Profile単位のSoftware Key管理・署名Coreと、両ApplicationからCoreの主要機能を利用するためのBindingを対象とする。BindingはDesktop / Mobile ApplicationとRust Wallet Coreの境界層であり、Coreとは別の秘密情報管理主体ではない。
+v1では、Desktop / Mobile / WebのSymbol / NEMウォレットから利用する、Profile単位のSoftware Key管理・署名Coreと、各ApplicationからCoreの主要機能を利用するためのBindingを対象とする。WebにはWeb ApplicationおよびBrowser Extensionを含む。BindingはApplicationとRust Wallet Coreの境界層であり、Coreとは別の秘密情報管理主体ではない。v1ではDesktop / Mobile向けのNative BindingおよびWeb向けのWASM Bindingを対象とする。
 
 #### Profile管理モデル
 
@@ -48,22 +48,21 @@ Symbol / NEMで共通に扱う処理は、Mnemonic生成、秘密鍵導出、暗
 概念上の利用関係は次のとおりである。これは責任境界を示すものであり、API、FFI方式、言語間の型変換方式を定義するものではない。
 
 ```text
-Desktop / Mobile Application
-          │
-          │ 操作要求・公開情報・Profileパスワード・署名対象データ
-          ▼
-        Binding
-          │
-          ▼
-    Rust Wallet Core
-          │
-          ├─ Profile管理
-          ├─ Mnemonic管理
-          ├─ Software Key管理
-          └─ 署名処理
+Desktop / Mobile Application       Web / Browser Extension
+             │                              │
+        Native Binding                  WASM Binding
+             │                              │
+             └──────────────┬───────────────┘
+                            ▼
+                    Rust Wallet Core
+                            │
+                            ├─ Profile管理
+                            ├─ Mnemonic管理
+                            ├─ Software Key管理
+                            └─ 署名処理
 ```
 
-BindingはCoreのv1主要機能をDesktop / Mobile Applicationへ公開する薄い境界層とし、Mnemonic管理、Software Key管理、暗号化保存、秘密鍵導出、署名、Profileパスワード管理、Network通信、Transaction構築などの独自ロジックを持たない。
+Native BindingおよびWASM BindingはCoreのv1主要機能を各Applicationへ公開する薄い境界層とし、Mnemonic管理、Software Key管理、暗号化保存、秘密鍵導出、署名、Profileパスワード管理、Network通信、Transaction構築などの独自ロジックを持たない。利用する実行環境またはBinding方式によって、Coreの秘密情報管理責務、認可責務または秘密情報保護方針を変更しない。
 
 #### Profileパスワードと利用時の責任境界
 
@@ -98,7 +97,8 @@ BindingはCoreのv1主要機能をDesktop / Mobile Applicationへ公開する薄
 ### 外部へ委ねる責任
 
 - UI / Application: ユーザー操作、アカウント選択、公開情報の表示、ウォレット固有の表示・設定。Mnemonicまたは秘密鍵の取込み時には、ユーザー入力を一時的に仲介する場合があるが、秘密情報の継続的な保存・管理主体とはしない。
-- Binding: Desktop / Mobile ApplicationからRust Wallet Coreのv1主要機能を利用可能にする境界層。Coreの責任範囲をCoreへ委譲し、Coreとは別系統の秘密情報管理、Profileパスワード管理、UI、Application状態管理、Wallet固有ロジック、OS Keychain、Secure Enclave、TPM、Hardware Wallet、External Signer、Network通信、Transaction構築を担わない。Mnemonic、秘密鍵、Profileパスワードの継続的な保存・管理主体とはしない。
+- Binding: Desktop / Mobile / Web ApplicationからRust Wallet Coreのv1主要機能を利用可能にする境界層。Coreの責任範囲をCoreへ委譲し、Coreとは別系統の秘密情報管理、Profileパスワード管理、UI、Application状態管理、Wallet固有ロジック、OS Keychain、Secure Enclave、TPM、Hardware Wallet、External Signer、Network通信、Transaction構築を担わない。Mnemonic、秘密鍵、Profileパスワードの継続的な保存・管理主体とはしない。
+- Web Application / Browser Extension: JavaScript側のApplication状態、Browser固有Storage、ページまたはExtensionの実行環境とセキュリティを管理する。WASM Bindingを秘密情報の恒久的な保護境界またはCoreとは別の秘密情報管理主体として扱わない。
 - Network層: REST、WebSocket、announceなどのネットワーク通信。
 - Transaction構築層: Transactionの生成とシリアライズ。
 - 上流側: 利便性のためにProfileパスワードを一時的に保持する場合の管理責任。CoreはProfileパスワードを永続保存または継続的にキャッシュしない。
@@ -110,7 +110,7 @@ CoreはProfile配下のMnemonicおよびSoftware Keyの管理、秘密情報を�
 
 ### 主な利用者
 
-- Desktop / MobileのSymbol / NEMウォレット開発者
+- Desktop / Mobile / WebのSymbol / NEMウォレット開発者。WebにはWeb ApplicationおよびBrowser Extensionを含む。
 
 CLI、署名専用アプリ、認証・SSO向けクライアントの開発者は、v1の主な利用者および成功判定の対象外とする。
 
@@ -119,7 +119,7 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 ### 関係者
 
 - Wallet Core: Profile、Mnemonic、Software Keyの秘密情報管理と署名を担う主体。
-- Binding: Desktop / Mobile ApplicationとWallet Coreの境界を担う主体。Core機能の利用を仲介するが、秘密情報管理主体にはならない。
+- Binding: Desktop / Mobile / Web ApplicationとWallet Coreの境界を担う主体。Native BindingまたはWASM BindingとしてCore機能の利用を仲介するが、秘密情報管理主体にはならない。
 - UI / Application: ユーザー操作、アカウント選択、公開情報の表示、ウォレット固有の表示・設定を担う主体。
 - Network層: ネットワーク通信を担う外部主体。
 - Transaction構築層: Transactionの生成・シリアライズを担う外部主体。
@@ -133,7 +133,7 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 - SymbolとNEMの双方を対象とする。Mnemonic生成、秘密鍵導出、暗号化を含むProfile・Software Key管理処理は共通に扱い、署名処理は対象チェーン固有として区別する。
 - MainnetとTestnetを明示的に区別する。
 - HD Walletの導出パスは、v1で承認されたSymbolおよびNEMそれぞれの対象プロトコル版、Mainnet / Testnetの区分、互換性基準および基準時点に合わせる。対象プロトコル版、互換性基準、基準時点および承認済み参照資料はOPEN-001で確定し、具体的なパス値は仕様設計で決定する。
-- Rust製のポータブルCoreとして提供し、Desktop / Mobile双方からCoreの主要機能を利用するBindingをv1対象とする。Bindingの具体的な実装方式、対象OS・バージョン、配布方式は仕様設計またはリリース要件で決定する。
+- Rust製のポータブルCoreとして提供し、Desktop / Mobile / WebからCoreの主要機能を利用するBindingをv1対象とする。Desktop / Mobile向けNative BindingおよびWeb向けWASM Bindingを提供する。Bindingの具体的な実装方式、対象OS・Browser・バージョン、配布方式は仕様設計またはリリース要件で決定する。
 
 ### 制約
 
@@ -147,7 +147,9 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 - CoreはProfileパスワードを永続保存または継続的にキャッシュせず、継続的なUnlocked状態を保持しない。
 - ロックは処理単位のパスワード提示前の利用不可を、アンロックは正しいパスワードによる現在の処理だけの利用許可を意味し、処理をまたぐUnlocked状態は保持しない。
 - BindingもProfileパスワードを永続保存または継続的にキャッシュせず、Bindingを秘密情報の継続的な保存・管理主体としない。
-- Desktop / Mobile Applicationは、Binding経由でCoreのv1主要機能を利用できる。Bindingの方式が異なっても、Coreの秘密情報管理方針は変わらない。
+- Desktop / Mobile / Web Applicationは、対応するBinding経由でCoreのv1主要機能を利用できる。Native BindingまたはWASM Bindingの方式が異なっても、Coreの秘密情報管理方針、認可責務および秘密情報の公開範囲は変わらない。
+- Web環境では、WASM BindingとApplication間の境界をMnemonic、秘密鍵またはProfileパスワードの恒久的な保護境界とはみなさない。
+- Browser固有のStorage APIまたはWeb固有の永続化方式をWallet Coreの必須機能とはしない。具体的な保存方式は仕様設計またはApplication側設計で決定する。
 - ニーモニックおよび秘密鍵の入力形式、バイト表現、API、データ形式は本書で決定しない。
 - 暗号方式、KDF、Vault形式、保存形式、メモリ上の保持方法、消去方法は本書で決定しない。
 - Symbol / NEMおよびMainnet / Testnetを暗黙に同一視しない。
@@ -156,7 +158,7 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 
 ### UC-001: 新規Mnemonicまたは既存MnemonicでProfileを作成・復元する
 
-- 利用者: Desktop / Mobileウォレット開発者
+- 利用者: Desktop / Mobile / Webウォレット開発者
 - 目的: MainnetまたはTestnetのNetworkへ所属し、1つのMnemonicとProfileパスワードを持つ秘密情報管理単位を作成する。
 - 経路1（新規Profile作成）: ProfileパスワードとMainnetまたはTestnetを受け取り、Coreが新規Mnemonicを生成してProfileを作成する。生成直後の初回バックアップを利用者が確定するための一時的なMnemonic受渡しは許可するが、保存済みMnemonicを後から通常の処理結果として取得する機能は提供しない。
 - 経路2（MnemonicからProfile復元）: 既存Mnemonic、Profileパスワード、MainnetまたはTestnetを受け取り、指定Mnemonicを持つProfileを復元・作成する。
@@ -165,7 +167,7 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 
 ### UC-002: 保存済みMnemonicからアカウントを追加導出する
 
-- 利用者: Desktop / Mobileウォレット開発者
+- 利用者: Desktop / Mobile / Webウォレット開発者
 - 目的: 保存済みProfileのMnemonicから、後から追加のアカウントおよびSoftware Keyを導出する。
 - 事前条件: Mnemonicを持つProfile、Profileに保存されたNetwork、正しいProfileパスワード、対象ChainとしてSymbolまたはNEMが指定されている。
 - 期待結果: ProfileのNetworkと指定Chainに対応する秘密鍵が導出され、Derived Software KeyとしてProfile配下へ保存される。同じ秘密鍵が既にProfile配下に存在する場合は新しいSoftware Keyとして登録されない。導出パス、index表現、具体的なHD Wallet仕様は仕様設計で決定する。
@@ -173,7 +175,7 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 
 ### UC-003: 秘密鍵を既存Profileへ直接インポートする
 
-- 利用者: Desktop / Mobileウォレット開発者
+- 利用者: Desktop / Mobile / Webウォレット開発者
 - 目的: 外部から入力された秘密鍵をImported Software Keyとして既存Profileへ追加する。
 - 事前条件: Mnemonicを持つ既存Profile、正しいProfileパスワード、直接インポートする秘密鍵が存在する。
 - 期待結果: CoreがProfileパスワードを認可し、妥当性を確認できたImported Software KeyをProfile配下へ保存する。Imported Software KeyはDerived / Generated Software Keyと同じ秘密鍵利用ライフサイクルの対象になる。同じ秘密鍵が既にProfile配下に存在する場合は重複登録されない。
@@ -181,7 +183,7 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 
 ### UC-004: Software Keyを既存Profileへ個別生成する
 
-- 利用者: Desktop / Mobileウォレット開発者
+- 利用者: Desktop / Mobile / Webウォレット開発者
 - 目的: Coreが独立して生成した秘密鍵をGenerated Software Keyとして既存Profileへ追加する。
 - 事前条件: Mnemonicを持つ既存Profileと、正しいProfileパスワードが存在する。
 - 期待結果: CoreがProfileパスワードを認可し、妥当性を確認できたGenerated Software KeyをProfile配下へ保存する。Generated Software Keyは他の由来のSoftware Keyと同じ秘密鍵利用ライフサイクルの対象になる。
@@ -189,7 +191,7 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 
 ### UC-005: Profileパスワードを使用して秘密情報を必要とする処理を行う
 
-- 利用者: Desktop / Mobileウォレット開発者
+- 利用者: Desktop / Mobile / Webウォレット開発者
 - 目的: Profileパスワードを処理ごとに使用し、Profile配下のMnemonicまたはSoftware Keyを必要な処理で利用する。
 - 事前条件: Mnemonicを持つProfile、対象秘密情報、Profileパスワードが存在する。
 - 期待結果: Profileは処理単位のロック状態として扱われ、正しいProfileパスワードが処理ごとに与えられた場合に限り、現在の対象秘密情報を必要とする処理を成功させられる。アンロックは現在の処理に限って有効であり、Coreは処理をまたぐUnlocked状態を保持しない。
@@ -197,7 +199,7 @@ CLI、署名専用アプリ、認証・SSO向けクライアントの開発者�
 
 ### UC-006: Software Keyで署名する
 
-- 利用者: Desktop / Mobileウォレット開発者
+- 利用者: Desktop / Mobile / Webウォレット開発者
 - 目的: 指定されたSoftware KeyとProfileパスワードを使用し、上流から渡された署名対象データの署名を生成する。
 - 事前条件: 対象Software Keyを持つProfile、正しいProfileパスワード、対象ChainとしてSymbolまたはNEM、署名対象データが存在する。
 - 期待結果: 指定Chainに対応する署名処理が使用され、Derived / Imported / Generatedの由来にかかわらず、指定Software Keyを使用した署名結果を得られる。署名結果はOPEN-001で承認された対象Chain・Networkの外部検証規則に適合する。ProfileのNetworkと矛盾する処理は許可しない。
@@ -207,7 +209,7 @@ TransactionかMessageかなどのアプリケーション上の意味の判断�
 
 ### UC-007: Profileパスワードを変更する
 
-- 利用者: Desktop / Mobileウォレット開発者
+- 利用者: Desktop / Mobile / Webウォレット開発者
 - 目的: Profile単位でProfileパスワードを変更する。
 - 事前条件: Mnemonicを持つProfileと正しい現在のProfileパスワードが存在する。
 - 期待結果: 変更後のProfileパスワードで、Profile配下のMnemonicおよびすべてのSoftware Keyを利用できる。旧パスワードでは利用できない。変更が成功した場合はProfile全体に反映される。
@@ -215,7 +217,7 @@ TransactionかMessageかなどのアプリケーション上の意味の判断�
 
 ### UC-008: Software KeyまたはProfileを削除する
 
-- 利用者: Desktop / Mobileウォレット開発者
+- 利用者: Desktop / Mobile / Webウォレット開発者
 - 目的: 個別Software Keyの削除とProfile全体の削除を区別して実行する。
 - 事前条件: Mnemonicを持つProfile、対象のSoftware KeyまたはProfile、正しいProfileパスワードが存在する。
 - 期待結果: 正しいProfileパスワードにより、個別Software Keyの削除では対象だけを削除してProfileとMnemonicを残し、Profile削除ではMnemonic、Derived / Imported / Generated Software KeyおよびProfile全体を破棄する。Derived Software Keyを削除しても、Mnemonicが残るProfileでは再導出できる。
@@ -223,19 +225,19 @@ TransactionかMessageかなどのアプリケーション上の意味の判断�
 
 ### UC-009: Symbol / NEMおよびMainnet / Testnetを区別して利用する
 
-- 利用者: Desktop / Mobileウォレット開発者
+- 利用者: Desktop / Mobile / Webウォレット開発者
 - 目的: ProfileのNetworkに対応する対象Chainのアカウント情報・公開鍵・アドレスをSoftware Keyの由来にかかわらず利用し、対象Chainを明示してSoftware Keyを署名処理へ渡す。
 - 事前条件: Profile作成時に確定したNetwork、対象Chain、対応範囲が明示されている。
 - 期待結果: ProfileはSymbolまたはNEMの特定Chainへ固定されず、同一Profile内でProfileのNetworkに対応する両ChainのDerived / Imported / Generated Software Keyを扱える。各Software Keyについて指定Chainのアカウント情報・公開鍵・アドレスを扱え、署名処理は対象Chain固有として扱われる。異なるチェーンまたはネットワークの結果が同一対象として扱われず、ProfileのNetworkは作成後変更できない。
 - 主な失敗条件: チェーンまたはネットワークの区分が不明なまま処理が成功する。指定Chainに対するSoftware Keyの公開情報または署名結果が承認済みの外部検証規則に適合しない。
 
-### UC-010: Binding経由でDesktop / MobileからCoreを利用する
+### UC-010: Binding経由でDesktop / Mobile / WebからCoreを利用する
 
-- 利用者: Desktop / Mobileウォレット開発者
-- 目的: Desktop / Mobile Applicationから、同じ責任範囲のRust Wallet CoreをBinding経由で利用する。
-- 事前条件: DesktopまたはMobile ApplicationがBindingを利用できる。
-- 期待結果: Binding経由で、FR-019に列挙するv1 Core主要機能を利用できる。取得できる公開情報はProfileの所属Network、Chainに対応するアカウント情報、公開鍵およびアドレスに限り、Mnemonic、秘密鍵、Profileパスワードそのものを返すことを意味しない。
-- 主な失敗条件: DesktopまたはMobileの一方からCore機能を利用できない。BindingがCoreと別の秘密情報管理や署名ロジックを実行する。Core管理下のMnemonicまたは秘密鍵が通常の処理結果としてApplicationへ返される。
+- 利用者: Desktop / Mobile / Webウォレット開発者
+- 目的: Desktop / Mobile / Web Applicationから、同じ責任範囲のRust Wallet Coreを対応するBinding経由で利用する。
+- 事前条件: 対象ApplicationがNative BindingまたはWASM Bindingを利用できる。
+- 期待結果: Binding経由で、FR-019に列挙するv1 Core主要機能を利用できる。取得できる公開情報はProfileの所属Network、Chainに対応するアカウント情報、公開鍵およびアドレスに限り、Mnemonic、秘密鍵、Profileパスワードそのものを通常結果として返すことを意味しない。Binding方式によってCoreの秘密情報管理方針または認可責務は変化しない。
+- 主な失敗条件: Desktop、MobileまたはWebのいずれかのv1対象環境から必要なCore機能を利用できない。BindingがCoreと別の秘密情報管理、認可または署名ロジックを実行する。Core管理下のMnemonicまたは秘密鍵が通常の処理結果としてApplicationへ返される。
 
 ## 6. 機能要件
 
@@ -261,7 +263,7 @@ TransactionかMessageかなどのアプリケーション上の意味の判断�
 | FR-016 | MUST | Coreは、Profile作成後にProfileのNetworkを変更できないこと。異なるNetworkを利用する場合は、別Profileとして作成できること。 | ユーザー確定事項 §3 | UC-009 |
 | FR-017 | MUST | Coreは、同一Mnemonicと同一NetworkのProfile重複登録を拒否し、同一Mnemonicと異なるNetworkのProfile作成を許可できること。 | ユーザー確定事項 §7、§11 | UC-001 |
 | FR-018 | MUST | Coreは、同一Profile内で、Derived / Imported / Generatedの由来をまたいだ同一秘密鍵に対応するSoftware Keyの重複登録を拒否し、新しいSoftware Keyとして追加しないこと。 | ユーザー確定事項 §8、§13 | UC-002、UC-003、UC-004 |
-| FR-019 | MUST | v1のBindingは、DesktopおよびMobile Applicationから、Mnemonicの新規生成によるProfile作成、既存MnemonicによるProfile復元・作成、新規生成時の初回バックアップ確定のための一時的なMnemonic受渡し、Profile情報の取得、Profileの所属Network・Chainに対応するアカウント情報・公開鍵・アドレスの取得、Mnemonicからの追加アカウント / Derived Software Key導出、秘密鍵の直接インポート、Software Keyの個別生成、Software Keyを使用した署名、Profileパスワード変更、個別Software Key削除、Profile削除を利用可能にすること。保存済みMnemonicの後からの取得、Profileデータのバックアップ・復旧はv1のBinding機能に含めない。 | ユーザー確定事項 §1、§2、§9、§10、レビュー指摘 RR-010 | UC-001、UC-010 |
+| FR-019 | MUST | v1のBindingは、Desktop、MobileおよびWeb Applicationから、Mnemonicの新規生成によるProfile作成、既存MnemonicによるProfile復元・作成、新規生成時の初回バックアップ確定のための一時的なMnemonic受渡し、Profile情報の取得、Profileの所属Network・Chainに対応するアカウント情報・公開鍵・アドレスの取得、Mnemonicからの追加アカウント / Derived Software Key導出、秘密鍵の直接インポート、Software Keyの個別生成、Software Keyを使用した署名、Profileパスワード変更、個別Software Key削除、Profile削除を利用可能にすること。保存済みMnemonicの後からの取得、Profileデータのバックアップ・復旧はv1のBinding機能に含めない。Native BindingおよびWASM Bindingのいずれから利用する場合も、提供するCore機能の責任範囲および秘密情報公開方針を変更しないこと。 | ユーザー確定事項 §1、§2、§9、§10、レビュー指摘 RR-010、v1 Web/WASM対応確定 | UC-001、UC-010 |
 | FR-020 | MUST | Coreは、Profile作成およびProfileパスワード変更で、未指定または空のProfileパスワード、Coreが内部で補った既定値、またはv1で承認されたProfileパスワード安全性方針を満たさない値を受け付けないこと。 | レビュー指摘 RR-002、RR-012、ユーザー確定事項 §6、§8 | UC-001、UC-007 |
 | FR-021 | MUST | Coreは、新規生成または外部から取り込むMnemonicおよび秘密鍵について、v1で承認された妥当性基準を満たす場合だけProfileまたはSoftware Keyの正常な管理対象として登録・利用すること。生成、検証または保存に失敗した場合は、失敗した値や不完全な結果を正常状態へ登録せず、既存Profileの状態を変更しないこと。具体的な生成・検証方式は仕様設計で決定する。 | レビュー指摘 RR-013、ユーザー確定事項 §1、§2、§5 | UC-001、UC-003、UC-004 |
 
@@ -269,10 +271,10 @@ TransactionかMessageかなどのアプリケーション上の意味の判断�
 
 | ID | 優先度 | 要件 | 根拠 | 対応ユースケース |
 | --- | --- | --- | --- | --- |
-| NFR-001 | MUST | DesktopおよびMobileのウォレットApplicationが、Binding経由で共通するProfileおよびSoftware Keyの秘密鍵処理を個別に再実装せず、Coreの責任範囲として利用できること。 | コンセプト §6、§9、ユーザー確定事項 §1、§10、§11 | UC-005、UC-006、UC-009、UC-010 |
-| NFR-002 | MUST | Bindingを含むDesktop / Mobile側で個別に実装・レビュー・保守する範囲と、Coreへ集約するProfile・Mnemonic・Software Key処理の範囲を区別できること。BindingはCoreの責任範囲を重複実装せず、Application責任または外部責任の機能を引き受けないこと。 | コンセプト §6、§9、ユーザー確定事項 §3、§7、§11 | UC-005、UC-008、UC-010 |
+| NFR-001 | MUST | Desktop、MobileおよびWebのウォレットApplicationが、対応するBinding経由で共通するProfileおよびSoftware Keyの秘密鍵処理を個別に再実装せず、Coreの責任範囲として利用できること。 | コンセプト §6、§9、ユーザー確定事項 §1、§10、§11、v1 Web/WASM対応確定 | UC-005、UC-006、UC-009、UC-010 |
+| NFR-002 | MUST | Bindingを含むDesktop / Mobile / Web側で個別に実装・レビュー・保守する範囲と、Coreへ集約するProfile・Mnemonic・Software Key処理の範囲を区別できること。BindingはCoreの責任範囲を重複実装せず、Application責任または外部責任の機能を引き受けないこと。 | コンセプト §6、§9、ユーザー確定事項 §3、§7、§11、v1 Web/WASM対応確定 | UC-005、UC-008、UC-010 |
 | NFR-003 | MUST | Core、Binding、UI / Application、上流側の責任境界とProfileパスワードの管理責任を第三者が説明できること。 | コンセプト §6、§8、ユーザー確定事項 §4、§5、§7、§11 | UC-005、UC-007、UC-010 |
-| NFR-004 | MUST | Desktop / MobileのBinding方式が異なる場合でも、CoreのProfile、Mnemonic、Software Key、Profileパスワードに関する秘密情報管理方針および責任境界が変わらないこと。 | ユーザー確定事項 §5、§8、§11 | UC-010 |
+| NFR-004 | MUST | Native Binding / WASM Bindingまたは対象実行環境が異なる場合でも、CoreのProfile、Mnemonic、Software Key、Profileパスワードに関する秘密情報管理方針、認可責務および責任境界が変わらないこと。 | ユーザー確定事項 §5、§8、§11、v1 Web/WASM対応確定 | UC-010 |
 
 ## 8. セキュリティ要件
 
@@ -297,6 +299,7 @@ TransactionかMessageかなどのアプリケーション上の意味の判断�
 | SEC-017 | MUST | Mnemonic、秘密鍵またはProfileパスワードがUI / Application、Bindingまたは上流側で一時的に扱われる場合、取込み・初回バックアップ受渡しの処理範囲に限定すること。処理の成功、失敗または中断後に、Core、BindingおよびApplication / 上流側が秘密情報を継続利用可能な状態として保持せず、診断・補助出力へ残さないこと。具体的な消去・所有権・コピー方式は仕様設計で決定する。 | レビュー指摘 RR-014、ユーザー確定事項 §4、§6 | UC-001、UC-003、UC-005、UC-010 |
 | SEC-018 | MUST | Profileパスワード変更、個別Software Key削除およびProfile削除について、成功時は要求された状態変更を全体として反映し、保存失敗・処理中断・その他の失敗時は変更前の外部から観測可能な認証状態、秘密情報の利用可否および削除結果を維持すること。状態変更の部分適用を成功した状態として残さないこと。 | レビュー指摘 RR-016、ユーザー確定事項 §8、§9、§10 | UC-007、UC-008 |
 | SEC-019 | MUST | Profileを対象とする認証、署名、追加導出、Software Key登録・削除、パスワード変更およびProfile削除は、要求対象のProfileに属する秘密情報と状態だけへ作用すること。他のProfileの秘密情報を利用・変更・削除すること、または他のProfileのパスワードで要求対象を認可することを許可しない。Profile IDやAPI構造は仕様設計で決定する。 | レビュー指摘 RR-017、ユーザー確定事項 §6、§9、§10 | UC-005、UC-006、UC-007、UC-008 |
+| SEC-020 | MUST | Web環境では、WASM BindingとApplication間の境界をMnemonic、秘密鍵またはProfileパスワードの恒久的な保護境界とはみなさないこと。Core管理下の保存済みMnemonicまたは秘密鍵を、WASM Bindingを介した通常処理の結果としてApplicationへ公開しないこと。Web固有のメモリ管理、受渡し方式および秘密情報の消去方式は仕様設計で決定する。 | v1 Web/WASM対応確定 | UC-005、UC-006、UC-010 |
 
 暗号方式、KDF、salt / nonce等の具体形式、Vault形式、再暗号化の方法、メモリ保持・消去方式および具体的な消去保証は仕様設計で決定する。
 
@@ -333,16 +336,16 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 | AC-012 | FR-012、SEC-005、SEC-008 | Given: Mnemonicと複数のSoftware Keyを持つProfileが存在する。When: 正しいProfileパスワードでProfileを削除する。Then: Mnemonic、すべてのDerived / Imported / Generated Software Key、Profile自体が破棄され、以後それらを署名、追加導出その他の秘密情報利用処理へ使用できない。Profile削除は不可逆な操作として扱われる。When: 誤ったProfileパスワードで削除を要求する。Then: Profileおよび配下の秘密情報は削除されない。 |
 | AC-013 | FR-013、DR-005 | Given: ProfileのNetwork、対象ChainとしてSymbolまたはNEM、Derived / Imported / GeneratedのいずれかのSoftware Keyが指定される。When: 指定Chainの公開情報を取得または署名を要求する。Then: Software Keyの由来にかかわらず、ProfileのNetworkと指定Chainに対応するアカウント情報・公開鍵・アドレスを取得でき、署名結果も指定Chain・Networkに対応する結果として扱われる。異なる区分と混同されず、Transaction等の意味判断をCoreが行うことを前提としない。 |
 | AC-014 | FR-014 | Given: Symbol / NEMのいずれかを対象とする。When: Mnemonic生成、秘密鍵導出、暗号化を含むProfile・Software Key管理処理を確認する。Then: Chainにかかわらず共通の管理方針で扱われる。 |
-| AC-015 | NFR-001、NFR-002 | Given: Desktop / MobileウォレットがBindingを利用する。When: 共通CoreのProfile、Mnemonic、Software Key処理の実装・レビュー・保守責任を確認する。Then: 両ApplicationからBinding経由でCoreを利用でき、Coreへ集約する範囲とApplication側で個別に扱う範囲を区別できる。 |
+| AC-015 | NFR-001、NFR-002 | Given: Desktop / Mobile / Webウォレットが対応するBindingを利用する。When: 共通CoreのProfile、Mnemonic、Software Key処理の実装・レビュー・保守責任を確認する。Then: 各ApplicationからBinding経由でCoreを利用でき、Coreへ集約する範囲とApplication側で個別に扱う範囲を区別できる。 |
 | AC-016 | NFR-003 | Given: Core、Binding、UI / Application、上流側の責任分担を第三者が確認する。When: Profileパスワードと秘密情報の管理範囲を説明する。Then: CoreがProfile配下の秘密情報を管理し、Bindingが利用境界を担い、Application / 上流側がProfileパスワードを一時保持する場合の責任がApplication / 上流側にあることを説明できる。 |
 | AC-017 | SEC-004 | Given: 破損または認証に失敗した保存データがある。When: MnemonicまたはSoftware Keyを必要とする処理を行う。Then: その保存データが正常な秘密情報として利用されず、処理は成功しない。 |
 | AC-018 | FR-001、FR-017、DR-006 | Given: 既存Mnemonic、Profileパスワード、MainnetまたはTestnetが与えられる。When: MnemonicからProfileを復元・作成する。Then: 指定Mnemonicを1つ持ち、指定Networkを保存したProfileが作成される。同一Mnemonicと同一NetworkのProfileが既に存在する場合は作成されず、同一Mnemonicと異なるNetworkであれば別Profileとして作成できる。 |
 | AC-019 | FR-016、DR-005 | Given: MainnetまたはTestnetで作成済みのProfileが存在する。When: ProfileのNetworkを別Networkへ変更する。Then: 変更は成功せず、Profileは作成時のNetworkを保持する。ProfileはSymbolまたはNEMに固定されず、ProfileのNetworkに対応する両ChainのSoftware Keyを同一Profile内で扱える。 |
 | AC-020 | FR-018、DR-007 | Given: Derived / Imported / GeneratedのいずれかのSoftware Keyが既にProfile配下に存在する。When: 同じ秘密鍵に対応するSoftware Keyを別の由来で追加する、または同じ導出結果を再登録する。Then: 新しいSoftware Keyとして追加されず、既存Profile配下の秘密情報の状態は重複登録によって変更されない。 |
-| AC-021 | FR-019、NFR-001 | Given: Desktop ApplicationがBindingを利用する。When: FR-019に列挙されたv1 Core主要機能を要求する。Then: すべての機能をBinding経由で利用でき、取得できる公開情報はProfileの所属Network、Chainに対応するアカウント情報、公開鍵およびアドレスに限られる。 |
-| AC-022 | FR-019、NFR-001 | Given: Mobile ApplicationがBindingを利用する。When: FR-019に列挙されたv1 Core主要機能を要求する。Then: すべての機能をBinding経由で利用でき、取得できる公開情報はProfileの所属Network、Chainに対応するアカウント情報、公開鍵およびアドレスに限られる。 |
-| AC-023 | NFR-002 | Given: DesktopまたはMobile ApplicationがBinding経由でCore機能を利用する。When: Profile、Mnemonic、Software Key、暗号化保存、導出、署名、Profileパスワード管理の責任範囲を確認する。Then: これらのCore責任をBindingが独自実装せず、Wallet固有ロジック、Network通信、Transaction構築もBindingへ移されない。 |
-| AC-024 | NFR-004 | Given: Desktop / MobileでBinding方式が異なる。When: Profile、Mnemonic、Software Key、Profileパスワードの管理方針を確認する。Then: Coreの秘密情報管理方針と責任境界はBinding方式によって変わらない。 |
+| AC-021 | FR-019、NFR-001 | Given: Desktop ApplicationがNative Bindingを利用する。When: FR-019に列挙されたv1 Core主要機能を要求する。Then: すべての機能をBinding経由で利用でき、取得できる公開情報はProfileの所属Network、Chainに対応するアカウント情報、公開鍵およびアドレスに限られる。 |
+| AC-022 | FR-019、NFR-001 | Given: Mobile ApplicationがNative Bindingを利用する。When: FR-019に列挙されたv1 Core主要機能を要求する。Then: すべての機能をBinding経由で利用でき、取得できる公開情報はProfileの所属Network、Chainに対応するアカウント情報、公開鍵およびアドレスに限られる。 |
+| AC-023 | NFR-002 | Given: Desktop、MobileまたはWeb Applicationが対応するBinding経由でCore機能を利用する。When: Profile、Mnemonic、Software Key、暗号化保存、導出、署名、Profileパスワード管理の責任範囲を確認する。Then: これらのCore責任をBindingが独自実装せず、Wallet固有ロジック、Network通信、Transaction構築もBindingへ移されない。 |
+| AC-024 | NFR-004 | Given: Native BindingまたはWASM Bindingを利用する。When: Profile、Mnemonic、Software Key、Profileパスワードの管理方針を確認する。Then: Coreの秘密情報管理方針、認可責務および責任境界はBinding方式によって変わらない。 |
 | AC-025 | SEC-010 | Given: Core管理下のSoftware Keyが存在する。When: Binding経由で署名その他の通常処理を実行する。Then: 秘密鍵そのものが通常の処理結果としてApplicationへ返されない。 |
 | AC-026 | SEC-010 | Given: 保存済みMnemonicを持つProfileが存在する。When: Binding経由で追加導出その他の通常処理を実行する。Then: 保存済みMnemonicそのものが通常の処理結果としてApplicationへ返されない。 |
 | AC-027 | SEC-011 | Given: ApplicationからBinding経由でProfileパスワードを渡して処理を実行する。When: 処理が終了する。Then: BindingおよびCoreがProfileパスワードを永続保存または継続的にキャッシュせず、Bindingが別の秘密情報保存主体にならない。 |
@@ -358,6 +361,7 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 | AC-037 | SEC-017 | Given: Mnemonic、秘密鍵またはProfileパスワードが取込みまたは初回バックアップ受渡しのため一時的にUI / Application、Bindingまたは上流側を通過する。When: 処理が成功、失敗または中断する。Then: 処理後に各境界が秘密情報を継続利用可能な状態または診断・補助出力として保持しない。具体的な消去・所有権・コピー方式は仕様設計へ引き継がれる。 |
 | AC-038 | SEC-018 | Given: Profileパスワード変更、個別Software Key削除またはProfile削除を要求する。When: 処理が成功する。Then: 要求された状態変更が全体として反映される。When: 保存失敗、処理中断またはその他の失敗が発生する。Then: 変更前の認証状態、秘密情報の利用可否および削除結果が維持され、部分適用された状態を成功結果として残さない。 |
 | AC-039 | SEC-019 | Given: 2つ以上のProfileが存在する。When: 1つのProfileを対象に認証、署名、追加導出、Software Key登録・削除、パスワード変更またはProfile削除を要求する。Then: 要求対象Profileだけの秘密情報と状態が対象となり、他Profileの秘密情報・認証状態・利用可否・削除結果は変更されない。他Profileのパスワードで対象操作を認可できない。 |
+| AC-040 | FR-019、NFR-001、NFR-004、SEC-020 | Given: Web ApplicationまたはBrowser ExtensionがWASM Bindingを利用する。When: FR-019に列挙されたv1 Core主要機能を要求する。Then: すべての対象機能をWASM Binding経由で利用でき、Core管理下の保存済みMnemonicまたは秘密鍵が通常結果としてApplicationへ返されず、Native Bindingと同じ秘密情報管理方針および認可責務が適用される。 |
 
 ## 11. 未決定事項
 
@@ -368,7 +372,7 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 | OPEN-001 | v1で対象とするSymbolおよびNEMそれぞれのプロトコル版、互換性基準、基準時点および承認済み参照資料 | 導出結果、アカウント・公開情報の互換性および受け入れ判定を一意にするため。具体的な導出パス値はこの決定後に仕様設計で定める。 | FR-003、FR-013、DR-008、AC-033 |
 | OPEN-002 | v1のProfileパスワードに求める最低限の安全性基準および推測攻撃への耐性の受け入れ目標 | 空・未指定の拒否だけではProfile配下の秘密情報に必要な保護水準を判定できず、Profile作成・変更の受け入れ判定が一意にならないため。具体的なKDFや実装方式は仕様設計へ引き継ぐ。 | FR-020、SEC-016、AC-036 |
 
-旧 `OPEN-003`（Desktop / MobileからCoreを利用するBindingの対象範囲）は、v1でDesktop / Mobile双方から利用できるBindingを提供し、Bindingを薄い境界層とすることを確定したため解消した。Mnemonic生成・復元、ProfileのNetwork所属と変更禁止、Chain非固定、MnemonicとNetworkによるProfile重複判定、Software Key重複拒否、Profile / Software Key削除時のパスワード要求、生成Mnemonicの初回バックアップ受渡しと保存済みProfileデータ復旧の責任分界も未決定事項ではない。旧 `OPEN-004`、旧 `OPEN-005` も未決定事項ではない。暗号方式、Binding方式、対象OSなどの具体事項は仕様設計またはリリース要件へ引き継ぐ。
+旧 `OPEN-003`（Coreを利用するBindingの対象範囲）は、v1でDesktop / Mobile / Webから利用できるNative BindingおよびWASM Bindingを提供し、Bindingを薄い境界層とすることを確定したため解消した。Mnemonic生成・復元、ProfileのNetwork所属と変更禁止、Chain非固定、MnemonicとNetworkによるProfile重複判定、Software Key重複拒否、Profile / Software Key削除時のパスワード要求、生成Mnemonicの初回バックアップ受渡しと保存済みProfileデータ復旧の責任分界も未決定事項ではない。旧 `OPEN-004`、旧 `OPEN-005` も未決定事項ではない。暗号方式、Binding方式、対象OS・Browserなどの具体事項は仕様設計またはリリース要件へ引き継ぐ。
 
 ## 12. 仕様設計への引継ぎ
 
@@ -398,10 +402,11 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 - Profile配下のMnemonicおよびSoftware Keyを暗号化保存の対象とし、平文で永続保存せず、誤ったパスワード、破損・認証失敗データ、削除済み秘密情報を秘密情報利用処理の成功へ使用しない。
 - 認証失敗、入力エラー、破損データおよび診断・補助出力を含む外部出力に、Mnemonic、秘密鍵、Profileパスワードまたはそれらを復元可能な表現を含めない。
 - Mnemonic生成、秘密鍵導出、暗号化を含むProfile・Software Key管理処理をSymbol / NEMで共通に扱い、署名処理を対象チェーン固有として区別する。
-- Desktop / Mobile双方からRust Wallet Coreのv1主要機能を利用するBindingを提供する。
+- Desktop / Mobile / WebからRust Wallet Coreのv1主要機能を利用するBindingを提供し、Desktop / Mobile向けNative BindingおよびWeb向けWASM Bindingをv1対象とする。
 - BindingをCoreとApplicationの薄い境界層とし、Coreの主要機能をApplicationへ公開する。Bindingは独自の秘密情報管理、署名、導出、暗号化保存、Profileパスワード管理を行わない。
 - Binding経由でProfile作成・復元、Profile情報・公開情報取得、追加導出、秘密鍵直接インポート、Software Key個別生成、署名、Profileパスワード変更、Software Key削除、Profile削除を利用できる。
 - Core管理下のMnemonicおよび秘密鍵を通常の処理結果としてBinding越しにApplicationへ返さず、BindingおよびCoreはProfileパスワードを永続保存・継続キャッシュしない。
+- Web環境ではWASM BindingとApplication間の境界を秘密情報の恒久的な保護境界とはみなさず、Native Bindingと同じCoreの秘密情報管理方針、認可責務および秘密情報公開方針を適用する。
 
 ### 確定した制約
 
@@ -414,6 +419,7 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 - Profileパスワード変更、個別Software Key削除およびProfile削除は、成功時に全体を反映し、失敗・中断時に部分適用を残さない。
 - Profileを対象とする認証、署名、導出、Software Key登録・削除、パスワード変更およびProfile削除は、要求対象Profileだけへ作用し、他Profileへ越境しない。
 - BindingはCoreの責任範囲を重複実装せず、UI、Application状態管理、OS Keychain、Secure Enclave、TPM、Hardware Wallet、External Signer、Network通信、Transaction構築、Wallet固有設定、Application側のProfileパスワードキャッシュを担わない。
+- Web Application / Browser ExtensionのJavaScript側状態、Browser固有Storageおよび実行環境のセキュリティはApplication / 上流側の責任とし、WASM Bindingを別の秘密情報管理主体としない。
 
 ### 仕様設計で決定する事項
 
@@ -424,10 +430,11 @@ Profile ID、フィールド名、型、スキーマ、保存レコード構造�
 - API、暗号方式、KDF、salt / nonce等の具体形式、Vault形式、保存方式、再暗号化の方法。
 - Profileパスワードを処理ごとに受け渡す具体方式、署名入力のbytes形式、digestの扱い、Symbol / NEM固有の署名前処理、署名結果の具体形式。
 - Profileパスワードの変更・Profile削除・Software Key削除における具体的なストレージ削除およびメモリ消去方式。
-- Bindingの具体的な実装方式、FFI方式、言語間の型変換、エラー表現、秘密情報のコピー回数、バッファ所有権、メモリ配置、zeroize方式、メモリ解放方式、秘密情報の一時受渡し方式、Profileパスワードの受渡し方式。
+- Bindingの具体的な実装方式、FFI方式、WASM連携方式、言語間の型変換、エラー表現、秘密情報のコピー回数、バッファ所有権、メモリ配置、zeroize方式、メモリ解放方式、秘密情報の一時受渡し方式、Profileパスワードの受渡し方式。
+- Web環境におけるWASM / JavaScript境界の具体的な受渡し方式、メモリ管理、秘密情報のコピー・消去方式、Browser固有Storageとの責任分界。
 - Mnemonicの新規生成または既存Mnemonicからの復元時に、一時的な入力・受渡し・バックアップ表示を行う場合の具体的な扱い。
 - OPEN-002で定めるProfileパスワード安全性方針を満たす具体的な判定基準。KDFその他の実装方式は別途決定する。
-- Desktop / Mobile別のBindingパッケージ構成、対象OS・バージョン、ビルド・配布方式。
+- Desktop / Mobile向けNative BindingおよびWeb向けWASM Bindingのパッケージ構成、対象OS・Browser・バージョン、ビルド・配布方式。
 
 ### 要件レベルの未決定事項
 
