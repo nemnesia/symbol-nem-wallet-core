@@ -16,6 +16,7 @@ Web には Web Application および Browser Extension を含む。Desktop / Mob
 - `docs/decisions/requirements-baseline-001.md` (`DEC-REQ-001`): 初期要件ベースラインの承認・追跡記録
 - `docs/decisions/open-001.md`: Symbol / NEM 互換性基準の決定
 - `docs/decisions/open-002.md`: Profile パスワード品質ポリシーの責任境界の決定
+- `docs/decisions/open-validity-001.md`: Mnemonic / 秘密鍵の妥当性・安全性基準の決定
 - コンセプトとの追跡: 背景・課題は `docs/consept/concept-sheet.md` §1〜§2、目的は§3、対象利用者・主要利用場面は§4、責任境界は§7〜§8に対応する。
 
 旧要件本文に存在した「独立した承認記録は存在しない」という記述は `DEC-REQ-001` により失効している。本書の確定事項は Git 履歴および上記決定記録から追跡する。
@@ -310,11 +311,11 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 
 ## 11. 未決定事項
 
-**要件レベルの未決定事項は次の1件である。**
+**要件レベルの未決定事項はない。**
 
 - `OPEN-001`: Closed。`docs/decisions/open-001.md` を参照。
 - `OPEN-002`: Closed。`docs/decisions/open-002.md` を参照。
-- `OPEN-VALIDITY-001`: Mnemonicおよび秘密鍵の生成・復元・取込みに適用する妥当性・安全性基準の出所、適用範囲、承認・維持責任。仕様設計開始前に、承認済み根拠を定める。
+- `OPEN-VALIDITY-001`: Closed。`docs/decisions/open-validity-001.md` を参照。
 - 旧 `OPEN-003` 以降の解消済み事項は Git 履歴および過去レビューを参照する。
 
 仕様設計で決定する具体方式は未決定事項ではなく、要件から仕様へ引き継ぐ設計事項として管理する。
@@ -375,7 +376,7 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 | RR-010 | Resolved | 初回 Mnemonic 受渡しの完了条件、失敗・中断時のProfile非作成、保管・紛失防止責任、Profileデータバックアップ責任を明示。 |
 | RR-011 | Resolved | Derived / Imported / Generated すべての公開情報利用を明示。 |
 | RR-012 | Resolved by decision | OPEN-002 によりパスワード品質ポリシーは上位責任と決定。Coreの品質判定要求は廃止。 |
-| RR-013 | Reopened | `OPEN-VALIDITY-001` として、Mnemonic / 秘密鍵の妥当性・安全性基準の根拠、適用範囲、承認・維持責任を要件レベルの未決定事項として管理。 |
+| RR-013 | Resolved by decision | OPEN-VALIDITY-001 により Mnemonic / 秘密鍵の妥当性・安全性基準の適用範囲と Wallet Core の判定責任を確定し、具体方式を仕様設計へ分離。 |
 | RR-014 | Resolved | 一時秘密情報の処理範囲・終了後非保持を明示。 |
 | RR-015 | Resolved | `symbol-sdk` 3.3.2 互換の外部検証基準を明示。 |
 | RR-016 | Resolved | 状態変更の部分適用禁止を明示。 |
@@ -395,6 +396,7 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 | `docs/decisions/requirements-baseline-001.md` | 初期承認ベースライン、RR-005追跡 |
 | `docs/decisions/open-001.md` | Symbol / NEM互換性基準 |
 | `docs/decisions/open-002.md` | Profileパスワード品質の責任分界 |
+| `docs/decisions/open-validity-001.md` | Mnemonic / 秘密鍵の妥当性・安全性基準、RR-013追跡 |
 | `docs/knowledge/symbol-technicalref-jp.pdf` | Symbolの鍵・署名・Network・アドレス前提 |
 | `docs/knowledge/nem-technicalref.pdf` | NEMの鍵・署名・Network・アドレス前提 |
 | `docs/reviews/requirements/requirements-review-002.md` | RR-001〜RR-017の履歴レビュー |
