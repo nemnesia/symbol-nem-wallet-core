@@ -12,7 +12,7 @@
 - Profile は Symbol / NEM の Chain には固定しない。
 - 1 Profile = 1 Mnemonic + 0..n Software Key とする。
 - Profile 配下の秘密情報は 1 つの Profile パスワードで保護する。
-- 保存済み Mnemonic / 秘密鍵を通常 API で返さない。
+- 保存済み Mnemonic / 秘密鍵を通常 API で返さず、正しい Profile パスワードを伴う明示的な個別エクスポートだけで返す。
 - 秘密情報を必要とする処理は毎回 Profile パスワードを要求し、継続的な unlocked state を持たない。
 - Native / WASM で同じ Core ロジックを使用する。
 
@@ -34,6 +34,7 @@ Core は次を所有する。
 - 保存データの整合性検証
 - Profile / Software Key の状態遷移
 - atomic 更新用の新しい保存イメージ生成
+- 正しい Profile パスワードを要求する Mnemonic / Software Key 秘密鍵の個別エクスポート
 - Native / WASM へ公開する共通 API 契約
 
 ### 2.2 Core が所有しない責務
@@ -45,6 +46,7 @@ Core は次を行わない。
 - Password strength UI または password policy 判定
 - Browser Storage / filesystem の選択
 - Profile データのバックアップ UI・同期・移行サービス
+- 個別エクスポート結果の表示・保管・紛失防止
 - 署名要求が利用者の意図に沿うかの UI 判定
 
 ### 2.3 保存方式の基本方針
@@ -444,16 +446,16 @@ restore_profile(store, mnemonic, password, network)
 
 Core は Mnemonic の checksum / duplicate を確認してから登録する。
 
-### 8.3 保存済み Mnemonic の取得禁止
+### 8.3 保存済み秘密情報の通常取得禁止
 
-次の API は提供しない。
+保存済み秘密情報を対象識別子だけで取得する API は提供しない。
 
 ```text
-get_mnemonic(profile_id)
-export_mnemonic(profile_id)
-get_private_key(key_id)
-export_private_key(key_id)
+get_mnemonic(profile_id) -> not provided
+get_private_key(profile_id, key_id) -> not provided
 ```
+
+Mnemonic / Software Key 秘密鍵の返却は、§9で定義する明示的な個別エクスポート操作に限る。個別エクスポートは毎回正しい Profile パスワードを要求し、Profile 全体の一括バックアップ・復旧を提供するものではない。
 
 ---
 
@@ -483,6 +485,19 @@ restore_profile(
   password,
   network
 ) -> WalletStoreBlob
+
+export_mnemonic(
+  store,
+  profile_id,
+  password
+) -> MnemonicExport
+
+export_private_key(
+  store,
+  profile_id,
+  key_id,
+  password
+) -> PrivateKeyExport
 
 list_profiles(store) -> [ProfileInfo]
 
@@ -573,7 +588,25 @@ SoftwareKeyInfo {
 
 公開鍵・アドレスは `get_public_account` で Chain 指定後に得る。
 
-### 9.3 署名 payload
+### 9.3 個別エクスポート結果
+
+個別エクスポートは秘密情報を含む明示的な例外結果であり、正しい Profile パスワードの認証後にだけ返す。エクスポート API は Store を変更せず、認証・対象確認・復号・返却のいずれかに失敗した場合は秘密情報を返さず、入力 Store をそのまま扱う。
+
+```text
+MnemonicExport {
+  mnemonic: normalized BIP39 word string
+}
+
+PrivateKeyExport {
+  private_key: bytes[32]
+}
+```
+
+`MnemonicExport.mnemonic` は §4.2 の正規化済み BIP39 word string とする。`PrivateKeyExport.private_key` は秘密鍵の raw 32 bytes とし、Core API は hex string を返さない。Binding はこれらの値を別の秘密情報管理ロジックで変換・保存・ログ出力せず、具体的な言語固有型へのマッピングだけを行う。
+
+個別エクスポートの成功結果を受け取った後の表示、保管、紛失防止は Application / 利用者の責任とする。Core / Binding は結果を継続保持またはキャッシュしない。
+
+### 9.4 署名 payload
 
 Core は payload を意味解釈しない。
 
@@ -646,6 +679,8 @@ MutationResult<T> {
 - Software Key delete
 - Profile delete
 
+個別 Mnemonic / Software Key 秘密鍵エクスポートは Store を変更しない。認証、対象確認、復号または返却に失敗した場合も、入力 Store を変更せず秘密情報を返さない。
+
 ### 11.3 Profile 分離
 
 Mutation は要求対象 Profile の envelope だけを置換する。
@@ -684,6 +719,8 @@ WASM linear memory を恒久的保護領域とはみなさない。
 JavaScript へ secret を返すのは次だけとする。
 
 - `prepare_generated_profile` の初回 Mnemonic
+- 明示的な `export_mnemonic` の成功結果
+- 明示的な `export_private_key` の成功結果
 - 外部から Core へ入力する Profile password
 - 外部から Core へ入力する imported private key
 
@@ -712,6 +749,7 @@ Binding は次を実装しない。
 - key derivation
 - signing
 - duplicate detection
+- 個別エクスポート後の秘密情報の保存・表示
 
 ### 13.2 Native Binding
 
@@ -725,7 +763,7 @@ WASM public API は `Uint8Array` を binary data の基本型とする。
 
 Store blob、pending blob、署名 payload は `Uint8Array` とする。
 
-Profile password / Mnemonic / imported key は JS string から受け取る場合でも、Core への変換後に JS 側で長期保持する設計を要求しない。
+Profile password / Mnemonic / imported key は JS string から受け取る場合でも、Core への変換後に JS 側で長期保持する設計を要求しない。`export_mnemonic` の結果は Mnemonic word string、`export_private_key` の結果は `Uint8Array` 相当の bytes としてBinding越しに返すが、Bindingはそれらを state / cache / log へ保存しない。
 
 ---
 
@@ -781,6 +819,11 @@ production code では salt / nonce を固定しない。
 - delete key 後に対象 key で署名不可
 - delete Profile 後に対象 Profile 操作不可
 - 別 Profile へ mutation が越境しない
+- 正しい Profile password で Mnemonic を個別エクスポートできる
+- 正しい Profile password で Derived / Imported / Generated の秘密鍵を個別エクスポートできる
+- 誤 password、対象不存在、復号失敗でエクスポート結果を返さず Store が不変
+- 個別エクスポート結果が Core / Binding の state、cache、log に残らない
+- 通常 API の結果へ Mnemonic / 秘密鍵が含まれず、明示的な個別エクスポートだけが例外
 - Native / WASM が同じ fixture 結果を返す
 - error / Debug output に secret が含まれない
 
@@ -827,6 +870,7 @@ Binding は Core crate とは別 package / crate に分離してよいが、秘�
 | Delete / atomicity | FR-011, FR-012, SEC-005, SEC-008, SEC-009, SEC-018, SEC-019 |
 | Binding | FR-019, NFR-001..004, SEC-011, SEC-012, SEC-017, SEC-020 |
 | Initial backup handoff | FR-001, FR-019, SEC-010, SEC-017, AC-034 |
+| Individual secret export | FR-022, FR-023, FR-019, SEC-010, SEC-015, SEC-017, SEC-020, SEC-021, AC-041..043 |
 
 ---
 

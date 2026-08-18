@@ -4,7 +4,7 @@
 
 ### 1.1 目的
 
-symbol-nem-wallet-core v1 は、Desktop / Mobile / Web の Symbol / NEM ウォレット向けに、Mainnet または Testnet に所属する Profile を秘密情報管理の基本単位とし、Mnemonic と Software Key の生成・復元・導出・取込み・暗号化保存・署名・削除を Rust Wallet Core へ集約する。
+symbol-nem-wallet-core v1 は、Desktop / Mobile / Web の Symbol / NEM ウォレット向けに、Mainnet または Testnet に所属する Profile を秘密情報管理の基本単位とし、Mnemonic と Software Key の生成・復元・導出・取込み・暗号化保存・署名・個別エクスポート・削除を Rust Wallet Core へ集約する。
 
 Web には Web Application および Browser Extension を含む。Desktop / Mobile は Native Binding、Web は WASM Binding を介して同一 Core を利用する。
 
@@ -88,6 +88,7 @@ Binding 方式によって Core の秘密情報管理方針、認可責務、秘
 - Network 層: REST、WebSocket、announce 等。
 - Transaction 構築層: Transaction の生成・シリアライズ。
 - Application / 上流側: 暗号化 Profile データのバックアップ、端末間移行、消失・破損からの復旧を提供する場合の責任。
+- Application / 利用者: 明示的な個別エクスポートで受け取った Mnemonic / 秘密鍵の表示、保管、紛失防止。
 
 ### 2.5 v1 対象外
 
@@ -126,7 +127,7 @@ HD Wallet は v1 対象とするが、具体的な Mnemonic 方式、seed 生成
 
 ### UC-001 Profile を作成・復元する
 
-Core が新規 Mnemonic を生成して Profile を作成できる。また既存 Mnemonic、Profile パスワード、Network から Profile を復元・作成できる。新規生成経路では、初回バックアップのためのMnemonic受渡しが完了した場合だけProfile作成を成功させる。受渡しが失敗・中断した場合は新規Profileを正常状態として残さない。受渡し後のMnemonicの保管・紛失防止は利用者および上位Application / Packageの責任とし、Coreは紛失したMnemonicを復旧しない。保存済み Mnemonic を後から通常結果として取得する機能は提供しない。
+Core が新規 Mnemonic を生成して Profile を作成できる。また既存 Mnemonic、Profile パスワード、Network から Profile を復元・作成できる。新規生成経路では、初回バックアップのためのMnemonic受渡しが完了した場合だけProfile作成を成功させる。受渡しが失敗・中断した場合は新規Profileを正常状態として残さない。受渡し後のMnemonicの保管・紛失防止は利用者および上位Application / Packageの責任とし、Coreは紛失したMnemonicを復旧しない。保存済み Mnemonic は通常処理結果として取得せず、正しい Profile パスワードを伴う明示的な個別エクスポートの場合だけ返却する。
 
 ### UC-002 追加アカウントを導出する
 
@@ -164,6 +165,10 @@ Core が新規 Mnemonic を生成して Profile を作成できる。また既�
 
 Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要機能を利用できる。Binding により Core の責任・認可・秘密情報公開方針は変化しない。
 
+### UC-011 Mnemonic / Software Key を個別エクスポートする
+
+正しい Profile パスワードを伴う明示的な要求により、指定 Profile の Mnemonic または指定 Software Key の秘密鍵を個別にエクスポートする。エクスポート対象は要求した秘密情報だけとし、Profile 全体の一括バックアップは提供しない。返却後の表示・保管・紛失防止は Application / 利用者の責任とする。
+
 ---
 
 ## 5. 機能要件
@@ -188,9 +193,11 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | FR-016 | MUST | Profile の Network を作成後変更できないこと。 |
 | FR-017 | MUST | 同一 Mnemonic + 同一 Network の Profile 重複登録を拒否し、異なる Network なら別 Profile を許可すること。 |
 | FR-018 | MUST | 同一 Profile 内で同一秘密鍵に対応する Software Key の重複登録を由来をまたいで拒否すること。 |
-| FR-019 | MUST | Native / WASM Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除を利用できること。新規Profile作成は初回バックアップ受渡しの完了を条件とし、保存済み Mnemonic の通常取得および Profile データのバックアップ・復旧は含めないこと。 |
+| FR-019 | MUST | Native / WASM Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除、Mnemonic の個別エクスポート、Software Key 秘密鍵の個別エクスポートを利用できること。新規Profile作成は初回バックアップ受渡しの完了を条件とし、Profile 全体の一括バックアップ・復旧は含めないこと。 |
 | FR-020 | MUST | Profile 作成・パスワード変更で未指定・空・Core 内部既定値の Profile パスワードを拒否すること。パスワード品質条件は上位 Application / Package の責任とし、Core は独自に要求しないこと。 |
 | FR-021 | MUST | 新規生成または外部入力の Mnemonic / 秘密鍵について、`OPEN-VALIDITY-001`で承認された妥当性・安全性基準を満たした値だけを登録・利用し、生成・検証・保存失敗時に不完全状態を登録せず既存 Profile を変更しないこと。 |
+| FR-022 | MUST | Core は、正しい Profile パスワードを伴う明示的な要求に対して、指定 Profile の保存済み Mnemonic を個別にエクスポートできること。誤認証、対象不存在、処理失敗時は Mnemonic を返さず、Profile 状態を変更しないこと。 |
+| FR-023 | MUST | Core は、正しい Profile パスワードを伴う明示的な要求に対して、指定 Profile 配下の Derived / Imported / Generated Software Key のいずれか1つの秘密鍵を個別にエクスポートできること。誤認証、対象不存在、処理失敗時は秘密鍵を返さず、Profile 状態を変更しないこと。 |
 
 ---
 
@@ -218,16 +225,17 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | SEC-007 | MUST | Core は Profile パスワードを永続保存・継続キャッシュしないこと。上位が一時保持する場合の責任は上位にあること。 |
 | SEC-008 | MUST | Profile 削除は正しい Profile パスワードを Core が認可し、認可失敗時は状態を変更しないこと。 |
 | SEC-009 | MUST | 個別 Software Key 削除は正しい Profile パスワードを Core が認可し、認可失敗時は状態を変更しないこと。 |
-| SEC-010 | MUST | 保存済み Mnemonic / 秘密鍵を通常結果として Application へ返さないこと。新規 Mnemonic 生成直後の初回バックアップ受渡しのみ例外とし、受渡しが完了しない場合は新規Profile作成を成功させないこと。 |
+| SEC-010 | MUST | 保存済み Mnemonic / 秘密鍵を通常結果として Application へ返さないこと。新規 Mnemonic 生成直後の初回バックアップ受渡し、および正しい Profile パスワードを伴う明示的な個別エクスポートだけを例外とする。初回受渡しまたはエクスポートの失敗・中断時は秘密情報を返却せず、Core / Binding が返却対象を継続保持しないこと。 |
 | SEC-011 | MUST | Binding は Mnemonic、秘密鍵、Profile パスワードを永続保存・継続キャッシュせず、別の秘密情報管理主体にならないこと。 |
 | SEC-012 | MUST | Binding 境界を通過する秘密情報について、不必要な複製・長期保持を前提としないこと。具体方式は仕様設計で決定すること。 |
 | SEC-013 | MUST | Profile パスワード紛失時に v1 は復旧・リセットを提供せず、正しいパスワードを必要とする処理を成功させないこと。 |
 | SEC-014 | MUST | Profile パスワードを必要とする処理の認可は Core が行い、Binding / Application は認可を代替・回避できないこと。 |
-| SEC-015 | MUST | 通常結果、失敗結果、入力エラー、認証失敗、破損データ処理、診断・補助出力へ Mnemonic、秘密鍵、Profile パスワードまたは復元可能表現を含めないこと。SEC-010 の初回 Mnemonic 受渡しを除く。 |
-| SEC-017 | MUST | UI / Application / Binding / 上位側で秘密情報を一時的に扱う場合、取込み・初回バックアップ等の必要な処理範囲に限定し、成功・失敗・中断後に継続利用可能な状態や診断出力として残さないこと。初回バックアップ受渡しの保管・紛失防止は利用者および上位Application / Packageの責任とし、Coreは失われたMnemonicを復旧しない。 |
+| SEC-015 | MUST | 通常結果、失敗結果、入力エラー、認証失敗、破損データ処理、診断・補助出力へ Mnemonic、秘密鍵、Profile パスワードまたは復元可能表現を含めないこと。SEC-010 の初回 Mnemonic 受渡しおよび明示的な個別エクスポートの成功結果だけを例外とし、エラー・診断・補助出力には含めないこと。 |
+| SEC-017 | MUST | UI / Application / Binding / 上位側で秘密情報を一時的に扱う場合、取込み・初回バックアップ・明示的な個別エクスポート等の必要な処理範囲に限定し、成功・失敗・中断後にCoreまたはBindingが継続利用可能な状態や診断出力として残さないこと。初回バックアップおよび個別エクスポート後の保管・紛失防止は利用者および上位Application / Packageの責任とし、Coreは失われたMnemonicまたは秘密鍵を復旧しない。 |
 | SEC-018 | MUST | Profile パスワード変更、Software Key 削除、Profile 削除を外部観測上 atomic に扱い、失敗・中断時に部分適用を成功状態として残さないこと。 |
 | SEC-019 | MUST | 認証、署名、導出、Software Key 登録・削除、パスワード変更、Profile 削除は要求対象 Profile のみに作用し、他 Profile へ越境しないこと。 |
-| SEC-020 | MUST | WASM Binding / Application 境界を秘密情報の恒久的保護境界とみなさず、保存済み Mnemonic / 秘密鍵を通常結果として Web Application へ公開しないこと。 |
+| SEC-020 | MUST | WASM Binding / Application 境界を秘密情報の恒久的保護境界とみなさず、保存済み Mnemonic / 秘密鍵を通常結果として Web Application へ公開しないこと。明示的な個別エクスポートの成功結果だけは対象秘密情報として返却できるが、Binding は継続保持・キャッシュ・ログ出力しないこと。 |
+| SEC-021 | MUST | Mnemonic または Software Key 秘密鍵の個別エクスポートは、要求ごとに正しい Profile パスワードを Core が認可した場合だけ成功させること。誤ったパスワードによる要求では秘密情報を返さず、Profile 状態を変更しないこと。 |
 
 `SEC-016` は OPEN-002 により廃止した。Wallet Core 自身にパスワード品質または推測攻撃耐性の判定を要求しない。パスワードから保存秘密情報を保護する KDF 等の暗号学的設計は別途仕様設計で定める。
 
@@ -276,14 +284,14 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | AC-022 | FR-019, NFR-001 | Mobile Native Binding から v1 主要機能を利用できる。 |
 | AC-023 | NFR-002 | Binding が Core 責任、Wallet 固有ロジック、Network、Transaction 構築を独自実装しない。 |
 | AC-024 | NFR-004 | Native / WASM で Core の秘密情報管理・認可・責任境界が同じである。 |
-| AC-025 | SEC-010 | 通常処理結果として秘密鍵を Application へ返さない。 |
-| AC-026 | SEC-010 | 保存済み Mnemonic を通常処理結果として Application へ返さない。 |
+| AC-025 | SEC-010 | 通常処理結果として秘密鍵を Application へ返さない。明示的な個別エクスポートの成功結果だけを例外とする。 |
+| AC-026 | SEC-010 | 保存済み Mnemonic を通常処理結果として Application へ返さない。明示的な個別エクスポートの成功結果だけを例外とする。 |
 | AC-027 | SEC-011 | 処理後に Core / Binding が Profile パスワードを永続保存・継続キャッシュしない。 |
 | AC-028 | SEC-012 | Binding 境界で不要な秘密情報複製・長期保持を前提としない。 |
 | AC-029 | FR-020 | 未指定・空・Core 既定値の Profile パスワードで Profile 作成・パスワード変更が成功しない。Core は品質ポリシーを独自判定しない。 |
 | AC-030 | SEC-013 | パスワード紛失時に復旧・リセット、秘密情報処理、パスワード変更、削除が成功しない。 |
 | AC-031 | SEC-014 | Binding / Application の要求だけでは認可できず、Core が正しい Profile パスワードを認可する。 |
-| AC-032 | SEC-015 | 初回 Mnemonic バックアップ例外を除き、外部出力・診断へ秘密情報または復元可能表現を含めない。 |
+| AC-032 | SEC-015 | 初回 Mnemonic バックアップおよび明示的な個別エクスポートの成功結果を除き、外部出力・診断へ秘密情報または復元可能表現を含めない。エクスポートの失敗結果・診断出力には含めない。 |
 | AC-033 | DR-008 | Symbol / NEM の鍵・公開鍵・アドレス・署名・Network の互換性を `symbol-sdk` 3.3.2 と比較して判定できる。HD 導出方式は仕様で固定した互換ベクタにより判定する。 |
 | AC-034 | FR-001, FR-019, SEC-010, SEC-017 | 新規 Mnemonic 生成時は、初回バックアップ用の一時受渡しが完了した場合だけProfile作成が成功する。受渡し失敗・中断時は新規Profileを正常状態として残さず、受渡し後の保管・紛失防止は利用者および上位Application / Packageの責任とする。保存済み Mnemonic の通常取得には使用しない。 |
 | AC-035 | FR-004, FR-005, FR-021 | `OPEN-VALIDITY-001`で承認された妥当性・安全性基準を満たした Mnemonic / 秘密鍵だけを登録し、生成・検証・保存失敗時に不完全状態や既存 Profile 変更を残さない。 |
@@ -291,6 +299,9 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | AC-038 | SEC-018 | パスワード変更・鍵削除・Profile 削除は成功時に全体反映し、失敗時に外部観測上の部分適用を残さない。 |
 | AC-039 | SEC-019 | 1つの Profile 操作が他 Profile の秘密情報・認証状態・利用可否・削除結果へ影響しない。 |
 | AC-040 | FR-019, NFR-004, SEC-020 | Web / Browser Extension から WASM Binding 経由で v1 主要機能を利用でき、Native と同じ秘密情報管理・認可方針が適用される。 |
+| AC-041 | FR-022, SEC-010, SEC-021 | 正しい Profile パスワードで指定 Profile の Mnemonic を個別エクスポートでき、誤パスワード・対象不存在・処理失敗時は Mnemonic を返さず Profile 状態を変更しない。 |
+| AC-042 | FR-023, SEC-010, SEC-021 | 正しい Profile パスワードで指定 Profile 配下の Derived / Imported / Generated Software Key の秘密鍵を個別エクスポートでき、誤パスワード・対象不存在・処理失敗時は秘密鍵を返さず Profile 状態を変更しない。 |
+| AC-043 | FR-019, SEC-017, SEC-020 | Native / WASM Binding は個別エクスポート結果を Application へ受け渡せるが、秘密情報を継続保持・キャッシュ・ログ出力せず、Profile 全体の一括バックアップ機能を提供しない。 |
 
 `AC-036` は OPEN-002 により廃止した。Wallet Core による Profile パスワード品質判定は受入対象としない。
 
@@ -298,12 +309,14 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 
 ## 10. 状態変更と失敗時整合性
 
-次の操作は、成功時は要求結果を全体として反映し、保存失敗・処理中断・その他失敗時には外部観測可能な部分適用を成功状態として残さない。
+次の状態変更操作は、成功時は要求結果を全体として反映し、保存失敗・処理中断・その他失敗時には外部観測可能な部分適用を成功状態として残さない。
 
 - Profile パスワード変更
 - Imported / Generated Software Key 登録
 - Software Key 削除
 - Profile 削除
+
+Mnemonic / Software Key 秘密鍵の個別エクスポートは状態変更操作ではなく、Store を変更しない。認証・対象確認・返却に失敗した場合も既存 Store を変更しない。
 
 要求対象 Profile 以外の秘密情報・認証状態・利用可否へ作用してはならない。
 
