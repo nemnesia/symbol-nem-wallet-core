@@ -170,7 +170,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 
 | ID | 優先度 | 要件 |
 | --- | --- | --- |
-| FR-001 | MUST | Core は新規 Mnemonic 生成または既存 Mnemonic から、未指定でも空でもない Profile パスワードと Mainnet / Testnet を使用して Profile を作成・復元できること。Mnemonic なし Profile を作成しないこと。新規Mnemonic生成経路では、初回バックアップ受渡しが完了した場合だけProfile作成を成功させ、受渡し失敗・中断時に新規Profileを正常状態として残さないこと。|
+| FR-001 | MUST | Core は新規 Mnemonic 生成または既存 Mnemonic から、未指定でも空でもない Profile パスワードと Mainnet / Testnet を使用して Profile を作成・復元できること。Mnemonic なし Profile を作成しないこと。新規Mnemonic生成経路では、初回バックアップ受渡しが完了した場合だけProfile作成を成功させ、受渡し失敗・中断時に新規Profileを正常状態として残さないこと。 |
 | FR-002 | MUST | Mnemonic を Profile のルート秘密情報として Profile 管理下へ保存すること。 |
 | FR-003 | MUST | 保存済み Mnemonic から Profile の Network と指定 Chain に対応する Derived Software Key を導出・保存できること。 |
 | FR-004 | MUST | 正しい Profile パスワードを Core が認可し、`OPEN-VALIDITY-001`で定める妥当性基準を満たした外部秘密鍵だけを Imported Software Key として保存すること。失敗時は Profile 状態を変更しないこと。 |
@@ -190,7 +190,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | FR-018 | MUST | 同一 Profile 内で同一秘密鍵に対応する Software Key の重複登録を由来をまたいで拒否すること。 |
 | FR-019 | MUST | Native / WASM Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除を利用できること。新規Profile作成は初回バックアップ受渡しの完了を条件とし、保存済み Mnemonic の通常取得および Profile データのバックアップ・復旧は含めないこと。 |
 | FR-020 | MUST | Profile 作成・パスワード変更で未指定・空・Core 内部既定値の Profile パスワードを拒否すること。パスワード品質条件は上位 Application / Package の責任とし、Core は独自に要求しないこと。 |
-| FR-021 | MUST | 新規生成または外部入力の Mnemonic / 秘密鍵について、`OPEN-VALIDITY-001`で承認された妥当性・安全性基準を満たした値だけを登録・利用し、生成・検証・保存失敗時に不完全状態を登録せず既存 Profile を変更しないこと。|
+| FR-021 | MUST | 新規生成または外部入力の Mnemonic / 秘密鍵について、`OPEN-VALIDITY-001`で承認された妥当性・安全性基準を満たした値だけを登録・利用し、生成・検証・保存失敗時に不完全状態を登録せず既存 Profile を変更しないこと。 |
 
 ---
 
