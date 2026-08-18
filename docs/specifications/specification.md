@@ -72,6 +72,8 @@ Rust Wallet Core
 
 Core は「更新途中の一部分だけ」を外部へ返さない。
 
+Wallet Store の wire-level 仕様の正本は `docs/specifications/wallet-store-format-v1.md` とする。本書と保存フォーマット仕様に重複する記述がある場合、wire 表現については `wallet-store-format-v1.md` を優先する。
+
 ---
 
 ## 3. 識別子と列挙型
@@ -82,42 +84,50 @@ Core は「更新途中の一部分だけ」を外部へ返さない。
 - CSPRNG で生成する。
 - Mnemonic、公開鍵、アドレスから導出しない。
 - 外部表現は lowercase UUID string とする。
+- Wallet Store 内では raw 16 bytes として保存する。
 
 ### 3.2 SoftwareKeyId
 
 - 128 bit random UUID 相当値を使用する。
 - CSPRNG で生成する。
 - 秘密鍵または公開鍵そのものを ID として使用しない。
+- Wallet Store 内では raw 16 bytes として保存する。
 
 ### 3.3 Network
 
 ```text
-Mainnet
-Testnet
+0 = Testnet
+1 = Mainnet
 ```
 
 Profile 作成時に固定する。変更 API は提供しない。
 
+上記の数値は Wallet Store の wire 値であり、一度割り当てた値の意味を変更・再利用しない。
+
 ### 3.4 Chain
 
 ```text
-Symbol
-Nem
+0 = Nem
+1 = Symbol
 ```
 
 Chain は Profile 属性ではなく Software Key の必須属性とする。Software Key は生成・インポート・導出時に Chain を固定し、登録後に変更しない。
 
 公開鍵・アドレス生成および署名では Software Key に保存された Chain を使用し、呼び出し側から別 Chain を指定して同一 Software Key を利用することはできない。
 
+上記の数値は Wallet Store の wire 値であり、一度割り当てた値の意味を変更・再利用しない。
+
 ### 3.5 SoftwareKeyOrigin
 
 ```text
-Derived { account_index, derivation_path }
-Imported
-Generated
+0 = Derived { account_index }
+1 = Imported
+2 = Generated
 ```
 
-Software Key の Chain は `origin` とは独立した必須属性として保持する。Derived の `derivation_path` は Software Key に固定された Chain、Profile に固定された Network、`account_index` から決定した導出 path を記録する。
+Software Key の Chain は `origin` とは独立した必須属性として保持する。
+
+Derived Software Key は `derivation_path` を永続保存しない。導出 path は Profile に固定された Network、Software Key に固定された Chain、`account_index`、Profile schema version から Core が決定する。
 
 ---
 
@@ -127,7 +137,7 @@ Software Key の Chain は `origin` とは独立した必須属性として保�
 
 v1 は BIP39 Mnemonic を使用する。
 
-新規生成時の仕様:
+生成・復元ともに次へ固定する。
 
 - wordlist: English
 - entropy: 256 bit
@@ -135,7 +145,7 @@ v1 は BIP39 Mnemonic を使用する。
 - checksum: BIP39
 - CSPRNG: Rust `getrandom` が提供する OS / Web Crypto 対応乱数源
 
-復元時は BIP39 checksum を検証し、12 / 15 / 18 / 21 / 24 words の有効な English mnemonic を受け付ける。
+復元時も BIP39 checksum を検証し、有効な English 24 words mnemonic のみ受け付ける。12 / 15 / 18 / 21 words は v1 では受け付けない。
 
 BIP39 optional passphrase は v1 ではサポートしない。Mnemonic から seed を生成する際の BIP39 passphrase は空文字列に固定する。
 
@@ -145,7 +155,7 @@ BIP39 optional passphrase は v1 ではサポートしない。Mnemonic から s
 
 Core は次を拒否する。
 
-- word count 不正
+- 24 words 以外の word count
 - wordlist 外単語
 - checksum 不正
 - 空 Mnemonic
@@ -161,7 +171,7 @@ seed は永続保存しない。Mnemonic から必要時に再生成し、処理
 
 Ed25519 系の hardened derivation を使用し、既存 Symbol / NEM Wallet との復元互換性を優先する。
 
-v1 の導出パスは次で固定する。
+Profile schema version 1 の導出パスは次で固定する。
 
 | Chain | Network | path |
 | --- | --- | --- |
@@ -172,6 +182,20 @@ v1 の導出パスは次で固定する。
 
 `account` は `u32` の非 hardened bit 範囲 `0..=2147483647` を API 上の index とし、パス上では hardened index として使用する。
 
+Derived Software Key の `derivation_path` 自体は保存しない。Core は次から path を再構築する。
+
+```text
+Profile.network
++
+SoftwareKey.chain
++
+account_index
++
+ProfileEnvelope.schema_version
+```
+
+schema version 1 の導出規則は後から変更しない。将来導出規則を変更する場合は新しい Profile schema version を割り当てる。
+
 Symbol / NEM Testnet は同じ path になるため、同一 Mnemonic / account index から同一秘密鍵が導出され得る。この場合でも Software Key は Chain に固定されるため、Symbol 用と NEM 用は別 Software Key として登録でき、重複とは扱わない。
 
 ### 4.5 導出結果の登録
@@ -181,7 +205,7 @@ Symbol / NEM Testnet は同じ path になるため、同一 Mnemonic / account 
 1. Profile パスワード認証
 2. Mnemonic 復号
 3. seed 生成
-4. Chain / Network / account index から path 決定
+4. Profile schema version に対応する規則で Chain / Network / account index から path 決定
 5. private key 導出
 6. private key 妥当性検証
 7. 同一 Chain 内で Profile 内重複判定
@@ -244,6 +268,7 @@ v1 default parameters:
 
 ```text
 algorithm    = Argon2id
+algorithm_id = 0
 version      = 0x13
 memory       = 65536 KiB
 iterations   = 3
@@ -261,28 +286,34 @@ Profile パスワード品質は Core では判定しない。ただし未指定
 秘密 payload の暗号化は AES-256-GCM とする。
 
 ```text
-key       = Argon2id output, 32 bytes
-nonce     = 12 random bytes per encryption
-TAG       = 16 bytes
+algorithm    = AES-256-GCM
+algorithm_id = 0
+key          = Argon2id output, 32 bytes
+nonce        = 12 random bytes per encryption
+TAG          = 16 bytes
 ```
 
 同一 key で nonce を再利用しない。nonce は毎回 CSPRNG で生成する。
 
 ### 6.3 AAD
 
-Profile encryption の AAD は canonical binary encoding した次の値で構成する。
+Profile encryption の AAD は次の値を RFC 8949 Core Deterministic Encoding Requirements に従う deterministic CBOR array として encode する。
 
 ```text
-magic
-store_version
-profile_id
-network
-profile_schema_version
-kdf_algorithm_id
-cipher_algorithm_id
+[
+  magic,
+  store_version,
+  profile_id,
+  network,
+  profile_schema_version,
+  kdf_algorithm_id,
+  cipher_algorithm_id
+]
 ```
 
-AAD により暗号文を別 Profile / Network / schema へ移植して正常データとして扱うことを防ぐ。
+各要素は `docs/specifications/wallet-store-format-v1.md` で定義した wire 表現を使用する。
+
+AAD により暗号文を別 Profile / Network / schema / algorithm context へ移植して正常データとして扱うことを防ぐ。
 
 ### 6.4 Profile パスワード認証
 
@@ -311,86 +342,125 @@ password change は次を行う。
 
 ## 7. Wallet Store 形式
 
+Wallet Store の wire-level 仕様の正本は `docs/specifications/wallet-store-format-v1.md` とする。本節はその設計上の要約であり、整数 key、enum wire 値、deterministic CBOR の制約、配列順序、unknown field / enum の扱い、version / migration 規則は同文書に従う。
+
 ### 7.1 エンコーディング
 
-保存形式は versioned deterministic CBOR とする。
+保存形式は versioned deterministic CBOR とし、**RFC 8949 Core Deterministic Encoding Requirements** に固定する。
 
-理由:
-
-- Rust / Native / WASM で同一 binary schema を扱いやすい
-- JSON より binary secret material を自然に保持できる
-- canonical encoding により AAD / test vector を固定しやすい
+- map key は unsigned integer
+- indefinite-length item は使用しない
+- integer / length は最短表現
+- duplicate map key は許可しない
+- float は使用しない
+- 未定義 field は無視する
+- 未知 enum 値はエラーにせず無視する
 
 ### 7.2 top-level schema
 
+整数 key は次で固定する。
+
+```text
+WalletStoreV1
+0 = magic
+1 = version
+2 = registry_key
+3 = profiles
+```
+
+論理 schema:
+
 ```text
 WalletStoreV1 {
-  magic: "SNWC",
-  version: 1,
-  registry_key: bytes[32],
-  profiles: [ProfileEnvelopeV1]
+  0: h'534E5743',
+  1: 1,
+  2: bytes[32],
+  3: [ProfileEnvelopeV1]
 }
 ```
 
+`magic` は 4 byte 固定値 `h'534E5743'` (`SNWC`) とする。
+
 `registry_key` は初回 Store 作成時に CSPRNG で生成する。秘密鍵暗号化には使用しない。
+
+`profiles` は `profile_id` raw 16 bytes の bytewise 昇順で保存する。登録順には意味を持たせない。
 
 ### 7.3 ProfileEnvelopeV1
 
+整数 key は次で固定する。
+
+```text
+ProfileEnvelopeV1
+0 = profile_id
+1 = network
+2 = duplicate_tag
+3 = schema_version
+4 = kdf
+5 = cipher
+```
+
+論理 schema:
+
 ```text
 ProfileEnvelopeV1 {
-  profile_id: ProfileId,
-  network: Network,
-  duplicate_tag: bytes[32],
-  schema_version: 1,
-  kdf: {
-    algorithm: "argon2id",
-    version: 0x13,
-    memory_kib: 65536,
-    iterations: 3,
-    parallelism: 1,
-    salt: bytes[16]
-  },
-  cipher: {
-    algorithm: "aes-256-gcm",
-    nonce: bytes[12],
-    ciphertext: bytes,
-    tag: bytes[16]
-  }
+  0: bytes[16],
+  1: Network,
+  2: bytes[32],
+  3: 1,
+  4: KdfParamsV1,
+  5: CiphertextV1
 }
 ```
 
 ### 7.4 encrypted ProfilePayloadV1
 
+整数 key は次で固定する。
+
+```text
+ProfilePayloadV1
+0 = mnemonic_entropy
+1 = software_keys
+```
+
+論理 schema:
+
 ```text
 ProfilePayloadV1 {
-  mnemonic_entropy: bytes,
-  software_keys: [SoftwareKeyRecordV1]
+  0: bytes[32],
+  1: [SoftwareKeyRecordV1]
 }
 ```
 
-Mnemonic は word string ではなく BIP39 entropy として保存する。復号後に必要時のみ mnemonic words / seed へ変換する。
+Mnemonic は word string ではなく 24 words BIP39 の 256 bit entropy として保存する。復号後に必要時のみ mnemonic words / seed へ変換する。
+
+`software_keys` は `key_id` raw 16 bytes の bytewise 昇順で保存する。登録順には意味を持たせない。
 
 ### 7.5 SoftwareKeyRecordV1
 
+整数 key は次で固定する。
+
+```text
+SoftwareKeyRecordV1
+0 = key_id
+1 = chain
+2 = private_key
+3 = origin
+```
+
+論理 schema:
+
 ```text
 SoftwareKeyRecordV1 {
-  key_id: SoftwareKeyId,
-  chain: Symbol | Nem,
-  private_key: bytes[32],
-  origin: Derived | Imported | Generated
+  0: bytes[16],
+  1: Chain,
+  2: bytes[32],
+  3: SoftwareKeyOriginV1
 }
 ```
 
 すべての Software Key は `chain` を必須とし、登録後に変更しない。
 
-Derived の場合:
-
-```text
-Derived {
-  account_index: u32,
-  derivation_path: string
-}
-```
+Derived の場合は `account_index` を保存し、`derivation_path` は保存しない。path は Network / Chain / account index / Profile schema version から再構築する。
 
 ### 7.6 Profile 重複判定
 
@@ -405,6 +475,8 @@ duplicate_tag = HMAC-SHA256(
 )
 ```
 
+`network` は保存フォーマットで固定した wire 値を使用する。
+
 `duplicate_tag` は Store 内でのみ安定し、異なる Store 間の Mnemonic 同一性を直接比較できない。
 
 Profile 作成 / 復元時に既存 `duplicate_tag` と一致した場合は `DuplicateProfile` とする。同一 Mnemonic であっても Network が異なる場合は `duplicate_tag` が異なるため、別 Profile として登録できる。
@@ -416,6 +488,19 @@ Software Key の fingerprint を平文 manifest へ保存しない。
 対象 Profile を password で復号した後、同一 `chain` の既存 Software Key の private key と constant-time 比較する。同一 Chain かつ同一 private key が存在する場合のみ `DuplicateSoftwareKey` とする。
 
 同一 private key でも Chain が異なる場合は重複とは扱わない。また Software Key の重複判定は対象 Profile 内で行い、Network が異なる別 Profile の Software Key とは比較しない。
+
+### 7.8 Version と migration
+
+```text
+WalletStore.version = 1
+ProfileEnvelope.schema_version = 1
+```
+
+未対応 Store version は `UnsupportedStoreVersion`、未対応 Profile schema version は `UnsupportedProfileSchemaVersion` とする。
+
+既存 version の意味は後から変更しない。
+
+Store / Profile schema の migration は暗黙には行わない。読み込み時の自動 migration は禁止し、必要な migration は明示的な migration operation / API として実行する。
 
 ---
 
@@ -453,7 +538,7 @@ restore_profile(store, mnemonic, password, network)
     -> replacement store
 ```
 
-Core は Mnemonic の checksum / duplicate を確認してから登録する。
+Core は 24 words の BIP39 Mnemonic であること、checksum、duplicate を確認してから登録する。
 
 ### 8.3 保存済み秘密情報の通常取得禁止
 
@@ -612,7 +697,7 @@ PrivateKeyExport {
 }
 ```
 
-`MnemonicExport.mnemonic` は §4.2 の正規化済み BIP39 word string とする。`PrivateKeyExport.private_key` は秘密鍵の raw 32 bytes とし、Core API は hex string を返さない。Binding はこれらの値を別の秘密情報管理ロジックで変換・保存・ログ出力せず、具体的な言語固有型へのマッピングだけを行う。
+`MnemonicExport.mnemonic` は §4.2 の正規化済み 24 words BIP39 word string とする。`PrivateKeyExport.private_key` は秘密鍵の raw 32 bytes とし、Core API は hex string を返さない。Binding はこれらの値を別の秘密情報管理ロジックで変換・保存・ログ出力せず、具体的な言語固有型へのマッピングだけを行う。
 
 個別エクスポートの成功結果を受け取った後の表示、保管、紛失防止は Application / 利用者の責任とする。Core / Binding は結果を継続保持またはキャッシュしない。
 
@@ -636,6 +721,7 @@ Binding 共通の安定した error code を定義する。
 InvalidArgument
 InvalidStore
 UnsupportedStoreVersion
+UnsupportedProfileSchemaVersion
 ProfileNotFound
 SoftwareKeyNotFound
 AuthenticationFailed
@@ -785,7 +871,7 @@ Repository に secret ではない deterministic test vector を置く。
 
 最低限、次を固定する。
 
-- BIP39 mnemonic -> seed
+- BIP39 24 words mnemonic -> seed
 - Symbol Mainnet path -> private/public key/address
 - Symbol Testnet path -> private/public key/address
 - NEM Mainnet path -> private/public key/address
@@ -807,7 +893,7 @@ SDK の将来 version を CI で自動採用しない。
 - AAD bytes
 - AES-256-GCM ciphertext
 - authentication tag
-- deterministic CBOR bytes
+- RFC 8949 Core Deterministic Encoding に従う CBOR bytes
 
 production code では salt / nonce を固定しない。
 
@@ -824,6 +910,7 @@ production code では salt / nonce を固定しない。
 - 同一 Network・同一 Chain・同一 private key の duplicate Software Key reject
 - 同一 private key でも Chain が異なる場合は登録可能
 - 同一 Mnemonic でも Network が異なる Profile は登録可能
+- 24 words 以外の Mnemonic reject
 - invalid Mnemonic reject
 - invalid private key reject
 - failed mutation で input Store bytes が不変
@@ -905,9 +992,11 @@ Binding は Core crate とは別 package / crate に分離してよいが、秘�
 ## 19. 参照
 
 - `docs/requirements/requirements.md`
+- `docs/specifications/wallet-store-format-v1.md`
 - `docs/decisions/open-001.md`
 - `docs/decisions/open-002.md`
 - `docs/decisions/open-validity-001.md`
+- RFC 8949: Concise Binary Object Representation (CBOR)
 - BIP39: Mnemonic code for generating deterministic keys
 - BIP44: Multi-Account Hierarchy for Deterministic Wallets
 - SLIP-0044: registered coin types
