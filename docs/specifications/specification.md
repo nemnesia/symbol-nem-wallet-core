@@ -10,6 +10,7 @@
 
 - Profile は Mainnet / Testnet のいずれかに固定する。
 - Profile は Symbol / NEM の Chain には固定しない。
+- すべての Software Key は Symbol / NEM のいずれかの Chain に固定する。
 - 1 Profile = 1 Mnemonic + 0..n Software Key とする。
 - Profile 配下の秘密情報は 1 つの Profile パスワードで保護する。
 - 保存済み Mnemonic / 秘密鍵を通常 API で返さず、正しい Profile パスワードを伴う明示的な個別エクスポートだけで返す。
@@ -104,17 +105,19 @@ Symbol
 Nem
 ```
 
-Chain は Profile 属性ではなく、導出・公開情報取得・署名時に指定する。
+Chain は Profile 属性ではなく Software Key の必須属性とする。Software Key は生成・インポート・導出時に Chain を固定し、登録後に変更しない。
+
+公開鍵・アドレス生成および署名では Software Key に保存された Chain を使用し、呼び出し側から別 Chain を指定して同一 Software Key を利用することはできない。
 
 ### 3.5 SoftwareKeyOrigin
 
 ```text
-Derived { chain, account_index, derivation_path }
+Derived { account_index, derivation_path }
 Imported
 Generated
 ```
 
-`Derived.chain` は由来追跡情報であり、その Software Key の利用可能 Chain を制限しない。
+Software Key の Chain は `origin` とは独立した必須属性として保持する。Derived の `derivation_path` は Software Key に固定された Chain、Profile に固定された Network、`account_index` から決定した導出 path を記録する。
 
 ---
 
@@ -169,7 +172,7 @@ v1 の導出パスは次で固定する。
 
 `account` は `u32` の非 hardened bit 範囲 `0..=2147483647` を API 上の index とし、パス上では hardened index として使用する。
 
-Symbol / NEM Testnet は同じ path になるため、同一 Mnemonic / account index から同一秘密鍵が導出され得る。これは v1 の互換性仕様として扱い、同一 Profile 内で既に同一秘密鍵が存在する場合は新規 Software Key 登録を拒否する。
+Symbol / NEM Testnet は同じ path になるため、同一 Mnemonic / account index から同一秘密鍵が導出され得る。この場合でも Software Key は Chain に固定されるため、Symbol 用と NEM 用は別 Software Key として登録でき、重複とは扱わない。
 
 ### 4.5 導出結果の登録
 
@@ -181,8 +184,8 @@ Symbol / NEM Testnet は同じ path になるため、同一 Mnemonic / account 
 4. Chain / Network / account index から path 決定
 5. private key 導出
 6. private key 妥当性検証
-7. Profile 内重複判定
-8. 暗号化して Software Key 登録
+7. 同一 Chain 内で Profile 内重複判定
+8. 指定 Chain に固定した Software Key として暗号化・登録
 9. temporary secret zeroize
 10. replacement store blob 生成
 
@@ -200,7 +203,7 @@ Core 内部の private key は 32 byte 固定長バイト列として扱う。
 
 - 64 hexadecimal characters
 - 大文字・小文字はいずれも受理
-- prefix `0x` は受理しない
+- prefix `0x` は受理しない。
 
 内部保存時は raw 32 bytes とし、hex string を保存しない。
 
@@ -217,15 +220,17 @@ Core 内部の private key は 32 byte 固定長バイト列として扱う。
 
 ### 5.3 Generated Software Key
 
-Generated Software Key は CSPRNG から 32 byte private key candidate を生成し、妥当性確認後に登録する。
+Generated Software Key は Chain を指定して生成する。CSPRNG から 32 byte private key candidate を生成し、指定 Chain での妥当性確認後、その Chain に固定して登録する。
 
 乱数生成または検証に失敗した場合は登録しない。
 
-### 5.4 Chain 非固定
+### 5.4 Chain 固定
 
-Imported / Generated / Derived のいずれの Software Key も、API 呼び出し時に `Chain` を指定して公開鍵、アドレス、署名を得る。
+Imported / Generated / Derived のすべての Software Key は、登録時に `Symbol` または `Nem` のいずれかの Chain に固定する。
 
-Derived key の `origin.chain` は導出 path の出所を記録するだけであり、利用時の Chain を強制しない。
+公開鍵・アドレス生成および署名では保存済み Software Key の Chain を使用する。同一 Software Key を別 Chain として利用する API は提供しない。
+
+同一 private key であっても Chain が異なる場合は別 Software Key として扱う。また Profile は Network に固定されるため、同一 private key が Mainnet Profile と Testnet Profile の双方に存在しても重複とは扱わない。
 
 ---
 
@@ -370,16 +375,18 @@ Mnemonic は word string ではなく BIP39 entropy として保存する。復�
 ```text
 SoftwareKeyRecordV1 {
   key_id: SoftwareKeyId,
+  chain: Symbol | Nem,
   private_key: bytes[32],
   origin: Derived | Imported | Generated
 }
 ```
 
+すべての Software Key は `chain` を必須とし、登録後に変更しない。
+
 Derived の場合:
 
 ```text
 Derived {
-  chain: Symbol | Nem,
   account_index: u32,
   derivation_path: string
 }
@@ -400,13 +407,15 @@ duplicate_tag = HMAC-SHA256(
 
 `duplicate_tag` は Store 内でのみ安定し、異なる Store 間の Mnemonic 同一性を直接比較できない。
 
-Profile 作成 / 復元時に既存 `duplicate_tag` と一致した場合は `DuplicateProfile` とする。
+Profile 作成 / 復元時に既存 `duplicate_tag` と一致した場合は `DuplicateProfile` とする。同一 Mnemonic であっても Network が異なる場合は `duplicate_tag` が異なるため、別 Profile として登録できる。
 
 ### 7.7 Software Key 重複判定
 
 Software Key の fingerprint を平文 manifest へ保存しない。
 
-対象 Profile を password で復号した後、既存 private key と constant-time 比較し、同一 private key が存在する場合は `DuplicateSoftwareKey` とする。
+対象 Profile を password で復号した後、同一 `chain` の既存 Software Key の private key と constant-time 比較する。同一 Chain かつ同一 private key が存在する場合のみ `DuplicateSoftwareKey` とする。
+
+同一 private key でも Chain が異なる場合は重複とは扱わない。また Software Key の重複判定は対象 Profile 内で行い、Network が異なる別 Profile の Software Key とは比較しない。
 
 ---
 
@@ -518,21 +527,22 @@ import_software_key(
   store,
   profile_id,
   password,
+  chain,
   private_key_hex
 ) -> MutationResult<SoftwareKeyInfo>
 
 generate_software_key(
   store,
   profile_id,
-  password
+  password,
+  chain
 ) -> MutationResult<SoftwareKeyInfo>
 
 get_public_account(
   store,
   profile_id,
   key_id,
-  password,
-  chain
+  password
 ) -> PublicAccountInfo
 
 sign(
@@ -540,7 +550,6 @@ sign(
   profile_id,
   key_id,
   password,
-  chain,
   payload
 ) -> Signature
 
@@ -582,11 +591,12 @@ ProfileInfo {
 ```text
 SoftwareKeyInfo {
   key_id,
+  chain,
   origin
 }
 ```
 
-公開鍵・アドレスは `get_public_account` で Chain 指定後に得る。
+公開鍵・アドレスおよび署名処理では Software Key に保存された `chain` を使用する。
 
 ### 9.3 個別エクスポート結果
 
@@ -614,7 +624,7 @@ Core は payload を意味解釈しない。
 sign(..., payload: bytes)
 ```
 
-Symbol / NEM ごとの署名 primitive を適用するが、Transaction 構造の妥当性、generation hash の組み立て等は上流責任とする。
+Software Key に固定された Symbol / NEM の署名 primitive を適用するが、Transaction 構造の妥当性、generation hash の組み立て等は上流責任とする。
 
 ---
 
@@ -811,7 +821,9 @@ production code では salt / nonce を固定しない。
 - ciphertext / tag / AAD 1 bit 改変で認証失敗
 - empty password reject
 - duplicate Profile reject
-- duplicate Software Key reject
+- 同一 Network・同一 Chain・同一 private key の duplicate Software Key reject
+- 同一 private key でも Chain が異なる場合は登録可能
+- 同一 Mnemonic でも Network が異なる Profile は登録可能
 - invalid Mnemonic reject
 - invalid private key reject
 - failed mutation で input Store bytes が不変
