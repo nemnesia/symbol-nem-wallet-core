@@ -46,6 +46,7 @@ Core は次を行わない。
 
 - Transaction の構築・意味解釈
 - REST / WebSocket / announce
+- Profile / Software Key の表示名の生成・保存・変更・表示
 - Password strength UI または password policy 判定
 - Browser Storage / filesystem の選択
 - Profile データのバックアップ UI・同期・移行サービス
@@ -223,13 +224,11 @@ TAG          = 16 bytes
 
 同一 key で nonce を再利用しない。nonce は暗号化ごとに CSPRNG で生成する。
 
-### 6.3 AAD と平文 metadata
+### 6.3 AAD と平文 software key index
 
-AAD の正確な構成と deterministic CBOR 表現は `wallet-store-format-v1.md` を正本とする。
+`software_key_index` は一覧取得に必要な `key_id` と `chain` だけを持つ平文 manifest とし、`registry_key` および `duplicate_tag` とともに AES-256-GCM の AAD へ含める。AAD の正確な構成と deterministic CBOR 表現は `wallet-store-format-v1.md` を正本とする。
 
-Profile 名と Account metadata は一覧取得のため暗号化しないが、実際の manifest と同じ optional key 省略規則で AAD に含め、AES-256-GCM の認証対象とする。`registry_key` と `duplicate_tag` も AAD に含める。このため metadata、重複判定情報または Store identity の変更を伴う mutation は Profile password で既存 payload を認証・復号し、新しい nonce で再暗号化する。
-
-パスワードなしの一覧 API は平文 metadata を返せるが、その時点では AEAD 認証を実行できない。Application は一覧結果を「保存された表示用 metadata」として扱い、暗号学的に認証済みの値とはみなさない。
+パスワードなしの一覧 API は平文 `software_key_index` を返せるが、その時点では AEAD 認証を実行できない。Application は一覧結果を未認証の保存情報として扱い、暗号学的に認証済みとはみなさない。認証・復号後は、index と暗号化 payload の Software Key 集合が一致することを検証する。
 
 ### 6.4 Profile パスワード認証
 
@@ -254,6 +253,7 @@ Wallet Store の CBOR schema、整数 key、enum wire 値、並び順、AAD、�
 本書では次の動作だけを API 契約として固定する。
 
 - `profiles = []` と `software_keys = []` は正常状態として扱う。
+- `software_key_index = []` は正常状態として扱い、index は暗号化 payload の `(key_id, chain)` 集合と一致しなければならない。
 - 子オブジェクトの必須 field 欠落、型・長さ・値不正、未知 enum は保存フォーマット仕様に従って対象オブジェクトをスキップし、構造化 warning を返す。
 - Store top-level を解釈できない不正は `InvalidStore` または version 専用 error とする。
 - 未知 field は読み込み時に無視し、再保存時に保持しない。
@@ -283,7 +283,9 @@ finalize_generated_profile(store, pending_blob, password)
 
 `prepare_generated_profile` は Store に Profile を追加しない。Application は Mnemonic のバックアップ受渡しを完了した後だけ `finalize_generated_profile` を呼ぶ。
 
-受渡し完了の確認方法および受領者の確認は Application / 利用者の責任とし、Core は UI 手順や受領者本人性を検証しない。受渡し失敗・中断または `finalize_generated_profile` の失敗時は、新規 Profile を正常状態として残さず、replacement Store を返さず、Core / Binding が Mnemonic を継続保持または診断出力へ含めない。
+Application は `prepare_generated_profile` が返した正確な Mnemonic 全体を意図した利用者へ提示し、利用者が記録・受領済みであることを明示確認した後だけ `finalize_generated_profile` を呼ばなければならない。UI方式、提示画面、確認文言および利用者本人性の検証方式は Core の契約に含めない。Core は受渡し完了の実体や利用者の確認事実を独立検証しない。
+
+確認前、表示値不一致、受渡し失敗・中断、または `finalize_generated_profile` の失敗時は、新規 Profile を正常状態として残さず、replacement Store を返さず、Core / Binding が Mnemonic、Pending、または中間秘密情報を継続保持・cache・diagnostic output へ含めない。`finalize_generated_profile` の成功は replacement Store が返された場合だけ成立する。
 
 `PendingProfileBlob` は Core 内部の versioned opaque blob とし、Wallet Store の wire-level 互換契約には含めない。外部契約として、format version を識別でき、`prepare_generated_profile` に渡した対象 Store と結び付き、Profile password で保護され、改ざん・破損を検知できることだけを要求する。具体的な CBOR key、内部 envelope schema、nonce構造、期限および再利用回数は公開契約に含めない。
 
@@ -297,9 +299,9 @@ finalize_generated_profile(store, pending_blob, password)
 
 ### 8.3 表示名
 
-Profile 名と Software Key の Account 名は optional とし、有効な UTF-8 text、最大 64 bytes とする。文字種は制限しない。
+Profile および Software Key の表示名は Core の管理対象外とする。Core は表示名を受け取らず、保存せず、返さず、変更 API を提供しない。
 
-名前は平文 metadata として保存するが AAD の認証対象とする。追加時に指定でき、後から変更する API も提供する。
+表示名の生成、入力検証、保存、同期、表示およびバックアップ範囲は Application の責任とし、本仕様では定義しない。表示名を `software_key_index` または Core の他の保存データへ含めてはならない。
 
 ### 8.4 保存済み秘密情報の通常取得禁止
 
@@ -313,7 +315,7 @@ Mnemonic / Software Key 秘密鍵の返却は、正しい Profile パスワー�
 
 Rust public API は implementation language 固有の細部を Binding へ漏らさない DTO を使用する。
 
-秘密情報を表す text は公開 API では byte sequence として扱う。Mnemonic と Profile password は UTF-8 bytes、private key は raw 32 bytes とする。Profile 名、Account 名、address、UUID のような非秘密 text は通常の text 型を使用できる。
+秘密情報を表す text は公開 API では byte sequence として扱う。Mnemonic と Profile password は UTF-8 bytes、private key は raw 32 bytes とする。address、UUID のような非秘密 text は通常の text 型を使用できる。
 
 ### 9.1 warning を伴う結果
 
@@ -349,8 +351,7 @@ create_empty_store() -> WalletStoreBlob
 prepare_generated_profile(
   store,
   password_utf8: bytes,
-  network,
-  name?
+  network
 ) -> ReadResult<PreparedProfile { mnemonic_utf8: bytes, pending_profile }>
 
 finalize_generated_profile(
@@ -363,8 +364,7 @@ restore_profile(
   store,
   mnemonic_utf8: bytes,
   password_utf8: bytes,
-  network,
-  name?
+  network
 ) -> MutationResult<ProfileInfo>
 
 export_mnemonic(
@@ -392,8 +392,7 @@ derive_software_key(
   profile_id,
   password_utf8: bytes,
   chain,
-  account_index,
-  name?
+  account_index
 ) -> MutationResult<SoftwareKeyInfo>
 
 import_software_key(
@@ -401,31 +400,14 @@ import_software_key(
   profile_id,
   password_utf8: bytes,
   chain,
-  private_key: bytes[32],
-  name?
+  private_key: bytes[32]
 ) -> MutationResult<SoftwareKeyInfo>
 
 generate_software_key(
   store,
   profile_id,
   password_utf8: bytes,
-  chain,
-  name?
-) -> MutationResult<SoftwareKeyInfo>
-
-set_profile_name(
-  store,
-  profile_id,
-  password_utf8: bytes,
-  name?
-) -> MutationResult<ProfileInfo>
-
-set_software_key_name(
-  store,
-  profile_id,
-  key_id,
-  password_utf8: bytes,
-  name?
+  chain
 ) -> MutationResult<SoftwareKeyInfo>
 
 get_public_account(
@@ -464,7 +446,7 @@ delete_profile(
 ) -> MutationResult<()>
 ```
 
-`name?` 未指定は名前なしを表す。名前の Store 表現は保存フォーマット仕様に従う。
+表示名は Core API および Wallet Store に含めない。Application は `profile_id`、`key_id`、`chain` などの Core が返す識別情報と独自に管理する表示名を関連付ける。
 
 ### 9.3 ProfileInfo / SoftwareKeyInfo
 
@@ -474,25 +456,22 @@ delete_profile(
 ProfileInfo {
   profile_id,
   network,
-  name?,
   software_key_count
 }
 
 SoftwareKeyInfo {
   key_id,
   chain,
-  origin,
-  name?
+  origin
 }
 
 SoftwareKeyListItem {
   key_id,
-  chain,
-  name?
+  chain
 }
 ```
 
-`list_profiles` / `list_software_keys` は平文 metadata だけで取得できるため Profile password を要求しない。`list_software_keys` は `SoftwareKeyListItem` を返し、`origin` を返さない。`SoftwareKeyInfo` は `derive_software_key`、`import_software_key`、`generate_software_key` および `set_software_key_name` のように Profile payload を認証・復号する結果で使用する。§6.3 のとおり、一覧結果の表示名・Account metadata は未認証である。
+`list_profiles` / `list_software_keys` は平文 `software_key_index` だけで取得できるため Profile password を要求しない。`list_software_keys` は `SoftwareKeyListItem` を返し、`origin` を返さない。`SoftwareKeyInfo` は `derive_software_key`、`import_software_key` および `generate_software_key` のように Profile payload を認証・復号する結果で使用する。§6.3 のとおり、一覧結果は未認証の平文 manifest である。
 
 ### 9.4 個別エクスポート
 
@@ -585,6 +564,7 @@ panic / stack trace に秘密値を format しない。
 | Profile / Software Key 重複 | `DuplicateProfile` / `DuplicateSoftwareKey` |
 | Profile Network と Chain / Network 条件の不一致 | `NetworkMismatch` |
 | Store構造または型の致命的な不正 | `InvalidStore` |
+| 認証・復号後の `software_key_index` と Software Key payload の不一致 | `InvalidStore` |
 | 未対応 Store / Profile schema version | `UnsupportedStoreVersion` / `UnsupportedProfileSchemaVersion` |
 | Pendingのversion、対象Store、改ざんまたは整合性不正 | `PendingProfileInvalid` |
 | Pendingを含むpassword認証または保護データの認証失敗 | `AuthenticationFailed` |
@@ -602,14 +582,13 @@ Store子オブジェクトのスキップ可能な不正は `wallet-store-format
 
 - Profile 作成 / 復元
 - Derived / Imported / Generated key 登録
-- Profile / Account 名変更
 - password change
 - Software Key delete
 - Profile delete
 
 Mutation は要求対象 Profile の envelope だけを置換し、他 Profile の encrypted payload、salt、nonce、ID、duplicate tag を変更しない。Profile delete の場合のみ対象 envelope を除去する。
 
-Profile / Account 名変更は AAD が変わるため、対象 Profile を認証・復号して new nonce で再暗号化する。
+Software Key の登録・削除では、暗号化 payload の `software_keys` と平文 `software_key_index` を同一 replacement Store で更新する。index は payload の `(key_id, chain)` 射影から生成し、Application が index だけを変更する API は提供しない。index は AAD の一部であるため、対象 Profile を認証・復号して new nonce で再暗号化する。
 
 `registry_key` は Store 更新を通じて変更せず、既存 Profile の `duplicate_tag` も変更しない。これらを含む AAD の認証に失敗した場合、秘密情報処理、重複判定および mutation を実行しない。
 
@@ -673,7 +652,7 @@ WASM public API は `Uint8Array` を binary data の基本型とする。Wallet 
 
 Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 UTF-8 は `InvalidMnemonic` または password 入力に対する `InvalidArgument` として拒否する。private key は raw 32 bytes 固定とし、Binding 層で textual encoding を受け付けない。
 
-非秘密情報である Profile 名、Account 名、address、UUID 等は JavaScript string を利用できる。
+非秘密情報である address、UUID 等は JavaScript string を利用できる。
 
 ---
 
@@ -694,7 +673,7 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 - RFC 8949 Core Deterministic Encoding に従う CBOR bytes
 - `duplicate_tag` bytes
 - `registry_key` / `duplicate_tag` を含む AAD bytes
-- Profile name / Account name の有無と map key省略を反映した `manifest_metadata` bytes
+- 空および複数要素の `software_key_index` を含む deterministic manifest bytes
 
 暗号化 fixture の password / salt / nonce 固定は test-only とする。
 
@@ -704,7 +683,9 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 
 - wrong password で復号不可
 - ciphertext / tag / AAD 1 bit 改変で認証失敗
-- Profile / Account 平文 metadata 改変後の認証失敗
+- `software_key_index` 改変後の認証失敗
+- `software_key_index` と暗号化 payload の不一致を `InvalidStore` として拒否
+- 初回 Mnemonic の明示確認前の finalize 不実行、確認後の成功、確認前の中断・失敗時の Profile 非作成
 - `registry_key` または `duplicate_tag` 改変後の認証失敗
 - empty password reject
 - duplicate Profile reject
@@ -747,7 +728,7 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 | Initial backup handoff | FR-001, FR-019, SEC-010, SEC-017, AC-034 |
 | Individual secret export | FR-022, FR-023, FR-019, SEC-010, SEC-015, SEC-017, SEC-020, SEC-021, AC-041..043 |
 
-表示名は保存フォーマットと API 契約上の optional metadata とし、秘密情報・署名・鍵導出の意味を変更しない。
+表示名は Core の保存フォーマットおよび API 契約に含めず、Application の責任とする。`software_key_index` は表示名ではなく Core 用の公開識別情報である。
 
 ---
 

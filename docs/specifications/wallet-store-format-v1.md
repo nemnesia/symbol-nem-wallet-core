@@ -193,10 +193,8 @@ ProfileEnvelopeV1
 3 = schema_version
 4 = kdf
 5 = cipher
-7 = software_key_index
+6 = software_key_index
 ```
-
-key `6` は v1 では使用しない。encoder は出力せず、decoder は §2 の未定義 field 規則に従って無視する。別用途へ再割り当てしない。
 
 論理 schema:
 
@@ -208,7 +206,7 @@ ProfileEnvelopeV1 {
   3: 1,                            // schema_version
   4: KdfParamsV1,
   5: CiphertextV1,
-  7: [SoftwareKeyIndexEntryV1]     // software_key_index
+  6: [SoftwareKeyIndexEntryV1]
 }
 ```
 
@@ -216,11 +214,34 @@ ProfileEnvelopeV1 {
 
 `network` は §4.1 の wire 値を使用する。
 
-`software_key_index` は Core が Software Key を `key_id` で識別・一覧取得するための平文インデックスであり、UI 表示名その他の Application 固有 metadata を含めてはならない。
+`software_key_index` は一覧取得に必要な公開情報だけを平文で保存する必須 field とする。`software_key_index = []` は有効な値であり、map key `6` の省略、`null`、text その他の代替表現は受け付けない。
 
-`software_key_index = []` は有効とする。`software_key_index` は §11 の AAD に含め、暗号化せずに改ざん検知する。
+`software_key_index` は `SoftwareKeyIndexEntryV1` の配列とし、private key、Mnemonic entropy、seed、`account_index`、origin および表示名を含めてはならない。
 
-### 7.1 KdfParamsV1
+### 7.1 SoftwareKeyIndexEntryV1
+
+CBOR map の整数 key は次で固定する。
+
+```text
+SoftwareKeyIndexEntryV1
+0 = key_id
+1 = chain
+```
+
+論理 schema:
+
+```text
+SoftwareKeyIndexEntryV1 {
+  0: bytes[16],   // key_id
+  1: uint         // chain
+}
+```
+
+`key_id` は raw 16 bytes、`chain` は §4.2 の wire 値を使用する。配列は `key_id` の raw bytes を bytewise に比較した昇順で保存し、同一 `(key_id, chain)` の重複を許可しない。
+
+`software_key_index` は暗号化 `ProfilePayloadV1.software_keys` の各レコードから `(key_id, chain)` を抽出した集合と一対一で一致しなければならない。不一致、重複または型・長さ・値の不正は Profile 全体を `InvalidStore` として拒否する。
+
+### 7.2 KdfParamsV1
 
 CBOR map の整数 key は次で固定する。
 
@@ -260,7 +281,7 @@ v1 の具体値:
 }
 ```
 
-### 7.2 CiphertextV1
+### 7.3 CiphertextV1
 
 CBOR map の整数 key は次で固定する。
 
@@ -293,33 +314,6 @@ v1 の具体値:
   3: bytes[16]
 }
 ```
-
-### 7.3 SoftwareKeyIndexEntryV1
-
-Software Key の一覧取得に必要な Core 管理情報は `ProfileEnvelopeV1.software_key_index` に平文で保存する。
-
-CBOR map の整数 key は次で固定する。
-
-```text
-SoftwareKeyIndexEntryV1
-0 = key_id
-1 = chain
-```
-
-論理 schema:
-
-```text
-SoftwareKeyIndexEntryV1 {
-  0: bytes[16],   // key_id
-  1: uint         // chain
-}
-```
-
-`SoftwareKeyIndexEntryV1` に private key、Mnemonic entropy、`account_index`、表示名その他の Application 固有 metadata を保存してはならない。
-
-`software_key_index` は `key_id` の raw 16 bytes を bytewise に比較した昇順とする。
-
-Profile payload の認証・復号に成功した処理では、`software_key_index` と `software_keys` が `key_id` と `chain` について完全に一致することを検証する。不一致の場合は正常な Profile として処理しない。
 
 ---
 
@@ -483,9 +477,11 @@ Profile encryption の AAD は次の値を **RFC 8949 Core Deterministic Encodin
 
 各要素は本書で定義した wire 表現を使用する。
 
-`registry_key` は `WalletStoreV1` key `2` の raw `bytes[32]`、`duplicate_tag` は `ProfileEnvelopeV1` key `2` の raw `bytes[32]`、`software_key_index` は `ProfileEnvelopeV1` key `7` の配列をそのまま使用する。
+`registry_key` は `WalletStoreV1` key `2` の raw `bytes[32]`、`duplicate_tag` は `ProfileEnvelopeV1` key `2` の raw `bytes[32]` とする。これらの値は、StoreまたはProfileのmanifestが改変された場合に、Profile payloadのAEAD認証へ反映される。
 
-`software_key_index` の各 `SoftwareKeyIndexEntryV1` は本書の並び順と整数 key に従う。これにより Software Key の `key_id` と `chain` を暗号化せずに一覧取得可能としつつ、`registry_key`、`duplicate_tag` および Core 管理インデックスの改変を AES-256-GCM の認証によって検知する。
+`software_key_index` は `ProfileEnvelopeV1` key `6` の実際の配列値を、同じ要素順序・整数 key・空配列表現で AAD の最後の要素として使用する。別の正規化表現、`null` または省略表現へ変換してはならない。
+
+これにより `software_key_index` の `key_id` または `chain` の改変を、`registry_key`、`duplicate_tag` とともに AES-256-GCM の認証によって検知する。認証・復号後は、index と暗号化 payload の Software Key 集合が一対一で一致することを検証し、不一致の場合は `InvalidStore` とする。
 
 例として Mainnet / Argon2id / AES-256-GCM の場合、論理値は次となる。
 
@@ -556,6 +552,8 @@ Store / Profile schema の migration は暗黙には行わない。
 
 読み込み時に自動で新 version へ書き換えることは禁止する。
 
+本書の `WalletStore.version = 1` および `ProfileEnvelope.schema_version = 1` は、`name` / `accounts` を含まない本 wire layout の未公開 v1 ドラフトを表す。旧ドラフトの `name` / `accounts` layout との互換性、変換、fallback parser は提供しない。旧 layout は `software_key_index` 必須 field の欠落または型不正として正常な v1 Store に受け入れない。
+
 migration が必要な場合は、変換元 version と変換先 version を API 名で明示した version 固定 API を提供する。
 
 例:
@@ -564,7 +562,7 @@ migration が必要な場合は、変換元 version と変換先 version を API
 migrate_store_v1_to_v2(store) -> WalletStoreBlob
 ```
 
-v1 の時点では migration API 自体は実装しない。新しい Store version を定義した時点で、必要な version 固定 migration API を追加する。
+v1 の時点では migration API 自体は実装しない。将来新しい Store version を定義した時点で、必要な version 固定 migration API を追加する。
 
 既存 version の意味は migration 実装追加後も変更しない。
 
