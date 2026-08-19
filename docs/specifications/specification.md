@@ -106,6 +106,21 @@ seed は PBKDF2-HMAC-SHA512 により生成し、永続保存しない。処理�
 
 ### 4.2 HD 導出
 
+Profile schema version 1 の HD 導出は `symbol-sdk` 3.3.2 の `sdk/javascript/src/Bip32.js` と同一結果になることを規範とする。実装言語や利用ライブラリは問わないが、同一 seed と同一 path から得られる各ノードの private key と chain code、および最終 private key は同 SDK 実装と一致しなければならない。
+
+v1 の導出規則は次で固定する。
+
+1. BIP39 Mnemonic から §4.1 の方法で 64 byte seed を生成する。
+2. root HMAC key は UTF-8 `"ed25519 seed"` とする。
+3. root node は `HMAC-SHA512(key = "ed25519 seed", data = seed)` で生成する。
+4. HMAC 結果の先頭 32 byte を node private key、後半 32 byte を chain code とする。
+5. 各 path segment は hardened child とし、child data は `0x00 || parent_private_key[32] || child_index_be32` とする。
+6. `child_index_be32` は `identifier | 0x80000000` を unsigned 32 bit big-endian で表現する。
+7. child node は `HMAC-SHA512(key = parent_chain_code, data = child_data)` で生成し、同様に先頭 32 byte を child private key、後半 32 byte を child chain code とする。
+8. path の全 segment について上記 child derivation を順番に適用し、最終 node の private key を Derived Software Key とする。
+
+この規則は `symbol-sdk` 3.3.2 の `Bip32` / `Bip32Node` の `fromSeed`、`deriveOne`、`derivePath` と互換でなければならない。`bitcore-mnemonic` は Mnemonic の生成・seed 化に使用される SDK 依存実装であり、Wallet Core が同パッケージ自体へ依存することは要求しない。
+
 Profile schema version 1 の導出パスは次で固定する。
 
 | Chain | Network | path |
@@ -119,7 +134,7 @@ Profile schema version 1 の導出パスは次で固定する。
 
 schema version 1 の導出規則は後から変更しない。将来導出規則を変更する場合は新しい Profile schema version を割り当てる。
 
-既存 Symbol / NEM Wallet との復元互換性は、リポジトリ内で対象 Wallet の名称、版または commit、入力および期待値を特定できる根拠がある場合だけ、その根拠に紐付く fixture の範囲で主張する。対象を特定できない場合、次の path は本仕様の v1 導出規則として扱うが、既存 Wallet 一般との復元互換性は未確認とする。`symbol-sdk` 3.3.2 は HD 導出方式の根拠ではなく、導出後の鍵・公開情報・署名・Network 処理の互換性基準である。
+既存 Symbol / NEM Wallet との復元互換性は、`symbol-sdk` 3.3.2 の上記 HD 導出結果を v1 の基準とする。追加で特定の既存 Wallet との互換性を主張する場合は、リポジトリ内で対象 Wallet の名称、版または commit、入力および期待値を特定できる fixture の範囲に限定する。`symbol-sdk` 3.3.2 は HD 導出、導出後の鍵、公開情報、署名および Network 処理の v1 互換性基準とする。
 
 Symbol / NEM Testnet は同じ path になるため、同一 Mnemonic / account index から同一秘密鍵が導出され得る。この場合でも Software Key は Chain に固定されるため、Symbol 用と NEM 用は別 Software Key として登録できる。
 
@@ -655,6 +670,7 @@ WASM public API は `Uint8Array` を binary data の基本型とする。Store b
 最低限、次の deterministic fixture を固定する。
 
 - BIP39 24 words mnemonic -> seed
+- `symbol-sdk` 3.3.2 `Bip32` と同一 seed / path から root private key / chain code、各 hardened child private key / chain code、最終 private key が一致すること
 - Symbol Mainnet / Testnet path -> private/public key/address
 - NEM Mainnet / Testnet path -> private/public key/address
 - Symbol / NEM signing payload -> signature verification
@@ -745,7 +761,7 @@ WASM public API は `Uint8Array` を binary data の基本型とする。Store b
 - BIP39: Mnemonic code for generating deterministic keys
 - BIP44: Multi-Account Hierarchy for Deterministic Wallets
 - SLIP-0044: registered coin types
-- リポジトリ内で特定可能な既存WalletのHD導出仕様またはfixture（存在する場合）
+- `symbol-sdk` 3.3.2 `sdk/javascript/src/Bip32.js`
 - `symbol-sdk` 3.3.2
 
 本書の変更で要件そのものを変更する必要が生じた場合は、仕様側で暗黙に拡張せず `docs/requirements/requirements.md` または decision record 側へ戻して決定する。
