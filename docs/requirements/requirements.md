@@ -49,7 +49,7 @@ Profile
 - Generated Software Key は Core が独立生成し既存 Profile へ追加する。
 - Imported / Generated Software Key だけで Profile を作成できない。
 - 同一 Mnemonic + 同一 Network の Profile 重複登録を拒否する。同一 Mnemonic + 異なる Network は別 Profile として許可する。
-- 同一 Profile 内で同一秘密鍵に対応する Software Key を由来をまたいで重複登録しない。
+- 同一 Profile 内かつ同一 Chain で、同一秘密鍵に対応する Software Key を由来をまたいで重複登録しない。異なる Chain では同一秘密鍵に対応する Software Key を別 Software Key として許可する。
 
 ### 2.2 Binding と Core
 
@@ -192,7 +192,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | FR-015 | MUST | Profile 作成時に Mainnet / Testnet を必須指定し保存すること。 |
 | FR-016 | MUST | Profile の Network を作成後変更できないこと。 |
 | FR-017 | MUST | 同一 Mnemonic + 同一 Network の Profile 重複登録を拒否し、異なる Network なら別 Profile を許可すること。 |
-| FR-018 | MUST | 同一 Profile 内で同一秘密鍵に対応する Software Key の重複登録を由来をまたいで拒否すること。 |
+| FR-018 | MUST | 同一 Profile 内かつ同一 Chain で同一秘密鍵に対応する Software Key の重複登録を由来をまたいで拒否すること。異なる Chain では同一秘密鍵に対応する Software Key を別 Software Key として許可すること。 |
 | FR-019 | MUST | Native / WASM Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除、Mnemonic の個別エクスポート、Software Key 秘密鍵の個別エクスポートを利用できること。新規Profile作成は初回バックアップ受渡しの完了を条件とし、Profile 全体の一括バックアップ・復旧は含めないこと。 |
 | FR-020 | MUST | Profile 作成・パスワード変更で未指定・空・Core 内部既定値の Profile パスワードを拒否すること。パスワード品質条件は上位 Application / Package の責任とし、Core は独自に要求しないこと。 |
 | FR-021 | MUST | 新規生成または外部入力の Mnemonic / 秘密鍵について、`OPEN-VALIDITY-001`で承認された妥当性・安全性基準を満たした値だけを登録・利用し、生成・検証・保存失敗時に不完全状態を登録せず既存 Profile を変更しないこと。 |
@@ -251,7 +251,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | DR-004 | MUST | Software Key の由来を区別可能としても基本的な秘密鍵利用処理は同じライフサイクルで扱うこと。 |
 | DR-005 | MUST | Profile は固定 Network を持ち Chain には固定されず、各 Software Key の指定 Chain / Network に対応する公開情報・署名結果を扱うこと。 |
 | DR-006 | MUST | Profile 重複は Mnemonic + Network の組み合わせで判定すること。 |
-| DR-007 | MUST | 同一 Profile 内で同一秘密鍵を重複管理しないこと。 |
+| DR-007 | MUST | 同一 Profile 内かつ同一 Chain では同一秘密鍵を重複管理しないこと。異なる Chain では同一秘密鍵を別 Software Key として管理できること。 |
 | DR-008 | MUST | Symbol / NEM の秘密鍵・公開鍵、アドレス、署名および Network 処理結果は `symbol-sdk` 3.3.2 と互換であること。HD Wallet の具体的導出方式は既存 Wallet の復元互換性を維持する形で仕様設計に固定すること。 |
 
 ---
@@ -262,7 +262,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | --- | --- | --- |
 | AC-001 | FR-001, FR-015, FR-020 | 未指定・空・Core 既定値でない Profile パスワードと Network でのみ Profile を作成でき、Mnemonic なし Profile を作成しない。新規Mnemonic生成経路では初回バックアップ受渡しが完了した場合だけProfile作成が成功し、受渡し失敗・中断時は新規Profileを正常状態として残さない。既存Mnemonic復元経路では、指定Mnemonicを持つProfileを作成できる。 |
 | AC-002 | FR-002, FR-006, SEC-001 | 保存 Mnemonic は暗号化対象であり平文永続保存されない。 |
-| AC-003 | FR-003, DR-005, DR-007 | 正しいパスワード、Profile Network、指定 Chain から Derived Software Key を追加でき、重複鍵を追加しない。 |
+| AC-003 | FR-003, DR-005, DR-007 | 正しいパスワード、Profile Network、指定 Chain から Derived Software Key を追加でき、同一 Chain の重複鍵を追加しない。 |
 | AC-004 | FR-004, FR-018, FR-021 | 認可・妥当性確認・保存に成功した Imported Software Key だけを登録し、失敗時は Profile 状態を変更しない。 |
 | AC-005 | FR-005, FR-018, FR-021 | 認可・生成・妥当性確認・保存に成功した Generated Software Key だけを登録し、失敗時は Profile 状態を変更しない。 |
 | AC-006 | FR-006, SEC-001 | 全 Software Key が暗号化保存対象であり平文永続保存されない。 |
@@ -279,7 +279,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | AC-017 | SEC-004 | 破損・認証失敗データで秘密情報処理が成功しない。 |
 | AC-018 | FR-001, FR-017, DR-006 | 存在するProfileについては同一 Mnemonic + 同一 Network を重複作成せず、異なる Network は別 Profile として作成できる。Profile削除後に利用者が保持する同一Mnemonic + 同一Networkから新しいProfileを作成することは、削除済みCoreデータの再利用ではないため許可する。 |
 | AC-019 | FR-016, DR-005 | Profile Network を作成後変更できない。 |
-| AC-020 | FR-018, DR-007 | 同一秘密鍵を別由来または再導出で重複登録しない。 |
+| AC-020 | FR-018, DR-007 | 同一 Profile・同一 Chain では同一秘密鍵を別由来または再導出で重複登録しない。異なる Chain では同一秘密鍵を異なる Software Key として登録できる。 |
 | AC-021 | FR-019, NFR-001 | Desktop Native Binding から v1 主要機能を利用できる。 |
 | AC-022 | FR-019, NFR-001 | Mobile Native Binding から v1 主要機能を利用できる。 |
 | AC-023 | NFR-002 | Binding が Core 責任、Wallet 固有ロジック、Network、Transaction 構築を独自実装しない。 |

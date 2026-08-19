@@ -111,20 +111,22 @@ Core / Binding 境界では Mnemonic を JavaScript string として公開せず
 
 ### 4.2 HD 導出
 
-Profile schema version 1 の HD 導出は `symbol-sdk` 3.3.2 の `sdk/javascript/src/Bip32.js` と同一結果になることを規範とする。実装言語や利用ライブラリは問わないが、同一 seed と同一 path から得られる各ノードの private key と chain code、および最終 private key は同 SDK 実装と一致しなければならない。
+Profile schema version 1 の HD 導出は `symbol-sdk` 3.3.2 の `sdk/javascript/src/Bip32.js` と、Chain ごとの `SymbolFacade` / `NemFacade` における BIP32 curve 名および BIP32 node から KeyPair への変換結果を規範とする。実装言語や利用ライブラリは問わないが、同一 Mnemonic、同一 Chain、同一 Network、同一 `account_index` から得られる BIP32 node と Derived Software Key は同 SDK 実装と一致しなければならない。
 
 v1 の導出規則は次で固定する。
 
 1. BIP39 Mnemonic から §4.1 の方法で 64 byte seed を生成する。
-2. root HMAC key は UTF-8 `"ed25519 seed"` とする。
-3. root node は `HMAC-SHA512(key = "ed25519 seed", data = seed)` で生成する。
+2. root HMAC key は Chain ごとに固定し、Symbol は UTF-8 `"ed25519 seed"`、NEM は UTF-8 `"ed25519-keccak seed"` とする。これは `SymbolFacade.BIP32_CURVE_NAME = "ed25519"` および `NemFacade.BIP32_CURVE_NAME = "ed25519-keccak"` を `Bip32` の curve name として使用した結果と一致させる。
+3. root node は `HMAC-SHA512(key = root_hmac_key, data = seed)` で生成する。
 4. HMAC 結果の先頭 32 byte を node private key、後半 32 byte を chain code とする。
 5. 各 path segment は hardened child とし、child data は `0x00 || parent_private_key[32] || child_index_be32` とする。
 6. `child_index_be32` は `identifier | 0x80000000` を unsigned 32 bit big-endian で表現する。
 7. child node は `HMAC-SHA512(key = parent_chain_code, data = child_data)` で生成し、同様に先頭 32 byte を child private key、後半 32 byte を child chain code とする。
-8. path の全 segment について上記 child derivation を順番に適用し、最終 node の private key を Derived Software Key とする。
+8. path の全 segment について上記 child derivation を順番に適用する。
+9. Symbol の Derived Software Key は最終 BIP32 node の private key 32 bytes をそのまま使用する。
+10. NEM の Derived Software Key は `symbol-sdk` 3.3.2 `NemFacade.bip32NodeToKeyPair()` と同様に、最終 BIP32 node の private key 32 bytes を reverse した値を使用する。以後、保存、個別エクスポート、公開鍵生成および署名へ渡す NEM private key はこの reverse 後の 32 bytes とする。
 
-この規則は `symbol-sdk` 3.3.2 の `Bip32` / `Bip32Node` の `fromSeed`、`deriveOne`、`derivePath` と互換でなければならない。`bitcore-mnemonic` は Mnemonic の生成・seed 化に使用される SDK 依存実装であり、Wallet Core が同パッケージ自体へ依存することは要求しない。
+この BIP32 node derivation は `symbol-sdk` 3.3.2 の `Bip32` / `Bip32Node` の `fromSeed`、`deriveOne`、`derivePath` と互換でなければならない。Derived Software Key への最終変換は Symbol では `SymbolFacade.bip32NodeToKeyPair()`、NEM では `NemFacade.bip32NodeToKeyPair()` と互換でなければならない。`bitcore-mnemonic` は Mnemonic の生成・seed 化に使用される SDK 依存実装であり、Wallet Core が同パッケージ自体へ依存することは要求しない。
 
 Profile schema version 1 の導出パスは次で固定する。
 
@@ -141,7 +143,7 @@ schema version 1 の導出規則は後から変更しない。将来導出規則
 
 既存 Symbol / NEM Wallet との復元互換性は、`symbol-sdk` 3.3.2 の上記 HD 導出結果を v1 の基準とする。追加で特定の既存 Wallet との互換性を主張する場合は、リポジトリ内で対象 Wallet の名称、版または commit、入力および期待値を特定できる fixture の範囲に限定する。`symbol-sdk` 3.3.2 は HD 導出、導出後の鍵、公開情報、署名および Network 処理の v1 互換性基準とする。
 
-Symbol / NEM Testnet は同じ path になるため、同一 Mnemonic / account index から同一秘密鍵が導出され得る。この場合でも Software Key は Chain に固定されるため、Symbol 用と NEM 用は別 Software Key として登録できる。
+Symbol / NEM Testnet は同じ path を使用するが、root HMAC key が Chain ごとに異なるため、同一 Mnemonic / `account_index` から同一 BIP32 tree を共有しない。異なる Chain の Software Key がインポート等により同一 private key を持つ場合は、§5.3 のとおり別 Software Key として扱う。
 
 ### 4.3 導出結果の登録
 
@@ -678,7 +680,8 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 最低限、次の deterministic fixture を固定する。
 
 - BIP39 24 words mnemonic -> seed
-- `symbol-sdk` 3.3.2 `Bip32` と同一 seed / path から root private key / chain code、各 hardened child private key / chain code、最終 private key が一致すること
+- Symbol は root HMAC key `"ed25519 seed"`、NEM は root HMAC key `"ed25519-keccak seed"` を使用し、`symbol-sdk` 3.3.2 `Bip32` と同一 seed / path から root private key / chain code、各 hardened child private key / chain code、最終 BIP32 node private key が一致すること
+- Symbol は最終 BIP32 node private key をそのまま、NEM はその bytes を reverse した値を Derived Software Key とし、それぞれ `SymbolFacade.bip32NodeToKeyPair()` / `NemFacade.bip32NodeToKeyPair()` の結果と一致すること
 - Symbol Mainnet / Testnet path -> private/public key/address
 - NEM Mainnet / Testnet path -> private/public key/address
 - Symbol / NEM signing payload -> signature verification
@@ -770,7 +773,6 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 
 ## 17. 要確認事項
 
-- 要件 `FR-018`、`DR-007`、`AC-020` の「同一 Profile 内の同一秘密鍵」の文言は Chain による例外を明示していない。一方、現行仕様は異なる Chain の同一 private key を別 Software Key として許可している。本更新は現行仕様を維持し、上流要件との整合性は未確認事項として残す。
 - 新規 Profile の作成・復元時は他の既存 Profile を認証・復号しないため、既存全 Profile の `duplicate_tag` と暗号化 Mnemonic / Network の意味的一致を事前検証できない。本更新の意味的一致検証は、当該操作で認証・復号した対象 Profile に限定する。Store 全体の事前検証方式は未決定とする。
 
 ---
@@ -787,6 +789,8 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 - BIP44: Multi-Account Hierarchy for Deterministic Wallets
 - SLIP-0044: registered coin types
 - `symbol-sdk` 3.3.2 `sdk/javascript/src/Bip32.js`
+- `symbol-sdk` 3.3.2 `sdk/javascript/src/facade/SymbolFacade.js`
+- `symbol-sdk` 3.3.2 `sdk/javascript/src/facade/NemFacade.js`
 - `symbol-sdk` 3.3.2
 
 本書の変更で要件そのものを変更する必要が生じた場合は、仕様側で暗黙に拡張せず `docs/requirements/requirements.md` または decision record 側へ戻して決定する。
