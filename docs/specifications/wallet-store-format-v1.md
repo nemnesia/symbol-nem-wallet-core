@@ -193,22 +193,22 @@ ProfileEnvelopeV1
 3 = schema_version
 4 = kdf
 5 = cipher
-6 = name
-7 = accounts
+7 = software_key_index
 ```
+
+key `6` は v1 では使用しない。encoder は出力せず、decoder は §2 の未定義 field 規則に従って無視する。別用途へ再割り当てしない。
 
 論理 schema:
 
 ```text
 ProfileEnvelopeV1 {
-  0: bytes[16],             // profile_id
-  1: uint,                  // network
-  2: bytes[32],             // duplicate_tag
-  3: 1,                     // schema_version
+  0: bytes[16],                    // profile_id
+  1: uint,                         // network
+  2: bytes[32],                    // duplicate_tag
+  3: 1,                            // schema_version
   4: KdfParamsV1,
   5: CiphertextV1,
-  6: text?,                 // optional profile name; key omitted when unspecified
-  7: [AccountMetadataV1]?   // optional account metadata; key omitted when unspecified
+  7: [SoftwareKeyIndexEntryV1]     // software_key_index
 }
 ```
 
@@ -216,11 +216,9 @@ ProfileEnvelopeV1 {
 
 `network` は §4.1 の wire 値を使用する。
 
-`name` と `accounts` は一覧表示用途の平文 metadata とし、暗号化しない。秘密情報を含めてはならない。
+`software_key_index` は Core が Software Key を `key_id` で識別・一覧取得するための平文インデックスであり、UI 表示名その他の Application 固有 metadata を含めてはならない。
 
-`name` または `accounts` が未指定の場合、それぞれの map key `6` または `7` を省略する。CBOR `null` による代替表現は受け付けない。明示的な空配列の `accounts` は key `7` を保持した空配列として、未指定とは別に表現する。
-
-Profile `name` は有効な UTF-8 text とし、UTF-8 byte 列として最大 64 bytes とする。文字種は制限しない。
+`software_key_index = []` は有効とする。`software_key_index` は §11 の AAD に含め、暗号化せずに改ざん検知する。
 
 ### 7.1 KdfParamsV1
 
@@ -296,38 +294,32 @@ v1 の具体値:
 }
 ```
 
-### 7.3 AccountMetadataV1
+### 7.3 SoftwareKeyIndexEntryV1
 
-Account 一覧表示に必要な metadata は `ProfileEnvelopeV1.accounts` に平文で保存する。
+Software Key の一覧取得に必要な Core 管理情報は `ProfileEnvelopeV1.software_key_index` に平文で保存する。
 
 CBOR map の整数 key は次で固定する。
 
 ```text
-AccountMetadataV1
+SoftwareKeyIndexEntryV1
 0 = key_id
 1 = chain
-2 = name
 ```
 
 論理 schema:
 
 ```text
-AccountMetadataV1 {
+SoftwareKeyIndexEntryV1 {
   0: bytes[16],   // key_id
-  1: uint,        // chain
-  2: text?        // optional account name; key omitted when unspecified
+  1: uint         // chain
 }
 ```
 
-`AccountMetadataV1` に private key、Mnemonic entropy、`account_index` などの秘密情報または導出情報を保存してはならない。
+`SoftwareKeyIndexEntryV1` に private key、Mnemonic entropy、`account_index`、表示名その他の Application 固有 metadata を保存してはならない。
 
-Account `name` は有効な UTF-8 text とし、UTF-8 byte 列として最大 64 bytes とする。文字種は制限しない。
+`software_key_index` は `key_id` の raw 16 bytes を bytewise に比較した昇順とする。
 
-`name` が未指定の場合は map key `2` を省略する。CBOR `null` による代替表現は受け付けない。空文字列を指定した場合は、未指定とは異なる明示的な text 値として扱う。
-
-`accounts` は `key_id` の raw 16 bytes を bytewise に比較した昇順とする。
-
-`name` および `accounts` は §11 の AAD に含め、暗号化せずに改ざん検知する。AAD内でも、実際の manifest と同じ map key 省略規則を使用する。
+Profile payload の認証・復号に成功した処理では、`software_key_index` と `software_keys` が `key_id` と `chain` について完全に一致することを検証する。不一致の場合は正常な Profile として処理しない。
 
 ---
 
@@ -485,26 +477,15 @@ Profile encryption の AAD は次の値を **RFC 8949 Core Deterministic Encodin
   profile_schema_version,
   kdf_algorithm_id,
   cipher_algorithm_id,
-  manifest_metadata
+  software_key_index
 ]
 ```
 
 各要素は本書で定義した wire 表現を使用する。
 
-`registry_key` は `WalletStoreV1` key `2` の raw `bytes[32]`、`duplicate_tag` は `ProfileEnvelopeV1` key `2` の raw `bytes[32]` とする。これらの値は、StoreまたはProfileのmanifestが改変された場合に、Profile payloadのAEAD認証へ反映される。
+`registry_key` は `WalletStoreV1` key `2` の raw `bytes[32]`、`duplicate_tag` は `ProfileEnvelopeV1` key `2` の raw `bytes[32]`、`software_key_index` は `ProfileEnvelopeV1` key `7` の配列をそのまま使用する。
 
-`manifest_metadata` は、次の整数 keyを持つ CBOR map を deterministic encode した値とする。
-
-```text
-{
-  6: ProfileEnvelopeV1.name,       // key 6 only when present
-  7: ProfileEnvelopeV1.accounts    // key 7 only when present
-}
-```
-
-Profile nameまたはaccountsが未指定の場合、対応する map keyを省略する。`accounts` が存在する場合、その配列内の `AccountMetadataV1` は本書の並び順・整数 key・optional name省略規則に従う。したがって、AADは `null` や空配列へ正規化せず、実際の manifest と同じ論理値を表現する。
-
-これにより Profile 名、Account metadata の `key_id`、`chain`、`name` を暗号化せずに一覧取得可能としつつ、`registry_key`、`duplicate_tag` および表示 metadata の改変を AES-256-GCM の認証によって検知する。
+`software_key_index` の各 `SoftwareKeyIndexEntryV1` は本書の並び順と整数 key に従う。これにより Software Key の `key_id` と `chain` を暗号化せずに一覧取得可能としつつ、`registry_key`、`duplicate_tag` および Core 管理インデックスの改変を AES-256-GCM の認証によって検知する。
 
 例として Mainnet / Argon2id / AES-256-GCM の場合、論理値は次となる。
 
@@ -519,11 +500,11 @@ Profile nameまたはaccountsが未指定の場合、対応する map keyを省�
   1,
   0,
   0,
-  manifest_metadata
+  software_key_index
 ]
 ```
 
-AAD により暗号文を別 Profile、Network、schema、algorithm または metadata context へ移植して正常データとして扱うことを防ぐ。
+AAD により暗号文を別 Profile、Network、schema、algorithm または Software Key index context へ移植して正常データとして扱うことを防ぐ。
 
 ---
 
