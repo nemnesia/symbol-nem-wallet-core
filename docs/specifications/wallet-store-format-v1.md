@@ -20,9 +20,36 @@ Wallet Store v1 は **RFC 8949 Core Deterministic Encoding Requirements に従�
 - duplicate map key は許可しない。
 - float は使用しない。
 - 未定義 field は decoder が無視する。
+- 未定義 field は再保存時に保持しない。
 - 未知 enum 値は decoder がエラーにせず無視する。
 
 同一の論理値について deterministic な CBOR 表現を生成する。
+
+### 2.1 不正オブジェクトの扱い
+
+Profile / Software Key などの子オブジェクトについて、次のいずれかを検出した場合は、その対象オブジェクト全体をスキップする。
+
+- 必須 field の欠落
+- 既知 field の型不正
+- 固定長 field の長さ不正
+- field 値の許容範囲外
+- 未知 enum 値
+
+スキップ時は構造化された `DecodeWarning` を生成する。
+
+warning に Mnemonic entropy、private key、ciphertext などの秘密情報を含めてはならない。
+
+warning code は少なくとも次を定義する。
+
+```text
+UnknownEnumValue
+MissingRequiredField
+InvalidFieldType
+InvalidFieldLength
+InvalidFieldValue
+```
+
+Wallet Store top-level 自体の必須 field 欠落、型不正、固定長 field の長さ不正など、Store 全体を解釈できない不正は decode error とする。
 
 ---
 
@@ -150,7 +177,7 @@ WalletStoreV1 {
 
 `profiles` は `profile_id` の raw 16 bytes を bytewise に比較した昇順で保存する。
 
-登録順には意味を持たせない。
+`profiles = []` は有効な Store 初期状態とする。登録順には意味を持たせない。
 
 ---
 
@@ -166,24 +193,30 @@ ProfileEnvelopeV1
 3 = schema_version
 4 = kdf
 5 = cipher
+6 = name
+7 = accounts
 ```
 
 論理 schema:
 
 ```text
 ProfileEnvelopeV1 {
-  0: bytes[16],        // profile_id
-  1: uint,             // network
-  2: bytes[32],        // duplicate_tag
-  3: 1,                // schema_version
+  0: bytes[16],             // profile_id
+  1: uint,                  // network
+  2: bytes[32],             // duplicate_tag
+  3: 1,                     // schema_version
   4: KdfParamsV1,
-  5: CiphertextV1
+  5: CiphertextV1,
+  6: text?,                 // optional profile name
+  7: [AccountMetadataV1]?   // optional account metadata
 }
 ```
 
 `profile_id` は raw 16 bytes とする。
 
 `network` は §4.1 の wire 値を使用する。
+
+`name` と `accounts` は一覧表示用途の平文 metadata とし、暗号化しない。秘密情報を含めてはならない。
 
 ### 7.1 KdfParamsV1
 
@@ -259,6 +292,35 @@ v1 の具体値:
 }
 ```
 
+### 7.3 AccountMetadataV1
+
+Account 一覧表示に必要な metadata は `ProfileEnvelopeV1.accounts` に平文で保存する。
+
+CBOR map の整数 key は次で固定する。
+
+```text
+AccountMetadataV1
+0 = key_id
+1 = chain
+2 = name
+```
+
+論理 schema:
+
+```text
+AccountMetadataV1 {
+  0: bytes[16],   // key_id
+  1: uint,        // chain
+  2: text?        // optional account name
+}
+```
+
+`AccountMetadataV1` に private key、Mnemonic entropy、`account_index` などの秘密情報または導出情報を保存してはならない。
+
+`accounts` は `key_id` の raw 16 bytes を bytewise に比較した昇順とする。
+
+平文 metadata と暗号化された `SoftwareKeyRecordV1` の整合性・改ざん検知方法は別途確定する。
+
 ---
 
 ## 8. encrypted ProfilePayloadV1
@@ -284,7 +346,7 @@ ProfilePayloadV1 {
 
 `software_keys` は `key_id` の raw 16 bytes を bytewise に比較した昇順で保存する。
 
-登録順には意味を持たせない。
+`software_keys = []` は有効とする。登録順には意味を持たせない。
 
 ---
 
@@ -335,6 +397,14 @@ DerivedV1 {
   1: uint    // account_index
 }
 ```
+
+`account_index` の有効範囲は次とする。
+
+```text
+0..=2147483647
+```
+
+範囲外の場合は対象 `SoftwareKeyRecordV1` をスキップし、`InvalidFieldValue` warning を生成する。
 
 Imported:
 
@@ -410,7 +480,7 @@ Profile encryption の AAD は次の値を **RFC 8949 Core Deterministic Encodin
 
 各要素は本書で定義した wire 表現を使用する。
 
-例として Mainnet / Symbol / Argon2id / AES-256-GCM の場合、論理値は次となる。
+例として Mainnet / Argon2id / AES-256-GCM の場合、論理値は次となる。
 
 ```text
 [
@@ -435,13 +505,24 @@ AAD により暗号文を別 Profile、Network、schema または algorithm cont
 ```text
 duplicate_tag = HMAC-SHA256(
   registry_key,
-  "symbol-nem-wallet-core/profile-duplicate/v1" ||
-  network ||
-  mnemonic_entropy
+  domain_separator || network_u8 || mnemonic_entropy
 )
 ```
 
-`network` は本書で固定した wire 値を使用する。
+`domain_separator` は次の UTF-8 byte 列とする。
+
+```text
+UTF-8("symbol-nem-wallet-core/profile-duplicate/v1")
+```
+
+`network_u8` は 1 byte 固定とする。
+
+```text
+0x00 = Testnet
+0x01 = Mainnet
+```
+
+`mnemonic_entropy` は 32 bytes をそのまま連結する。
 
 同一 Mnemonic であっても Network が異なる場合は別 Profile として登録できる。
 
@@ -481,6 +562,10 @@ v1 の時点では migration API 自体は実装しない。新しい Store vers
 
 ## 14. 現時点で未確定の詳細
 
-本書作成時点で、保存フォーマット v1 の主要な wire-level schema は確定済みである。
+保存フォーマット v1 の主要な wire-level schema は確定済みである。
+
+現時点では、平文 `AccountMetadataV1` と暗号化された `SoftwareKeyRecordV1` の整合性・改ざん検知方法を未確定とする。
+
+Profile / Account の `name` の最大長・文字列制約も別途確定する。
 
 今後追加仕様が必要になった場合も、本書で確定済みの wire 値、整数 key、version の意味を変更してはならない。
