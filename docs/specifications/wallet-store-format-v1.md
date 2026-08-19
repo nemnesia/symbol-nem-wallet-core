@@ -98,7 +98,14 @@ SoftwareKeyId = bytes[16]
 
 一度割り当てた enum wire 値の意味は変更しない。廃止した値も別用途へ再利用しない。
 
-未知 enum 値は decoder がエラーにせず無視する。未知 enum 値をどの単位でスキップするかの詳細は別途確定する。
+未知 enum 値は decoder がエラーにせず無視する。ただし、対象オブジェクト内に未知 enum 値が 1 つでも存在する場合、そのオブジェクト全体をスキップする。
+
+具体例:
+
+- `SoftwareKeyRecordV1.chain` または `SoftwareKeyOriginV1.origin` が未知値の場合、その `SoftwareKeyRecordV1` 全体をスキップする。
+- `ProfileEnvelopeV1.network`、`KdfParamsV1.algorithm` または `CiphertextV1.algorithm` が未知値の場合、その `ProfileEnvelopeV1` 全体をスキップする。
+- `WalletStore.version` が未対応の場合はスキップせず `UnsupportedStoreVersion` として Store 全体を拒否する。
+- `ProfileEnvelope.schema_version` が未対応の場合は `UnsupportedProfileSchemaVersion` とする。
 
 ---
 
@@ -178,6 +185,80 @@ ProfileEnvelopeV1 {
 
 `network` は §4.1 の wire 値を使用する。
 
+### 7.1 KdfParamsV1
+
+CBOR map の整数 key は次で固定する。
+
+```text
+KdfParamsV1
+0 = algorithm
+1 = version
+2 = memory_kib
+3 = iterations
+4 = parallelism
+5 = salt
+```
+
+論理 schema:
+
+```text
+KdfParamsV1 {
+  0: uint,        // algorithm
+  1: uint,        // Argon2 version
+  2: uint,        // memory_kib
+  3: uint,        // iterations
+  4: uint,        // parallelism
+  5: bytes[16]    // salt
+}
+```
+
+v1 の具体値:
+
+```text
+{
+  0: 0,           // Argon2id
+  1: 19,          // 0x13
+  2: 65536,
+  3: 3,
+  4: 1,
+  5: bytes[16]
+}
+```
+
+### 7.2 CiphertextV1
+
+CBOR map の整数 key は次で固定する。
+
+```text
+CiphertextV1
+0 = algorithm
+1 = nonce
+2 = ciphertext
+3 = tag
+```
+
+論理 schema:
+
+```text
+CiphertextV1 {
+  0: uint,        // algorithm
+  1: bytes[12],   // nonce
+  2: bytes,       // ciphertext
+  3: bytes[16]    // tag
+}
+```
+
+v1 の具体値:
+
+```text
+{
+  0: 0,           // AES-256-GCM
+  1: bytes[12],
+  2: bytes,
+  3: bytes[16]
+}
+```
+
 ---
 
 ## 8. encrypted ProfilePayloadV1
@@ -235,6 +316,53 @@ SoftwareKeyRecordV1 {
 同一 private key であっても Chain が異なる場合は別 Software Key として扱う。
 
 Software Key の重複判定は対象 Profile 内で行い、同一 Chain かつ同一 private key の場合のみ重複とする。
+
+### 9.1 SoftwareKeyOriginV1
+
+`SoftwareKeyOriginV1` は variant tag を key `0` に持つ CBOR map とする。
+
+Derived:
+
+```text
+DerivedV1
+0 = origin
+1 = account_index
+```
+
+```text
+DerivedV1 {
+  0: 0,      // Derived
+  1: uint    // account_index
+}
+```
+
+Imported:
+
+```text
+ImportedV1
+0 = origin
+```
+
+```text
+ImportedV1 {
+  0: 1       // Imported
+}
+```
+
+Generated:
+
+```text
+GeneratedV1
+0 = origin
+```
+
+```text
+GeneratedV1 {
+  0: 2       // Generated
+}
+```
+
+Derived Software Key に `derivation_path` は保存しない。
 
 ---
 
@@ -337,7 +465,15 @@ Store / Profile schema の migration は暗黙には行わない。
 
 読み込み時に自動で新 version へ書き換えることは禁止する。
 
-migration が必要な場合は明示的な migration operation / API として実行する。
+migration が必要な場合は、変換元 version と変換先 version を API 名で明示した version 固定 API を提供する。
+
+例:
+
+```text
+migrate_store_v1_to_v2(store) -> WalletStoreBlob
+```
+
+v1 の時点では migration API 自体は実装しない。新しい Store version を定義した時点で、必要な version 固定 migration API を追加する。
 
 既存 version の意味は migration 実装追加後も変更しない。
 
@@ -345,12 +481,6 @@ migration が必要な場合は明示的な migration operation / API として�
 
 ## 14. 現時点で未確定の詳細
 
-次は本書作成時点では未確定とし、確定後に追記する。
+本書作成時点で、保存フォーマット v1 の主要な wire-level schema は確定済みである。
 
-- `KdfParamsV1` 内部の整数 key 割り当て
-- `CiphertextV1` 内部の整数 key 割り当て
-- `SoftwareKeyOriginV1` の variant ごとの具体的な CBOR schema / 整数 key 割り当て
-- 未知 enum 値を無視する際の具体的なスキップ単位
-- 明示 migration API の具体的な API shape
-
-これらの未確定事項を理由に、本書で確定済みの wire 値、整数 key、version の意味を変更してはならない。
+今後追加仕様が必要になった場合も、本書で確定済みの wire 値、整数 key、version の意味を変更してはならない。
