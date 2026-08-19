@@ -119,6 +119,8 @@ Profile schema version 1 の導出パスは次で固定する。
 
 schema version 1 の導出規則は後から変更しない。将来導出規則を変更する場合は新しい Profile schema version を割り当てる。
 
+既存 Symbol / NEM Wallet との復元互換性は、リポジトリ内で対象 Wallet の名称、版または commit、入力および期待値を特定できる根拠がある場合だけ、その根拠に紐付く fixture の範囲で主張する。対象を特定できない場合、次の path は本仕様の v1 導出規則として扱うが、既存 Wallet 一般との復元互換性は未確認とする。`symbol-sdk` 3.3.2 は HD 導出方式の根拠ではなく、導出後の鍵・公開情報・署名・Network 処理の互換性基準である。
+
 Symbol / NEM Testnet は同じ path になるため、同一 Mnemonic / account index から同一秘密鍵が導出され得る。この場合でも Software Key は Chain に固定されるため、Symbol 用と NEM 用は別 Software Key として登録できる。
 
 ### 4.3 導出結果の登録
@@ -159,6 +161,8 @@ Core 内部の private key は 32 byte 固定長バイト列として扱う。
 - 対象 Chain の鍵処理で有効な公開鍵を生成できない値
 
 公開鍵・アドレス・署名結果は固定テストベクタと `symbol-sdk` 3.3.2 で相互検証する。
+
+`generate_software_key` は、暗号学的に安全で予測不能な実行環境の乱数源から候補 private key を取得し、対象 Chain で有効な値として検証できたものだけを登録する。時刻、UUID、固定値、呼び出し側の決定的 seed、Mnemonic からの派生値または予測可能な fallback を生成源として使用しない。乱数源の利用に失敗した場合は `RandomSourceFailure` とし、Profile を変更しない。
 
 ### 5.3 Generated / Imported / Derived 共通規則
 
@@ -205,7 +209,7 @@ TAG          = 16 bytes
 
 AAD の正確な構成と deterministic CBOR 表現は `wallet-store-format-v1.md` を正本とする。
 
-Profile 名と Account metadata は一覧取得のため暗号化しないが、AAD に含めて AES-256-GCM の認証対象とする。このため metadata の変更を伴う mutation は Profile password で既存 payload を認証・復号し、新しい nonce で再暗号化する。
+Profile 名と Account metadata は一覧取得のため暗号化しないが、実際の manifest と同じ optional key 省略規則で AAD に含め、AES-256-GCM の認証対象とする。`registry_key` と `duplicate_tag` も AAD に含める。このため metadata、重複判定情報または Store identity の変更を伴う mutation は Profile password で既存 payload を認証・復号し、新しい nonce で再暗号化する。
 
 パスワードなしの一覧 API は平文 metadata を返せるが、その時点では AEAD 認証を実行できない。Application は一覧結果を「保存された表示用 metadata」として扱い、暗号学的に認証済みの値とはみなさない。
 
@@ -254,14 +258,18 @@ prepare_generated_profile(...)
         ├─ mnemonic
         └─ PendingProfileBlob
 
-finalize_generated_profile(store, pending_blob)
+finalize_generated_profile(store, pending_blob, password)
         │
         └─ replacement store
 ```
 
 `prepare_generated_profile` は Store に Profile を追加しない。Application は Mnemonic のバックアップ受渡しを完了した後だけ `finalize_generated_profile` を呼ぶ。
 
-`PendingProfileBlob` は Core 内部の versioned opaque blob とし、Wallet Store の wire-level 互換契約には含めない。
+受渡し完了の確認方法および受領者の確認は Application / 利用者の責任とし、Core は UI 手順や受領者本人性を検証しない。受渡し失敗・中断または `finalize_generated_profile` の失敗時は、新規 Profile を正常状態として残さず、replacement Store を返さず、Core / Binding が Mnemonic を継続保持または診断出力へ含めない。
+
+`PendingProfileBlob` は Core 内部の versioned opaque blob とし、Wallet Store の wire-level 互換契約には含めない。外部契約として、format version を識別でき、`prepare_generated_profile` に渡した対象 Store と結び付き、Profile password で保護され、改ざん・破損を検知できることだけを要求する。具体的な CBOR key、内部 envelope schema、nonce構造、期限および再利用回数は公開契約に含めない。
+
+`finalize_generated_profile` は同じ Profile password を受け取り、Pending、対象 Store、password、Profile schema および既存 Profile との整合性を検証する。対象 Storeとの結合が一致しない、Pendingのversionが未対応、Pendingが改ざん・破損している、またはProfile作成条件を満たさない場合は `PendingProfileInvalid` とする。Pendingのpassword認証または保護データの認証に失敗した場合は、§6.4 に従い `AuthenticationFailed` とする。既存Profileと同一 Mnemonic + Network になる場合は `DuplicateProfile` とする。
 
 中断時は pending blob を破棄する。
 
@@ -327,7 +335,8 @@ prepare_generated_profile(
 
 finalize_generated_profile(
   store,
-  pending_profile
+  pending_profile,
+  password
 ) -> MutationResult<ProfileInfo>
 
 restore_profile(
@@ -356,7 +365,7 @@ list_profiles(store) -> ReadResult<[ProfileInfo]>
 list_software_keys(
   store,
   profile_id
-) -> ReadResult<[SoftwareKeyInfo]>
+) -> ReadResult<[SoftwareKeyListItem]>
 
 derive_software_key(
   store,
@@ -455,9 +464,15 @@ SoftwareKeyInfo {
   origin,
   name?
 }
+
+SoftwareKeyListItem {
+  key_id,
+  chain,
+  name?
+}
 ```
 
-`list_profiles` / `list_software_keys` は平文 metadata だけで取得できるため Profile password を要求しない。§6.3 のとおり、この時点の表示名・Account metadata は未認証である。
+`list_profiles` / `list_software_keys` は平文 metadata だけで取得できるため Profile password を要求しない。`list_software_keys` は `SoftwareKeyListItem` を返し、`origin` を返さない。`SoftwareKeyInfo` は `derive_software_key`、`import_software_key`、`generate_software_key` および `set_software_key_name` のように Profile payload を認証・復号する結果で使用する。§6.3 のとおり、一覧結果の表示名・Account metadata は未認証である。
 
 ### 9.4 個別エクスポート
 
@@ -484,6 +499,28 @@ sign(..., payload: bytes)
 ```
 
 Software Key に固定された Symbol / NEM の署名 primitive を適用する。Transaction 構造の妥当性や generation hash の組み立て等は上位層の責任とする。
+
+`PublicAccountInfo` は次の項目を持ち、秘密鍵を含めない。
+
+```text
+PublicAccountInfo {
+  key_id,
+  chain,
+  network,
+  public_key: bytes[32],
+  address: text
+}
+```
+
+`public_key` は対象 Chain の公開鍵 raw bytes、`address` は対象 Chain / Network のアドレス文字列表現とする。`Signature` は次の項目を持つ。
+
+```text
+Signature {
+  signature: bytes[64]
+}
+```
+
+Native / WASM は同じ入力に対して同じ DTO 値および同じ署名 bytes を返す。Binding は binary 値を raw byte sequence として受け渡し、Core は payload に prefix、generation hash または Transaction 解釈を暗黙に追加しない。
 
 ---
 
@@ -517,6 +554,24 @@ error / warning message に Mnemonic、private key、Profile password、derived 
 
 panic / stack trace に秘密値を format しない。
 
+主要な失敗条件は次の既存 error code に対応付ける。
+
+| 失敗条件 | error code |
+| --- | --- |
+| 引数・名前・payload等の入力不正 | `InvalidArgument` |
+| Mnemonic / private key / account index不正 | `InvalidMnemonic` / `InvalidPrivateKey` / `InvalidAccountIndex` |
+| 対象 Profile / Software Key 不存在 | `ProfileNotFound` / `SoftwareKeyNotFound` |
+| password不一致またはAEAD認証失敗 | `AuthenticationFailed` |
+| Profile / Software Key 重複 | `DuplicateProfile` / `DuplicateSoftwareKey` |
+| Profile Network と Chain / Network 条件の不一致 | `NetworkMismatch` |
+| Store構造または型の致命的な不正 | `InvalidStore` |
+| 未対応 Store / Profile schema version | `UnsupportedStoreVersion` / `UnsupportedProfileSchemaVersion` |
+| Pendingのversion、対象Store、改ざんまたは整合性不正 | `PendingProfileInvalid` |
+| Pendingを含むpassword認証または保護データの認証失敗 | `AuthenticationFailed` |
+| 乱数源、暗号または保存bytes生成の失敗 | `RandomSourceFailure` / `CryptoFailure` / `SerializationFailure` |
+
+Store子オブジェクトのスキップ可能な不正は `wallet-store-format-v1.md` の `DecodeWarning` とし、fatal error と混同しない。認証・復号および AAD 検証は重複判定や秘密情報処理より先に実行する。
+
 ---
 
 ## 11. atomicity と状態遷移
@@ -535,6 +590,8 @@ panic / stack trace に秘密値を format しない。
 Mutation は要求対象 Profile の envelope だけを置換し、他 Profile の encrypted payload、salt、nonce、ID、duplicate tag を変更しない。Profile delete の場合のみ対象 envelope を除去する。
 
 Profile / Account 名変更は AAD が変わるため、対象 Profile を認証・復号して new nonce で再暗号化する。
+
+`registry_key` は Store 更新を通じて変更せず、既存 Profile の `duplicate_tag` も変更しない。これらを含む AAD の認証に失敗した場合、秘密情報処理、重複判定および mutation を実行しない。
 
 ---
 
@@ -571,6 +628,8 @@ JavaScript へ secret を返すのは次に限る。
 - 外部から Core へ入力する Profile password
 - 外部から Core へ入力する imported private key
 
+`PendingProfileBlob` は opaque binary としてだけ Binding を通過し、内部 envelope schema を Binding 契約へ公開しない。
+
 Binding 側で secret を state / cache / log へ保存しない。
 
 WASM memory zeroize は best effort であり、JavaScript runtime / browser process 全体からの完全消去を保証しない。
@@ -604,6 +663,8 @@ WASM public API は `Uint8Array` を binary data の基本型とする。Store b
 - AES-256-GCM ciphertext / authentication tag
 - RFC 8949 Core Deterministic Encoding に従う CBOR bytes
 - `duplicate_tag` bytes
+- `registry_key` / `duplicate_tag` を含む AAD bytes
+- Profile name / Account name の有無と map key省略を反映した `manifest_metadata` bytes
 
 暗号化 fixture の password / salt / nonce 固定は test-only とする。
 
@@ -614,6 +675,7 @@ WASM public API は `Uint8Array` を binary data の基本型とする。Store b
 - wrong password で復号不可
 - ciphertext / tag / AAD 1 bit 改変で認証失敗
 - Profile / Account 平文 metadata 改変後の認証失敗
+- `registry_key` または `duplicate_tag` 改変後の認証失敗
 - empty password reject
 - duplicate Profile reject
 - 同一 Profile・同一 Chain・同一 private key の duplicate Software Key reject
@@ -623,6 +685,9 @@ WASM public API は `Uint8Array` を binary data の基本型とする。Store b
 - invalid private key reject
 - account index 範囲外 reject
 - malformed child object をスキップし DecodeWarning を返す
+- `list_software_keys` が `SoftwareKeyListItem` を返し、`origin` を含めない
+- Pendingのversion不正、対象Store不一致、password不一致、改ざん、重複を拒否し、失敗時にinput Storeを変更しない
+- Generated Software Key の乱数源失敗、妥当性失敗、保存失敗で Profile を変更しない
 - failed mutation で input Store が変更されない
 - password change 後に旧 password 使用不可
 - delete key / Profile 後に対象操作不可
@@ -680,7 +745,7 @@ WASM public API は `Uint8Array` を binary data の基本型とする。Store b
 - BIP39: Mnemonic code for generating deterministic keys
 - BIP44: Multi-Account Hierarchy for Deterministic Wallets
 - SLIP-0044: registered coin types
-- Symbol / NEM wallet HD derivation compatibility lineage
+- リポジトリ内で特定可能な既存WalletのHD導出仕様またはfixture（存在する場合）
 - `symbol-sdk` 3.3.2
 
 本書の変更で要件そのものを変更する必要が生じた場合は、仕様側で暗黙に拡張せず `docs/requirements/requirements.md` または decision record 側へ戻して決定する。

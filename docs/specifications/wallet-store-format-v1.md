@@ -207,8 +207,8 @@ ProfileEnvelopeV1 {
   3: 1,                     // schema_version
   4: KdfParamsV1,
   5: CiphertextV1,
-  6: text?,                 // optional profile name
-  7: [AccountMetadataV1]?   // optional account metadata
+  6: text?,                 // optional profile name; key omitted when unspecified
+  7: [AccountMetadataV1]?   // optional account metadata; key omitted when unspecified
 }
 ```
 
@@ -217,6 +217,8 @@ ProfileEnvelopeV1 {
 `network` は §4.1 の wire 値を使用する。
 
 `name` と `accounts` は一覧表示用途の平文 metadata とし、暗号化しない。秘密情報を含めてはならない。
+
+`name` または `accounts` が未指定の場合、それぞれの map key `6` または `7` を省略する。CBOR `null` による代替表現は受け付けない。明示的な空配列の `accounts` は key `7` を保持した空配列として、未指定とは別に表現する。
 
 Profile `name` は有効な UTF-8 text とし、UTF-8 byte 列として最大 64 bytes とする。文字種は制限しない。
 
@@ -313,7 +315,7 @@ AccountMetadataV1
 AccountMetadataV1 {
   0: bytes[16],   // key_id
   1: uint,        // chain
-  2: text?        // optional account name
+  2: text?        // optional account name; key omitted when unspecified
 }
 ```
 
@@ -321,9 +323,11 @@ AccountMetadataV1 {
 
 Account `name` は有効な UTF-8 text とし、UTF-8 byte 列として最大 64 bytes とする。文字種は制限しない。
 
+`name` が未指定の場合は map key `2` を省略する。CBOR `null` による代替表現は受け付けない。空文字列を指定した場合は、未指定とは異なる明示的な text 値として扱う。
+
 `accounts` は `key_id` の raw 16 bytes を bytewise に比較した昇順とする。
 
-`name` および `accounts` は §11 の AAD に含め、暗号化せずに改ざん検知する。
+`name` および `accounts` は §11 の AAD に含め、暗号化せずに改ざん検知する。AAD内でも、実際の manifest と同じ map key 省略規則を使用する。
 
 ---
 
@@ -474,23 +478,33 @@ Profile encryption の AAD は次の値を **RFC 8949 Core Deterministic Encodin
 [
   magic,
   store_version,
+  registry_key,
   profile_id,
   network,
+  duplicate_tag,
   profile_schema_version,
   kdf_algorithm_id,
   cipher_algorithm_id,
-  profile_name,
-  accounts
+  manifest_metadata
 ]
 ```
 
 各要素は本書で定義した wire 表現を使用する。
 
-`profile_name` は `ProfileEnvelopeV1.name` の値とする。`name` field が存在しない場合は CBOR `null` とする。
+`registry_key` は `WalletStoreV1` key `2` の raw `bytes[32]`、`duplicate_tag` は `ProfileEnvelopeV1` key `2` の raw `bytes[32]` とする。これらの値は、StoreまたはProfileのmanifestが改変された場合に、Profile payloadのAEAD認証へ反映される。
 
-`accounts` は `ProfileEnvelopeV1.accounts` を、本書の並び順と整数 key に従って deterministic CBOR として表現した値とする。`accounts` field が存在しない場合は空 array とする。
+`manifest_metadata` は、次の整数 keyを持つ CBOR map を deterministic encode した値とする。
 
-これにより Profile 名、Account metadata の `key_id`、`chain`、`name` を暗号化せずに一覧取得可能としつつ、AES-256-GCM の認証によって改ざんを検知する。
+```text
+{
+  6: ProfileEnvelopeV1.name,       // key 6 only when present
+  7: ProfileEnvelopeV1.accounts    // key 7 only when present
+}
+```
+
+Profile nameまたはaccountsが未指定の場合、対応する map keyを省略する。`accounts` が存在する場合、その配列内の `AccountMetadataV1` は本書の並び順・整数 key・optional name省略規則に従う。したがって、AADは `null` や空配列へ正規化せず、実際の manifest と同じ論理値を表現する。
+
+これにより Profile 名、Account metadata の `key_id`、`chain`、`name` を暗号化せずに一覧取得可能としつつ、`registry_key`、`duplicate_tag` および表示 metadata の改変を AES-256-GCM の認証によって検知する。
 
 例として Mainnet / Argon2id / AES-256-GCM の場合、論理値は次となる。
 
@@ -498,13 +512,14 @@ Profile encryption の AAD は次の値を **RFC 8949 Core Deterministic Encodin
 [
   h'534E5743',
   1,
+  registry_key,
   profile_id,
   1,
+  duplicate_tag,
   1,
   0,
   0,
-  profile_name,
-  accounts
+  manifest_metadata
 ]
 ```
 
