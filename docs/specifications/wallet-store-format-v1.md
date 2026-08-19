@@ -218,6 +218,8 @@ ProfileEnvelopeV1 {
 
 `name` と `accounts` は一覧表示用途の平文 metadata とし、暗号化しない。秘密情報を含めてはならない。
 
+Profile `name` は有効な UTF-8 text とし、UTF-8 byte 列として最大 64 bytes とする。文字種は制限しない。
+
 ### 7.1 KdfParamsV1
 
 CBOR map の整数 key は次で固定する。
@@ -317,9 +319,11 @@ AccountMetadataV1 {
 
 `AccountMetadataV1` に private key、Mnemonic entropy、`account_index` などの秘密情報または導出情報を保存してはならない。
 
+Account `name` は有効な UTF-8 text とし、UTF-8 byte 列として最大 64 bytes とする。文字種は制限しない。
+
 `accounts` は `key_id` の raw 16 bytes を bytewise に比較した昇順とする。
 
-平文 metadata と暗号化された `SoftwareKeyRecordV1` の整合性・改ざん検知方法は別途確定する。
+`name` および `accounts` は §11 の AAD に含め、暗号化せずに改ざん検知する。
 
 ---
 
@@ -474,11 +478,19 @@ Profile encryption の AAD は次の値を **RFC 8949 Core Deterministic Encodin
   network,
   profile_schema_version,
   kdf_algorithm_id,
-  cipher_algorithm_id
+  cipher_algorithm_id,
+  profile_name,
+  accounts
 ]
 ```
 
 各要素は本書で定義した wire 表現を使用する。
+
+`profile_name` は `ProfileEnvelopeV1.name` の値とする。`name` field が存在しない場合は CBOR `null` とする。
+
+`accounts` は `ProfileEnvelopeV1.accounts` を、本書の並び順と整数 key に従って deterministic CBOR として表現した値とする。`accounts` field が存在しない場合は空 array とする。
+
+これにより Profile 名、Account metadata の `key_id`、`chain`、`name` を暗号化せずに一覧取得可能としつつ、AES-256-GCM の認証によって改ざんを検知する。
 
 例として Mainnet / Argon2id / AES-256-GCM の場合、論理値は次となる。
 
@@ -490,11 +502,13 @@ Profile encryption の AAD は次の値を **RFC 8949 Core Deterministic Encodin
   1,
   1,
   0,
-  0
+  0,
+  profile_name,
+  accounts
 ]
 ```
 
-AAD により暗号文を別 Profile、Network、schema または algorithm context へ移植して正常データとして扱うことを防ぐ。
+AAD により暗号文を別 Profile、Network、schema、algorithm または metadata context へ移植して正常データとして扱うことを防ぐ。
 
 ---
 
@@ -563,9 +577,5 @@ v1 の時点では migration API 自体は実装しない。新しい Store vers
 ## 14. 現時点で未確定の詳細
 
 保存フォーマット v1 の主要な wire-level schema は確定済みである。
-
-現時点では、平文 `AccountMetadataV1` と暗号化された `SoftwareKeyRecordV1` の整合性・改ざん検知方法を未確定とする。
-
-Profile / Account の `name` の最大長・文字列制約も別途確定する。
 
 今後追加仕様が必要になった場合も、本書で確定済みの wire 値、整数 key、version の意味を変更してはならない。
