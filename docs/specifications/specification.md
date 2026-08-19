@@ -104,6 +104,8 @@ v1 は BIP39 English 24 words に固定する。
 
 seed は PBKDF2-HMAC-SHA512 により生成し、永続保存しない。処理終了後は zeroize 対象とする。
 
+Core / Binding 境界では Mnemonic を JavaScript string として公開せず、正規化済み BIP39 24 words の UTF-8 byte sequence として受け渡す。Mnemonic を人間へ表示するための文字列化は Application が表示直前に行い、長期 state、cache、storage、log へ保持しない。
+
 ### 4.2 HD 導出
 
 Profile schema version 1 の HD 導出は `symbol-sdk` 3.3.2 の `sdk/javascript/src/Bip32.js` と同一結果になることを規範とする。実装言語や利用ライブラリは問わないが、同一 seed と同一 path から得られる各ノードの private key と chain code、および最終 private key は同 SDK 実装と一致しなければならない。
@@ -160,18 +162,17 @@ Symbol / NEM Testnet は同じ path になるため、同一 Mnemonic / account 
 
 ### 5.1 秘密鍵表現
 
-Core 内部の private key は 32 byte 固定長バイト列として扱う。
+Core 内部および Core / Binding 境界の private key は raw 32 byte 固定長バイト列として扱う。
 
-外部インポート API は 64 hexadecimal characters のみ受け付ける。大文字・小文字はいずれも受理し、`0x` prefix は受理しない。
+外部インポート API は raw 32 bytes のみ受け付ける。hex string、`0x` prefix 付き string その他の textual private key 表現は Core / Binding の公開 API として受け付けない。Application が利用者入力として hex を受け付ける場合、Application 側で decode して raw 32 bytes に変換し、textual representation を Core へ渡さない。
 
-内部保存時は raw 32 bytes とし、hex string を保存しない。
+内部保存時も raw 32 bytes とし、hex string を保存しない。
 
 ### 5.2 private key 妥当性
 
 次を拒否する。
 
-- 長さ不正
-- hex decode 不能
+- 32 bytes 以外の長さ
 - all-zero key
 - 対象 Chain の鍵処理で有効な公開鍵を生成できない値
 
@@ -207,6 +208,8 @@ output       = 32 bytes
 KDF algorithm ID と Store 内の parameter schema は `wallet-store-format-v1.md` に従う。
 
 Profile パスワード品質は Core では判定しない。ただし未指定・空文字列は拒否する。
+
+Core / Binding 境界では Profile password を JavaScript string として公開 API に使用せず、UTF-8 byte sequence として受け渡す。Application が UI の password input から JavaScript string を得る場合、その string は Binding 契約外の一時入力とし、可能な限り短時間で UTF-8 bytes に変換して長期保持しない。
 
 ### 6.2 AEAD
 
@@ -270,7 +273,7 @@ Profile 重複判定と Software Key 重複判定の wire-level 入力形式は�
 ```text
 prepare_generated_profile(...)
         │
-        ├─ mnemonic
+        ├─ mnemonic_utf8
         └─ PendingProfileBlob
 
 finalize_generated_profile(store, pending_blob, password)
@@ -290,7 +293,7 @@ finalize_generated_profile(store, pending_blob, password)
 
 ### 8.2 復元 Profile
 
-既存 Mnemonic からの復元では 24 words BIP39 validity と Profile 重複を確認してから登録する。新規生成時の backup confirmation は要求しない。
+既存 Mnemonic からの復元では UTF-8 bytes を入力として受け取り、正規化・24 words BIP39 validity と Profile 重複を確認してから登録する。新規生成時の backup confirmation は要求しない。
 
 ### 8.3 表示名
 
@@ -309,6 +312,8 @@ Mnemonic / Software Key 秘密鍵の返却は、正しい Profile パスワー�
 ## 9. 公開 API 契約
 
 Rust public API は implementation language 固有の細部を Binding へ漏らさない DTO を使用する。
+
+秘密情報を表す text は公開 API では byte sequence として扱う。Mnemonic と Profile password は UTF-8 bytes、private key は raw 32 bytes とする。Profile 名、Account 名、address、UUID のような非秘密 text は通常の text 型を使用できる。
 
 ### 9.1 warning を伴う結果
 
@@ -343,21 +348,21 @@ create_empty_store() -> WalletStoreBlob
 
 prepare_generated_profile(
   store,
-  password,
+  password_utf8: bytes,
   network,
   name?
-) -> ReadResult<PreparedProfile { mnemonic, pending_profile }>
+) -> ReadResult<PreparedProfile { mnemonic_utf8: bytes, pending_profile }>
 
 finalize_generated_profile(
   store,
   pending_profile,
-  password
+  password_utf8: bytes
 ) -> MutationResult<ProfileInfo>
 
 restore_profile(
   store,
-  mnemonic,
-  password,
+  mnemonic_utf8: bytes,
+  password_utf8: bytes,
   network,
   name?
 ) -> MutationResult<ProfileInfo>
@@ -365,14 +370,14 @@ restore_profile(
 export_mnemonic(
   store,
   profile_id,
-  password
+  password_utf8: bytes
 ) -> ReadResult<MnemonicExport>
 
 export_private_key(
   store,
   profile_id,
   key_id,
-  password
+  password_utf8: bytes
 ) -> ReadResult<PrivateKeyExport>
 
 list_profiles(store) -> ReadResult<[ProfileInfo]>
@@ -385,7 +390,7 @@ list_software_keys(
 derive_software_key(
   store,
   profile_id,
-  password,
+  password_utf8: bytes,
   chain,
   account_index,
   name?
@@ -394,16 +399,16 @@ derive_software_key(
 import_software_key(
   store,
   profile_id,
-  password,
+  password_utf8: bytes,
   chain,
-  private_key_hex,
+  private_key: bytes[32],
   name?
 ) -> MutationResult<SoftwareKeyInfo>
 
 generate_software_key(
   store,
   profile_id,
-  password,
+  password_utf8: bytes,
   chain,
   name?
 ) -> MutationResult<SoftwareKeyInfo>
@@ -411,7 +416,7 @@ generate_software_key(
 set_profile_name(
   store,
   profile_id,
-  password,
+  password_utf8: bytes,
   name?
 ) -> MutationResult<ProfileInfo>
 
@@ -419,7 +424,7 @@ set_software_key_name(
   store,
   profile_id,
   key_id,
-  password,
+  password_utf8: bytes,
   name?
 ) -> MutationResult<SoftwareKeyInfo>
 
@@ -427,35 +432,35 @@ get_public_account(
   store,
   profile_id,
   key_id,
-  password
+  password_utf8: bytes
 ) -> ReadResult<PublicAccountInfo>
 
 sign(
   store,
   profile_id,
   key_id,
-  password,
+  password_utf8: bytes,
   payload
 ) -> ReadResult<Signature>
 
 change_profile_password(
   store,
   profile_id,
-  current_password,
-  new_password
+  current_password_utf8: bytes,
+  new_password_utf8: bytes
 ) -> MutationResult<()>
 
 delete_software_key(
   store,
   profile_id,
   key_id,
-  password
+  password_utf8: bytes
 ) -> MutationResult<()>
 
 delete_profile(
   store,
   profile_id,
-  password
+  password_utf8: bytes
 ) -> MutationResult<()>
 ```
 
@@ -493,7 +498,7 @@ SoftwareKeyListItem {
 
 ```text
 MnemonicExport {
-  mnemonic: normalized BIP39 word string
+  mnemonic_utf8: bytes
 }
 
 PrivateKeyExport {
@@ -503,7 +508,7 @@ PrivateKeyExport {
 
 個別エクスポートは Store を変更しない。認証・対象確認・復号・返却のいずれかに失敗した場合は秘密情報を返さない。
 
-`MnemonicExport.mnemonic` は正規化済み 24 words BIP39 word string、`PrivateKeyExport.private_key` は raw 32 bytes とする。Core / Binding は結果を継続保持またはキャッシュしない。
+`MnemonicExport.mnemonic_utf8` は正規化済み 24 words BIP39 の UTF-8 bytes、`PrivateKeyExport.private_key` は raw 32 bytes とする。Core / Binding は結果を継続保持またはキャッシュしない。
 
 ### 9.5 署名 payload
 
@@ -631,23 +636,28 @@ Profile / Account 名変更は AAD が変わるため、対象 Profile を認証
 
 `Debug`, `Display`, serde diagnostic output に secret field を出さない Secret wrapper type を使用する。
 
-### 12.3 WASM 制約
+### 12.3 WASM / JavaScript 制約
 
 WASM linear memory を恒久的保護領域とはみなさない。
 
-JavaScript へ secret を返すのは次に限る。
+JavaScript へ secret を返す、または JavaScript から secret を受け取るのは次に限る。
 
-- `prepare_generated_profile` の初回 Mnemonic
-- `export_mnemonic` の成功結果
-- `export_private_key` の成功結果
-- 外部から Core へ入力する Profile password
-- 外部から Core へ入力する imported private key
+- `prepare_generated_profile` の初回 Mnemonic UTF-8 bytes
+- `restore_profile` の Mnemonic UTF-8 bytes
+- `export_mnemonic` の成功結果の Mnemonic UTF-8 bytes
+- `export_private_key` の成功結果の raw private key bytes
+- 外部から Core へ入力する Profile password UTF-8 bytes
+- 外部から Core へ入力する imported private key raw bytes
+
+WASM / JavaScript Binding は Mnemonic、Profile password、private key を JavaScript string として公開 API に使用してはならない。これらは `Uint8Array` 相当の mutable byte buffer で受け渡す。秘密情報を hex / Base64 その他の text 表現へ暗黙変換しない。
 
 `PendingProfileBlob` は opaque binary としてだけ Binding を通過し、内部 envelope schema を Binding 契約へ公開しない。
 
-Binding 側で secret を state / cache / log へ保存しない。
+Binding は秘密入力 buffer を API 呼び出し完了後まで保持せず、不要なコピーを作らない。Binding 内部で一時コピーが必要な場合、その buffer は処理完了後に可能な範囲で zeroize する。Core は JavaScript 側の入力 buffer を所有しないため、呼び出し側は不要になった `Uint8Array` を上書き可能な形で管理する。
 
-WASM memory zeroize は best effort であり、JavaScript runtime / browser process 全体からの完全消去を保証しない。
+Binding 側で secret を component state、global state、cache、log、diagnostic、localStorage、sessionStorage、IndexedDB その他の永続領域へ保存しない。Application が Mnemonic を表示するため JavaScript string へ decode する場合、その string の完全消去は保証できないため、表示に必要な最短期間だけ参照し、再利用可能な state や log へ渡さない。
+
+WASM memory zeroize および JavaScript `Uint8Array` の上書きは best effort であり、JavaScript runtime / browser process 全体からの完全消去を保証しない。Binding はこの制約を理由に secret の長期保持を許容してはならない。
 
 ---
 
@@ -659,7 +669,11 @@ Binding に暗号化、password authentication、Mnemonic validation、key deriv
 
 Native Binding は C ABI / UniFFI 等の具体方式を実装側で選択できるが、秘密情報処理ロジックを Core と重複させない。
 
-WASM public API は `Uint8Array` を binary data の基本型とする。Store blob、pending blob、署名 payload、private key export は `Uint8Array` 相当とする。
+WASM public API は `Uint8Array` を binary data の基本型とする。Wallet Store blob、PendingProfileBlob、署名 payload、signature、public key、Mnemonic UTF-8 bytes、Profile password UTF-8 bytes、import / export private key は `Uint8Array` 相当とする。
+
+Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 UTF-8 は `InvalidMnemonic` または password 入力に対する `InvalidArgument` として拒否する。private key は raw 32 bytes 固定とし、Binding 層で textual encoding を受け付けない。
+
+非秘密情報である Profile 名、Account 名、address、UUID 等は JavaScript string を利用できる。
 
 ---
 
@@ -698,7 +712,8 @@ WASM public API は `Uint8Array` を binary data の基本型とする。Store b
 - 同一 private key でも Chain が異なる場合は登録可能
 - 同一 Mnemonic でも Network が異なる Profile は登録可能
 - 24 words 以外 / invalid Mnemonic reject
-- invalid private key reject
+- invalid UTF-8 Mnemonic / password byte sequence reject
+- 32 bytes 以外 / all-zero / Chain 上無効な imported private key reject
 - account index 範囲外 reject
 - malformed child object をスキップし DecodeWarning を返す
 - `list_software_keys` が `SoftwareKeyListItem` を返し、`origin` を含めない
@@ -711,6 +726,8 @@ WASM public API は `Uint8Array` を binary data の基本型とする。Store b
 - 正しい password で Mnemonic / Derived / Imported / Generated private key を個別エクスポートできる
 - 誤 password、対象不存在、復号失敗で秘密情報を返さない
 - 通常 API に Mnemonic / private key が含まれない
+- WASM public API に Mnemonic、Profile password、private key を JavaScript string で受け渡す経路が存在しない
+- WASM の secret 入出力が `Uint8Array` 相当であり、private key が raw 32 bytes である
 - Native / WASM が同じ fixture 結果を返す
 - error / warning / Debug output に secret が含まれない
 
