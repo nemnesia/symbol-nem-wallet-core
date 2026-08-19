@@ -71,6 +71,8 @@ Core は更新途中の断片を外部へ返さない。
 - Mnemonic、秘密鍵、公開鍵、アドレスから導出しない。
 - 外部表現は lowercase UUID string とする。
 - Store 内表現は `wallet-store-format-v1.md` に従う。
+- `profile_id` は Store 内で 1 つの Profile を一意に識別する。
+- `key_id` は Profile 内で Chain にかかわらず 1 つの Software Key を一意に識別する。異なる Profile 間で同じ `key_id` を使用することは許可する。
 
 ### 3.2 Network
 
@@ -187,6 +189,8 @@ Core 内部および Core / Binding 境界の private key は raw 32 byte 固定
 
 同一 private key でも Chain が異なる場合は別 Software Key として扱う。重複判定は対象 Profile 内かつ同一 Chain に限定する。
 
+異なる Chain の Software Key が同一 private key を持つ場合も、それぞれ異なる `key_id` を持たなければならない。`key_id` の一意性と private key の重複判定は別の不変条件として扱う。
+
 ---
 
 ## 6. 暗号化仕様
@@ -228,7 +232,9 @@ TAG          = 16 bytes
 
 `software_key_index` は一覧取得に必要な `key_id` と `chain` だけを持つ平文 manifest とし、`registry_key` および `duplicate_tag` とともに AES-256-GCM の AAD へ含める。AAD の正確な構成と deterministic CBOR 表現は `wallet-store-format-v1.md` を正本とする。
 
-パスワードなしの一覧 API は平文 `software_key_index` を返せるが、その時点では AEAD 認証を実行できない。Application は一覧結果を未認証の保存情報として扱い、暗号学的に認証済みとはみなさない。認証・復号後は、index と暗号化 payload の Software Key 集合が一致することを検証する。
+パスワードなしの一覧 API は平文 `software_key_index` を返せるが、その時点では AEAD 認証を実行できない。Application は一覧結果を未認証の保存情報として扱い、暗号学的に認証済みとはみなさない。当該操作で対象 Profile を認証・復号した後は、index と暗号化 payload が同一の `key_id -> chain` 写像を表すことを検証する。
+
+対象 Profile の認証・復号後は、保存された `duplicate_tag` と、復号済み Mnemonic entropy および AAD で認証された Profile Network との意味的一致を `wallet-store-format-v1.md` §12 に従って検証する。AAD 認証の成功だけを、この意味的一致の証明としてはならない。
 
 ### 6.4 Profile パスワード認証
 
@@ -253,7 +259,8 @@ Wallet Store の CBOR schema、整数 key、enum wire 値、並び順、AAD、�
 本書では次の動作だけを API 契約として固定する。
 
 - `profiles = []` と `software_keys = []` は正常状態として扱う。
-- `software_key_index = []` は正常状態として扱い、index は暗号化 payload の `(key_id, chain)` 集合と一致しなければならない。
+- `software_key_index = []` は正常状態として扱い、index は暗号化 payload と同一の `key_id -> chain` 写像を表さなければならない。
+- 構造上受理された Profile の `profile_id` は Store 内で一意、対象 Profile の `key_id` は Chain にかかわらず Profile 内で一意でなければならない。
 - 子オブジェクトの必須 field 欠落、型・長さ・値不正、未知 enum は保存フォーマット仕様に従って対象オブジェクトをスキップし、構造化 warning を返す。
 - Store top-level を解釈できない不正は `InvalidStore` または version 専用 error とする。
 - 未知 field は読み込み時に無視し、再保存時に保持しない。
@@ -261,6 +268,8 @@ Wallet Store の CBOR schema、整数 key、enum wire 値、並び順、AAD、�
 - 将来 migration が必要な場合は `migrate_store_v1_to_v2` のような変換元・変換先 version 固定 API を追加する。
 
 Profile 重複判定と Software Key 重複判定の wire-level 入力形式は保存フォーマット仕様を正本とする。
+
+ID 一意性違反は子オブジェクトの選択またはスキップでは解消せず、保存フォーマット仕様に従い `InvalidStore` とする。対象 Profile の認証・復号後に検証する `duplicate_tag` と復号済み Mnemonic / Network の意味的一致、および `software_key_index` と payload の対応も同様とする。
 
 ---
 
@@ -446,6 +455,8 @@ delete_profile(
 ) -> MutationResult<()>
 ```
 
+Profile を対象とする API は `profile_id` で Store 内の 1 つの Profile を解決する。Software Key を対象とする API は、先に `profile_id` で Profile を解決し、次に当該 Profile 内の `key_id` で 1 つの Software Key を解決する。Chain または配列順を曖昧な ID の選択規則として使用してはならない。
+
 表示名は Core API および Wallet Store に含めない。Application は `profile_id`、`key_id`、`chain` などの Core が返す識別情報と独自に管理する表示名を関連付ける。
 
 ### 9.3 ProfileInfo / SoftwareKeyInfo
@@ -564,13 +575,15 @@ panic / stack trace に秘密値を format しない。
 | Profile / Software Key 重複 | `DuplicateProfile` / `DuplicateSoftwareKey` |
 | Profile Network と Chain / Network 条件の不一致 | `NetworkMismatch` |
 | Store構造または型の致命的な不正 | `InvalidStore` |
-| 認証・復号後の `software_key_index` と Software Key payload の不一致 | `InvalidStore` |
+| Store 内の `profile_id` 重複、または Profile 内の `key_id` 重複 | `InvalidStore` |
+| 認証・復号後の `software_key_index` と Software Key payload の `key_id -> chain` 写像不一致 | `InvalidStore` |
+| AEAD認証成功後の `duplicate_tag` と復号済み Mnemonic / 認証済み Network の意味的不一致 | `InvalidStore` |
 | 未対応 Store / Profile schema version | `UnsupportedStoreVersion` / `UnsupportedProfileSchemaVersion` |
 | Pendingのversion、対象Store、改ざんまたは整合性不正 | `PendingProfileInvalid` |
 | Pendingを含むpassword認証または保護データの認証失敗 | `AuthenticationFailed` |
 | 乱数源、暗号または保存bytes生成の失敗 | `RandomSourceFailure` / `CryptoFailure` / `SerializationFailure` |
 
-Store子オブジェクトのスキップ可能な不正は `wallet-store-format-v1.md` の `DecodeWarning` とし、fatal error と混同しない。認証・復号および AAD 検証は重複判定や秘密情報処理より先に実行する。
+Store子オブジェクトのスキップ可能な不正は `wallet-store-format-v1.md` の `DecodeWarning` とし、fatal error と混同しない。既存 Profile を対象とする処理では、Store構造と ID 一意性の検証、対象 Profile の一意な解決、認証・復号、`duplicate_tag` および `software_key_index` の意味的一致検証をこの順で行い、その後にだけ重複判定、秘密情報処理または mutation へ進む。パスワードを要求しない一覧処理は認証後の意味的一致を保証しない。
 
 ---
 
@@ -588,9 +601,11 @@ Store子オブジェクトのスキップ可能な不正は `wallet-store-format
 
 Mutation は要求対象 Profile の envelope だけを置換し、他 Profile の encrypted payload、salt、nonce、ID、duplicate tag を変更しない。Profile delete の場合のみ対象 envelope を除去する。
 
+成功時の replacement Store は、Store 内の `profile_id` 一意性と、各 Profile 内の Chain に依存しない `key_id` 一意性を維持しなければならない。
+
 Software Key の登録・削除では、暗号化 payload の `software_keys` と平文 `software_key_index` を同一 replacement Store で更新する。index は payload の `(key_id, chain)` 射影から生成し、Application が index だけを変更する API は提供しない。index は AAD の一部であるため、対象 Profile を認証・復号して new nonce で再暗号化する。
 
-`registry_key` は Store 更新を通じて変更せず、既存 Profile の `duplicate_tag` も変更しない。これらを含む AAD の認証に失敗した場合、秘密情報処理、重複判定および mutation を実行しない。
+`registry_key` は Store 更新を通じて変更せず、既存 Profile の `duplicate_tag` も変更しない。これらを含む AAD の認証に失敗した場合、秘密情報処理、重複判定および mutation を実行しない。AAD 認証後に `duplicate_tag` と復号済み Mnemonic / 認証済み Network の意味的不一致を検出した場合も同様とし、正常な read 結果、秘密情報または replacement Store を返さない。
 
 ---
 
@@ -685,12 +700,17 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 - ciphertext / tag / AAD 1 bit 改変で認証失敗
 - `software_key_index` 改変後の認証失敗
 - `software_key_index` と暗号化 payload の不一致を `InvalidStore` として拒否
+- 構造上有効な複数 Profile が同じ `profile_id` を持つ Store を `InvalidStore` として拒否し、どの Profile も選択しない
+- `software_key_index` または認証済み payload が、同一または異なる Chain で同じ `key_id` を複数持つ Profile を `InvalidStore` として拒否する
+- 異なる Profile に同じ `key_id` が 1 件ずつ存在する場合は、`profile_id + key_id` で各対象を一意に解決する
 - 初回 Mnemonic の明示確認前の finalize 不実行、確認後の成功、確認前の中断・失敗時の Profile 非作成
 - `registry_key` または `duplicate_tag` 改変後の認証失敗
+- 誤った `duplicate_tag` を AAD に含めて正常に暗号化した Profile は、AEAD認証成功後に Mnemonic entropy または Network との意味的不一致を `InvalidStore` として拒否する
+- `duplicate_tag` の意味的不一致時は秘密情報、正常な read 結果または replacement Store を返さず、input Store を変更しない
 - empty password reject
 - duplicate Profile reject
 - 同一 Profile・同一 Chain・同一 private key の duplicate Software Key reject
-- 同一 private key でも Chain が異なる場合は登録可能
+- 同一 private key でも Chain が異なる場合は、異なる `key_id` を持つ別 Software Key として登録可能
 - 同一 Mnemonic でも Network が異なる Profile は登録可能
 - 24 words 以外 / invalid Mnemonic reject
 - invalid UTF-8 Mnemonic / password byte sequence reject
@@ -748,7 +768,14 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 
 ---
 
-## 17. 参照
+## 17. 要確認事項
+
+- 要件 `FR-018`、`DR-007`、`AC-020` の「同一 Profile 内の同一秘密鍵」の文言は Chain による例外を明示していない。一方、現行仕様は異なる Chain の同一 private key を別 Software Key として許可している。本更新は現行仕様を維持し、上流要件との整合性は未確認事項として残す。
+- 新規 Profile の作成・復元時は他の既存 Profile を認証・復号しないため、既存全 Profile の `duplicate_tag` と暗号化 Mnemonic / Network の意味的一致を事前検証できない。本更新の意味的一致検証は、当該操作で認証・復号した対象 Profile に限定する。Store 全体の事前検証方式は未決定とする。
+
+---
+
+## 18. 参照
 
 - `docs/requirements/requirements.md`
 - `docs/specifications/wallet-store-format-v1.md`

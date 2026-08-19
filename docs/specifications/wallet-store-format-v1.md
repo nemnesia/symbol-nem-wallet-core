@@ -85,6 +85,10 @@ ProfileId     = bytes[16]
 SoftwareKeyId = bytes[16]
 ```
 
+`ProfileId` は 1 つの `WalletStoreV1` 内で一意とする。
+
+`SoftwareKeyId` は 1 つの Profile 内で Chain にかかわらず一意とする。異なる Profile 間で同じ `SoftwareKeyId` を使用することは許可する。
+
 ---
 
 ## 4. enum wire 値
@@ -175,7 +179,9 @@ WalletStoreV1 {
 
 `registry_key` は Store 初回作成時に CSPRNG で生成する 32 byte 値とし、秘密鍵暗号化には使用しない。
 
-`profiles` は `profile_id` の raw 16 bytes を bytewise に比較した昇順で保存する。
+`profiles` は `profile_id` の raw 16 bytes を bytewise に比較した狭義昇順で保存し、同じ `profile_id` を複数の `ProfileEnvelopeV1` に使用してはならない。
+
+§2.1 の構造検証で受理された `ProfileEnvelopeV1` 間に同じ `profile_id` が存在する場合は、対象を選択またはスキップせず、Store 全体を `InvalidStore` として拒否する。
 
 `profiles = []` は有効な Store 初期状態とする。登録順には意味を持たせない。
 
@@ -237,9 +243,9 @@ SoftwareKeyIndexEntryV1 {
 }
 ```
 
-`key_id` は raw 16 bytes、`chain` は §4.2 の wire 値を使用する。配列は `key_id` の raw bytes を bytewise に比較した昇順で保存し、同一 `(key_id, chain)` の重複を許可しない。
+`key_id` は raw 16 bytes、`chain` は §4.2 の wire 値を使用する。配列は `key_id` の raw bytes を bytewise に比較した狭義昇順で保存する。同じ Profile 内では `key_id` は Chain にかかわらず一意とし、同じ `key_id` を同一または異なる Chain の複数 entry に使用してはならない。
 
-`software_key_index` は暗号化 `ProfilePayloadV1.software_keys` の各レコードから `(key_id, chain)` を抽出した集合と一対一で一致しなければならない。不一致、重複または型・長さ・値の不正は Profile 全体を `InvalidStore` として拒否する。
+認証・復号後、`software_key_index` と暗号化 `ProfilePayloadV1.software_keys` は同一の有限写像 `key_id -> chain` を表さなければならない。両者の要素数は等しく、各 `key_id` は双方にちょうど 1 回存在し、対応する `chain` が一致しなければならない。不一致、`key_id` の重複または型・長さ・値の不正は Profile 全体を `InvalidStore` として拒否する。
 
 ### 7.2 KdfParamsV1
 
@@ -338,7 +344,7 @@ ProfilePayloadV1 {
 
 `ProfilePayloadV1` 全体を Profile パスワードから導出した鍵で暗号化する。
 
-`software_keys` は `key_id` の raw 16 bytes を bytewise に比較した昇順で保存する。
+`software_keys` は `key_id` の raw 16 bytes を bytewise に比較した狭義昇順で保存する。同じ Profile 内では `key_id` は Chain にかかわらず一意とし、重複する場合は対象 Profile を `InvalidStore` として拒否する。
 
 `software_keys = []` は有効とする。登録順には意味を持たせない。
 
@@ -370,6 +376,8 @@ SoftwareKeyRecordV1 {
 すべての Software Key は `chain` を必須属性として持ち、登録後に変更しない。
 
 同一 private key であっても Chain が異なる場合は別 Software Key として扱う。
+
+異なる Chain の Software Key が同一 private key を持つ場合も、それぞれ異なる `key_id` を持たなければならない。
 
 Software Key の重複判定は対象 Profile 内で行い、同一 Chain かつ同一 private key の場合のみ重複とする。
 
@@ -481,7 +489,9 @@ Profile encryption の AAD は次の値を **RFC 8949 Core Deterministic Encodin
 
 `software_key_index` は `ProfileEnvelopeV1` key `6` の実際の配列値を、同じ要素順序・整数 key・空配列表現で AAD の最後の要素として使用する。別の正規化表現、`null` または省略表現へ変換してはならない。
 
-これにより `software_key_index` の `key_id` または `chain` の改変を、`registry_key`、`duplicate_tag` とともに AES-256-GCM の認証によって検知する。認証・復号後は、index と暗号化 payload の Software Key 集合が一対一で一致することを検証し、不一致の場合は `InvalidStore` とする。
+これにより `software_key_index` の `key_id` または `chain` の改変を、`registry_key`、`duplicate_tag` とともに AES-256-GCM の認証によって検知する。認証・復号後は、§7.1 に従って index と暗号化 payload が同一の `key_id -> chain` 写像を表すことを検証し、不一致の場合は `InvalidStore` とする。
+
+AAD 認証の成功は、保存された `duplicate_tag` が改変されていないことを認証するが、その値と復号済み `mnemonic_entropy` の意味的一致までは保証しない。認証・復号後の意味的一致は §12 に従って検証する。
 
 例として Mainnet / Argon2id / AES-256-GCM の場合、論理値は次となる。
 
@@ -532,6 +542,12 @@ UTF-8("symbol-nem-wallet-core/profile-duplicate/v1")
 
 同一 Mnemonic であっても Network が異なる場合は別 Profile として登録できる。
 
+既存の対象 Profile の AEAD 認証・復号に成功した場合、Core は秘密情報の利用、当該 Profile に関する重複判定または mutation より前に、当該 Store の `registry_key`、対象 `ProfileEnvelopeV1` の `network`、復号済み `ProfilePayloadV1.mnemonic_entropy` を使用して上記の式を再計算しなければならない。
+
+再計算した 32 bytes と、認証された AAD に含まれる `duplicate_tag` が一致しない場合は、対象 Profile を `InvalidStore` として拒否する。AEAD 認証自体には成功しているため、この不一致を `AuthenticationFailed` として扱ってはならない。不一致時は復号済み秘密情報または正常な処理結果を返さず、mutation および replacement Store の生成へ進まない。
+
+この意味的一致検証は、その操作で認証・復号した対象 Profile に適用する。パスワードを要求しない一覧処理では実行しない。
+
 ---
 
 ## 13. バージョニングと migration
@@ -573,3 +589,9 @@ v1 の時点では migration API 自体は実装しない。将来新しい Stor
 保存フォーマット v1 の主要な wire-level schema は確定済みである。
 
 今後追加仕様が必要になった場合も、本書で確定済みの wire 値、整数 key、version の意味を変更してはならない。
+
+### 14.1 要確認事項
+
+新規 Profile の作成・復元時は、候補の Mnemonic entropy と Network から計算した `duplicate_tag` を、既存 Profile の平文 `duplicate_tag` と比較する。既存 Profile のパスワードを受け取らないため、この処理では既存全 Profile の `duplicate_tag` と各暗号化 Mnemonic の意味的一致を事前検証できない。
+
+Store 全体の事前意味検証には、全 Profile の認証情報、別 API または保存形式上の別方式が必要になる。これらは Wallet Store v1 / Profile schema v1 では未決定であり、本書は新しい検証 API または保存方式を定義しない。
