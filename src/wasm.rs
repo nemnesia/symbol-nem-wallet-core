@@ -70,6 +70,20 @@ fn parse_chain(value: u8) -> Result<Chain, WalletError> {
 }
 
 fn parse_uuid(value: &str) -> Result<Uuid, WalletError> {
+    let bytes = value.as_bytes();
+    let hyphen_positions = [8, 13, 18, 23];
+    if bytes.len() != 36
+        || hyphen_positions
+            .iter()
+            .any(|position| bytes[*position] != b'-')
+        || bytes.iter().enumerate().any(|(position, byte)| {
+            !hyphen_positions.contains(&position) && !byte.is_ascii_hexdigit()
+        })
+    {
+        return Err(WalletError {
+            code: ErrorCode::InvalidArgument,
+        });
+    }
     Uuid::parse_str(value).map_err(|_| WalletError {
         code: ErrorCode::InvalidArgument,
     })

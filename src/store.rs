@@ -31,6 +31,7 @@ const PENDING_VERSION: u8 = 1;
 struct WalletStore {
     registry_key: [u8; 32],
     profiles: Vec<ProfileEnvelope>,
+    unknown_fields: Vec<(u64, Value)>,
 }
 
 impl Drop for WalletStore {
@@ -51,6 +52,8 @@ struct ProfileEnvelope {
     software_key_index: Vec<IndexEntry>,
     // AADには意味解釈後のindexではなく、受信した配列のwire値を使用する。
     aad_software_key_index: Vec<Value>,
+    // 未知fieldは意味解釈せず、mutation時にwire値を再出力する。
+    unknown_fields: Vec<(u64, Value)>,
 }
 
 impl Drop for ProfileEnvelope {
@@ -62,6 +65,7 @@ impl Drop for ProfileEnvelope {
 #[derive(Clone)]
 struct KdfParams {
     salt: [u8; 16],
+    unknown_fields: Vec<(u64, Value)>,
 }
 
 #[derive(Clone)]
@@ -69,6 +73,7 @@ struct Ciphertext {
     nonce: [u8; 12],
     ciphertext: Vec<u8>,
     tag: [u8; 16],
+    unknown_fields: Vec<(u64, Value)>,
 }
 
 impl Drop for Ciphertext {
@@ -89,6 +94,8 @@ struct KeyRecord {
     chain: Chain,
     private_key: [u8; 32],
     origin: SoftwareKeyOrigin,
+    unknown_fields: Vec<(u64, Value)>,
+    origin_unknown_fields: Vec<(u64, Value)>,
 }
 
 impl Drop for KeyRecord {
@@ -100,6 +107,7 @@ impl Drop for KeyRecord {
 struct ProfilePayload {
     mnemonic_entropy: [u8; 32],
     software_keys: Vec<KeyRecord>,
+    unknown_fields: Vec<(u64, Value)>,
 }
 
 impl Drop for ProfilePayload {
@@ -133,6 +141,7 @@ pub fn create_empty_store() -> WalletResult<WalletStoreBlob> {
     let store = WalletStore {
         registry_key: crypto::random()?,
         profiles: Vec::new(),
+        unknown_fields: Vec::new(),
     };
     encode_store(&store)
 }
@@ -218,6 +227,7 @@ pub fn finalize_generated_profile(
     let mut payload = ProfilePayload {
         mnemonic_entropy: *entropy,
         software_keys: Vec::new(),
+        unknown_fields: Vec::new(),
     };
     let profile = new_encrypted_profile(
         &wallet.registry_key,
@@ -266,6 +276,7 @@ pub fn restore_profile(
     let mut payload = ProfilePayload {
         mnemonic_entropy: *entropy,
         software_keys: Vec::new(),
+        unknown_fields: Vec::new(),
     };
     let profile = new_encrypted_profile(
         &wallet.registry_key,
@@ -397,6 +408,8 @@ pub fn derive_software_key(
         chain,
         private_key: *private_key,
         origin: SoftwareKeyOrigin::Derived { account_index },
+        unknown_fields: Vec::new(),
+        origin_unknown_fields: Vec::new(),
     });
     let info = SoftwareKeyInfo {
         key_id: Uuid::from_bytes(key_id),
@@ -436,6 +449,8 @@ pub fn import_software_key(
         chain,
         private_key: *private_key,
         origin: SoftwareKeyOrigin::Imported,
+        unknown_fields: Vec::new(),
+        origin_unknown_fields: Vec::new(),
     });
     let info = SoftwareKeyInfo {
         key_id: Uuid::from_bytes(key_id),
@@ -474,6 +489,8 @@ pub fn generate_software_key(
         chain,
         private_key: *private_key,
         origin: SoftwareKeyOrigin::Generated,
+        unknown_fields: Vec::new(),
+        origin_unknown_fields: Vec::new(),
     });
     let info = SoftwareKeyInfo {
         key_id: Uuid::from_bytes(key_id),
@@ -626,7 +643,7 @@ pub fn delete_profile(
     })
 }
 
-// Storeのトップレベルは解釈不能ならfatal error、子Profileの不正はwarningとして扱う。
+// StoreとProfileの構造不正は、部分的に読み飛ばさずStore全体を拒否する。
 fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)> {
     let value = cbor::decode(bytes).map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
     let map = as_map(&value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
@@ -651,274 +668,128 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
         _ => return Err(WalletError::new(ErrorCode::InvalidStore)),
     };
 
-    let mut warnings = Vec::new();
-    let mut profiles = Vec::new();
+    let mut profiles = Vec::with_capacity(profiles_array.len());
     for value in profiles_array {
-        if let Some(profile) = parse_profile(value, &mut warnings)? {
-            if profiles
-                .last()
-                .is_some_and(|previous: &ProfileEnvelope| previous.profile_id >= profile.profile_id)
-            {
-                return Err(WalletError::new(ErrorCode::InvalidStore));
-            }
-            if profiles
-                .iter()
-                .any(|existing: &ProfileEnvelope| existing.profile_id == profile.profile_id)
-            {
-                return Err(WalletError::new(ErrorCode::InvalidStore));
-            }
-            profiles.push(profile);
+        let profile = parse_profile(value)?;
+        if profiles
+            .last()
+            .is_some_and(|previous: &ProfileEnvelope| previous.profile_id >= profile.profile_id)
+        {
+            return Err(WalletError::new(ErrorCode::InvalidStore));
         }
+        profiles.push(profile);
     }
     Ok((
         WalletStore {
             registry_key: *registry_key,
             profiles,
+            unknown_fields: unknown_fields(map, &[0, 1, 2, 3]),
         },
-        warnings,
+        Vec::new(),
     ))
 }
 
-// ProfileEnvelopeを検証し、子要素の不正だけをwarning付きでスキップする。
-fn parse_profile(
-    value: &Value,
-    warnings: &mut Vec<DecodeWarning>,
-) -> WalletResult<Option<ProfileEnvelope>> {
-    let Some(map) = as_map(value) else {
-        warnings.push(warning("InvalidFieldType", "ProfileEnvelope", None, None));
-        return Ok(None);
-    };
-    let profile_id = match fixed_bytes(map_value(map, 0), 16) {
-        Some(value) => value,
-        None => {
-            warnings.push(warning(
-                fixed_bytes_warning(map_value(map, 0)),
-                "ProfileEnvelope",
-                None,
-                Some("profile_id"),
-            ));
-            return Ok(None);
-        }
-    };
-    let profile_uuid = Uuid::from_bytes(profile_id);
-    let network = match parse_network(map_value(map, 1)) {
-        Some(value) => value,
-        None => {
-            warnings.push(warning(
-                enum_warning_code(map_value(map, 1)),
-                "ProfileEnvelope",
-                Some(profile_uuid),
-                Some("network"),
-            ));
-            return Ok(None);
-        }
-    };
-    let duplicate_tag = match fixed_bytes(map_value(map, 2), 32) {
-        Some(value) => value,
-        None => {
-            warnings.push(warning(
-                fixed_bytes_warning(map_value(map, 2)),
-                "ProfileEnvelope",
-                Some(profile_uuid),
-                Some("duplicate_tag"),
-            ));
-            return Ok(None);
-        }
-    };
-    let duplicate_tag = zeroize::Zeroizing::new(duplicate_tag);
+// ProfileEnvelopeの必須field、enum、index順序を検証する。
+fn parse_profile(value: &Value) -> WalletResult<ProfileEnvelope> {
+    let map = as_map(value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    let profile_id = fixed_bytes(map_value(map, 0), 16)
+        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    let network = parse_network(map_value(map, 1))
+        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    let duplicate_tag = fixed_bytes(map_value(map, 2), 32)
+        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     match map_value(map, 3) {
         Some(Value::UInt(PROFILE_SCHEMA_VERSION)) => {}
         Some(Value::UInt(_)) => {
             return Err(WalletError::new(ErrorCode::UnsupportedProfileSchemaVersion))
         }
-        None => {
-            warnings.push(warning(
-                "MissingRequiredField",
-                "ProfileEnvelope",
-                Some(profile_uuid),
-                Some("schema_version"),
-            ));
-            return Ok(None);
-        }
-        Some(_) => {
-            warnings.push(warning(
-                "InvalidFieldType",
-                "ProfileEnvelope",
-                Some(profile_uuid),
-                Some("schema_version"),
-            ));
-            return Ok(None);
-        }
+        None | Some(_) => return Err(WalletError::new(ErrorCode::InvalidStore)),
     }
-    let Some(kdf) = parse_kdf(map_value(map, 4)) else {
-        warnings.push(warning(
-            kdf_warning_code(map_value(map, 4)),
-            "ProfileEnvelope",
-            Some(profile_uuid),
-            Some("kdf"),
-        ));
-        return Ok(None);
-    };
-    let Some(cipher) = parse_cipher(map_value(map, 5)) else {
-        warnings.push(warning(
-            cipher_warning_code(map_value(map, 5)),
-            "ProfileEnvelope",
-            Some(profile_uuid),
-            Some("cipher"),
-        ));
-        return Ok(None);
-    };
-    let Some(index_values) = map_value(map, 6).and_then(as_array) else {
-        warnings.push(warning(
-            "MissingRequiredField",
-            "ProfileEnvelope",
-            Some(profile_uuid),
-            Some("software_key_index"),
-        ));
-        return Ok(None);
-    };
+    let kdf = parse_kdf(map_value(map, 4))?;
+    let cipher = parse_cipher(map_value(map, 5))?;
+    let index_values = map_value(map, 6)
+        .and_then(as_array)
+        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let aad_software_key_index = index_values.to_vec();
-    let mut software_key_index = Vec::new();
+    let mut software_key_index = Vec::with_capacity(index_values.len());
     for value in index_values {
-        if let Some(entry) = parse_index_entry(value, warnings, Some(profile_uuid)) {
-            if software_key_index
-                .last()
-                .is_some_and(|previous: &IndexEntry| previous.key_id >= entry.key_id)
-            {
-                return Err(WalletError::new(ErrorCode::InvalidStore));
-            }
-            if software_key_index
-                .iter()
-                .any(|existing: &IndexEntry| existing.key_id == entry.key_id)
-            {
-                return Err(WalletError::new(ErrorCode::InvalidStore));
-            }
-            software_key_index.push(entry);
+        let entry = parse_index_entry(value)?;
+        if software_key_index
+            .last()
+            .is_some_and(|previous: &IndexEntry| previous.key_id >= entry.key_id)
+        {
+            return Err(WalletError::new(ErrorCode::InvalidStore));
         }
+        software_key_index.push(entry);
     }
-    Ok(Some(ProfileEnvelope {
+    Ok(ProfileEnvelope {
         profile_id,
         network,
-        duplicate_tag: *duplicate_tag,
+        duplicate_tag,
         kdf,
         cipher,
         software_key_index,
         aad_software_key_index,
-    }))
+        unknown_fields: unknown_fields(map, &[0, 1, 2, 3, 4, 5, 6]),
+    })
 }
 
 // KDFはv1で固定されたArgon2idのパラメータだけを受理する。
-fn parse_kdf(value: Option<&Value>) -> Option<KdfParams> {
-    let map = as_map(value?)?;
-    if uint(map_value(map, 0))? != KDF_ALGORITHM
-        || uint(map_value(map, 1))? != crypto::KDF_VERSION as u64
-        || uint(map_value(map, 2))? != crypto::KDF_MEMORY_KIB as u64
-        || uint(map_value(map, 3))? != crypto::KDF_ITERATIONS as u64
-        || uint(map_value(map, 4))? != crypto::KDF_PARALLELISM as u64
+fn parse_kdf(value: Option<&Value>) -> WalletResult<KdfParams> {
+    let map = value
+        .and_then(as_map)
+        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    if uint(map_value(map, 0)) != Some(KDF_ALGORITHM)
+        || uint(map_value(map, 1)) != Some(crypto::KDF_VERSION as u64)
+        || uint(map_value(map, 2)) != Some(crypto::KDF_MEMORY_KIB as u64)
+        || uint(map_value(map, 3)) != Some(crypto::KDF_ITERATIONS as u64)
+        || uint(map_value(map, 4)) != Some(crypto::KDF_PARALLELISM as u64)
     {
-        return None;
+        return Err(WalletError::new(ErrorCode::InvalidStore));
     }
-    Some(KdfParams {
-        salt: fixed_bytes(map_value(map, 5), 16)?,
+    Ok(KdfParams {
+        salt: fixed_bytes(map_value(map, 5), 16)
+            .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?,
+        unknown_fields: unknown_fields(map, &[0, 1, 2, 3, 4, 5]),
     })
 }
 
 // Cipherはv1で固定されたAES-256-GCMのnonce、ciphertext、tagを保持する。
-fn parse_cipher(value: Option<&Value>) -> Option<Ciphertext> {
-    let map = as_map(value?)?;
-    if uint(map_value(map, 0))? != CIPHER_ALGORITHM {
-        return None;
+fn parse_cipher(value: Option<&Value>) -> WalletResult<Ciphertext> {
+    let map = value
+        .and_then(as_map)
+        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    if uint(map_value(map, 0)) != Some(CIPHER_ALGORITHM) {
+        return Err(WalletError::new(ErrorCode::InvalidStore));
     }
-    let nonce = fixed_bytes(map_value(map, 1), 12)?;
-    let mut ciphertext = match map_value(map, 2)? {
-        Value::Bytes(value) => value.clone(),
-        _ => return None,
+    let nonce = fixed_bytes(map_value(map, 1), 12)
+        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    let ciphertext = match map_value(map, 2) {
+        Some(Value::Bytes(value)) => value.clone(),
+        _ => return Err(WalletError::new(ErrorCode::InvalidStore)),
     };
-    let tag = match fixed_bytes(map_value(map, 3), 16) {
-        Some(value) => value,
-        None => {
-            ciphertext.zeroize();
-            return None;
-        }
-    };
-    Some(Ciphertext {
+    let tag = fixed_bytes(map_value(map, 3), 16)
+        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    Ok(Ciphertext {
         nonce,
         ciphertext,
         tag,
+        unknown_fields: unknown_fields(map, &[0, 1, 2, 3]),
     })
 }
 
-fn kdf_warning_code(value: Option<&Value>) -> &'static str {
-    enum_field_warning_code(value, KDF_ALGORITHM)
-}
-
-fn cipher_warning_code(value: Option<&Value>) -> &'static str {
-    enum_field_warning_code(value, CIPHER_ALGORITHM)
-}
-
-fn enum_field_warning_code(value: Option<&Value>, expected: u64) -> &'static str {
-    let Some(value) = value else {
-        return "MissingRequiredField";
-    };
-    let Some(map) = as_map(value) else {
-        return "InvalidFieldType";
-    };
-    match map_value(map, 0) {
-        None => "MissingRequiredField",
-        Some(Value::UInt(value)) if *value != expected => "UnknownEnumValue",
-        Some(Value::UInt(_)) => "InvalidFieldValue",
-        Some(_) => "InvalidFieldType",
-    }
-}
-
 // 平文indexはprivate keyを含まず、一覧取得用のkey_idとChainだけを保持する。
-fn parse_index_entry(
-    value: &Value,
-    warnings: &mut Vec<DecodeWarning>,
-    profile_id: Option<Uuid>,
-) -> Option<IndexEntry> {
-    let Some(map) = as_map(value) else {
-        warnings.push(warning(
-            "InvalidFieldType",
-            "SoftwareKeyIndexEntry",
-            profile_id,
-            None,
-        ));
-        return None;
-    };
-    let key_id = match fixed_bytes(map_value(map, 0), 16) {
-        Some(value) => value,
-        None => {
-            warnings.push(warning(
-                fixed_bytes_warning(map_value(map, 0)),
-                "SoftwareKeyIndexEntry",
-                profile_id,
-                Some("key_id"),
-            ));
-            return None;
-        }
-    };
-    let chain = match parse_chain(map_value(map, 1)) {
-        Some(value) => value,
-        None => {
-            warnings.push(warning(
-                enum_warning_code(map_value(map, 1)),
-                "SoftwareKeyIndexEntry",
-                profile_id,
-                Some("chain"),
-            ));
-            return None;
-        }
-    };
-    Some(IndexEntry { key_id, chain })
+fn parse_index_entry(value: &Value) -> WalletResult<IndexEntry> {
+    let map = as_map(value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    let key_id = fixed_bytes(map_value(map, 0), 16)
+        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    let chain =
+        parse_chain(map_value(map, 1)).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    Ok(IndexEntry { key_id, chain })
 }
 
 // 認証済みciphertextを復号した後にだけ呼び出し、payload内の子Keyを解釈する。
-fn parse_payload(
-    bytes: &[u8],
-    warnings: &mut Vec<DecodeWarning>,
-    profile_id: Uuid,
-) -> WalletResult<ProfilePayload> {
+fn parse_payload(bytes: &[u8]) -> WalletResult<ProfilePayload> {
     let value = cbor::decode(bytes).map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
     let map = as_map(&value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let mnemonic_entropy = zeroize::Zeroizing::new(
@@ -928,146 +799,44 @@ fn parse_payload(
     let values = map_value(map, 1)
         .and_then(as_array)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
-    let mut software_keys = Vec::new();
+    let mut software_keys = Vec::with_capacity(values.len());
     for value in values {
-        if let Some(record) = parse_key_record(value, warnings, profile_id) {
-            if software_keys
-                .last()
-                .is_some_and(|previous: &KeyRecord| previous.key_id >= record.key_id)
-            {
-                return Err(WalletError::new(ErrorCode::InvalidStore));
-            }
-            if software_keys
-                .iter()
-                .any(|existing: &KeyRecord| existing.key_id == record.key_id)
-            {
-                return Err(WalletError::new(ErrorCode::InvalidStore));
-            }
-            software_keys.push(record);
+        let record = parse_key_record(value)?;
+        if software_keys
+            .last()
+            .is_some_and(|previous: &KeyRecord| previous.key_id >= record.key_id)
+        {
+            return Err(WalletError::new(ErrorCode::InvalidStore));
         }
+        software_keys.push(record);
     }
     Ok(ProfilePayload {
         mnemonic_entropy: *mnemonic_entropy,
         software_keys,
+        unknown_fields: unknown_fields(map, &[0, 1]),
     })
 }
 
-// SoftwareKeyRecordの不正は秘密情報をwarningへ含めず、対象record全体をスキップする。
-fn parse_key_record(
-    value: &Value,
-    warnings: &mut Vec<DecodeWarning>,
-    profile_id: Uuid,
-) -> Option<KeyRecord> {
-    let Some(map) = as_map(value) else {
-        warnings.push(warning(
-            "InvalidFieldType",
-            "SoftwareKeyRecord",
-            Some(profile_id),
-            None,
-        ));
-        return None;
-    };
-    let key_id = match fixed_bytes(map_value(map, 0), 16) {
-        Some(value) => value,
-        None => {
-            warnings.push(warning(
-                fixed_bytes_warning(map_value(map, 0)),
-                "SoftwareKeyRecord",
-                Some(profile_id),
-                Some("key_id"),
-            ));
-            return None;
-        }
-    };
-    let chain = match parse_chain(map_value(map, 1)) {
-        Some(value) => value,
-        None => {
-            warnings.push(warning(
-                enum_warning_code(map_value(map, 1)),
-                "SoftwareKeyRecord",
-                Some(profile_id),
-                Some("chain"),
-            ));
-            return None;
-        }
-    };
-    let private_key = match fixed_bytes(map_value(map, 2), 32) {
-        Some(value) => value,
-        None => {
-            warnings.push(warning(
-                fixed_bytes_warning(map_value(map, 2)),
-                "SoftwareKeyRecord",
-                Some(profile_id),
-                Some("private_key"),
-            ));
-            return None;
-        }
-    };
-    let private_key = zeroize::Zeroizing::new(private_key);
-    let Some(origin_value) = map_value(map, 3) else {
-        warnings.push(warning(
-            "MissingRequiredField",
-            "SoftwareKeyRecord",
-            Some(profile_id),
-            Some("origin"),
-        ));
-        return None;
-    };
-    let Some(origin_map) = as_map(origin_value) else {
-        warnings.push(warning(
-            "InvalidFieldType",
-            "SoftwareKeyRecord",
-            Some(profile_id),
-            Some("origin"),
-        ));
-        return None;
-    };
-    let Some(origin_value) = map_value(origin_map, 0) else {
-        warnings.push(warning(
-            "MissingRequiredField",
-            "SoftwareKeyRecord",
-            Some(profile_id),
-            Some("origin"),
-        ));
-        return None;
-    };
-    let Some(origin_wire) = uint(Some(origin_value)) else {
-        warnings.push(warning(
-            "InvalidFieldType",
-            "SoftwareKeyRecord",
-            Some(profile_id),
-            Some("origin"),
-        ));
-        return None;
-    };
+// SoftwareKeyRecordの不正はskipせず、Store全体を拒否する。
+fn parse_key_record(value: &Value) -> WalletResult<KeyRecord> {
+    let map = as_map(value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    let key_id = fixed_bytes(map_value(map, 0), 16)
+        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    let chain =
+        parse_chain(map_value(map, 1)).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    let private_key = fixed_bytes(map_value(map, 2), 32)
+        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    let origin_map =
+        as_map(map_value(map, 3).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?)
+            .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    let origin_wire =
+        uint(map_value(origin_map, 0)).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let origin = match origin_wire {
         0 => {
-            let Some(account_value) = map_value(origin_map, 1) else {
-                warnings.push(warning(
-                    "MissingRequiredField",
-                    "SoftwareKeyRecord",
-                    Some(profile_id),
-                    Some("account_index"),
-                ));
-                return None;
-            };
-            let Some(account_index) = uint(Some(account_value)) else {
-                warnings.push(warning(
-                    "InvalidFieldType",
-                    "SoftwareKeyRecord",
-                    Some(profile_id),
-                    Some("account_index"),
-                ));
-                return None;
-            };
+            let account_index = uint(map_value(origin_map, 1))
+                .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
             if account_index > 2_147_483_647 {
-                warnings.push(warning(
-                    "InvalidFieldValue",
-                    "SoftwareKeyRecord",
-                    Some(profile_id),
-                    Some("account_index"),
-                ));
-                return None;
+                return Err(WalletError::new(ErrorCode::InvalidStore));
             }
             SoftwareKeyOrigin::Derived {
                 account_index: account_index as u32,
@@ -1075,21 +844,19 @@ fn parse_key_record(
         }
         1 => SoftwareKeyOrigin::Imported,
         2 => SoftwareKeyOrigin::Generated,
-        _ => {
-            warnings.push(warning(
-                "UnknownEnumValue",
-                "SoftwareKeyRecord",
-                Some(profile_id),
-                Some("origin"),
-            ));
-            return None;
-        }
+        _ => return Err(WalletError::new(ErrorCode::InvalidStore)),
     };
-    Some(KeyRecord {
+    let origin_known_fields = match origin {
+        SoftwareKeyOrigin::Derived { .. } => &[0, 1][..],
+        SoftwareKeyOrigin::Imported | SoftwareKeyOrigin::Generated => &[0][..],
+    };
+    Ok(KeyRecord {
         key_id,
         chain,
-        private_key: *private_key,
+        private_key,
         origin,
+        unknown_fields: unknown_fields(map, &[0, 1, 2, 3]),
+        origin_unknown_fields: unknown_fields(origin_map, origin_known_fields),
     })
 }
 
@@ -1099,7 +866,7 @@ fn authenticate_profile(
     wallet: &WalletStore,
     profile_id: &[u8; 16],
     password_utf8: &[u8],
-    warnings: &mut Vec<DecodeWarning>,
+    _warnings: &mut Vec<DecodeWarning>,
 ) -> WalletResult<ProfilePayload> {
     let profile = find_profile(wallet, profile_id)?;
     let aad = profile_aad(wallet, profile)?;
@@ -1113,7 +880,7 @@ fn authenticate_profile(
     );
     key.zeroize();
     let plaintext = zeroize::Zeroizing::new(plaintext_result?);
-    let payload = parse_payload(&plaintext, warnings, Uuid::from_bytes(*profile_id))?;
+    let payload = parse_payload(&plaintext)?;
     validate_authenticated_profile(wallet, profile, &payload)?;
     Ok(payload)
 }
@@ -1165,7 +932,8 @@ fn reencrypt_profile(
     let registry_key = zeroize::Zeroizing::new(wallet.registry_key);
     let profile = &mut wallet.profiles[profile_index];
     profile.software_key_index = index_from_payload(payload);
-    profile.aad_software_key_index = index_to_values(&profile.software_key_index);
+    profile.aad_software_key_index =
+        index_values_from_payload(payload, &profile.aad_software_key_index);
     if change_password {
         profile.kdf.salt = crypto::random()?;
     }
@@ -1196,14 +964,17 @@ fn new_encrypted_profile(
         duplicate_tag,
         kdf: KdfParams {
             salt: crypto::random()?,
+            unknown_fields: Vec::new(),
         },
         cipher: Ciphertext {
             nonce: crypto::random()?,
             ciphertext: Vec::new(),
             tag: [0u8; 16],
+            unknown_fields: Vec::new(),
         },
         software_key_index: index_from_payload(payload),
         aad_software_key_index: index_to_values(&index_from_payload(payload)),
+        unknown_fields: Vec::new(),
     };
     let mut key = crypto::derive_encryption_key(password_utf8, &profile.kdf.salt)?;
     let aad = profile_aad_from_parts(registry_key, &profile)?;
@@ -1246,11 +1017,11 @@ fn profile_aad_from_parts(
 }
 
 // 保存時はProfileとpayload内のkeyをbytewise昇順へ正規化する。
-// indexはAADと同じ受信wire値を保持し、未知fieldを含む既存Profileの認証を壊さない。
+// 既知fieldだけを再構築し、未知fieldは意味解釈せずwire値を保持する。
 fn encode_store(wallet: &WalletStore) -> WalletResult<Vec<u8>> {
     let mut profiles = wallet.profiles.clone();
     profiles.sort_by_key(|profile| profile.profile_id);
-    cbor::encode(&Value::Map(vec![
+    let mut fields = vec![
         (0, Value::Bytes(MAGIC.to_vec())),
         (1, Value::UInt(STORE_VERSION)),
         (2, Value::Bytes(wallet.registry_key.to_vec())),
@@ -1258,66 +1029,110 @@ fn encode_store(wallet: &WalletStore) -> WalletResult<Vec<u8>> {
             3,
             Value::Array(profiles.iter().map(profile_to_value).collect()),
         ),
-    ]))
-    .map_err(|_| WalletError::new(ErrorCode::SerializationFailure))
+    ];
+    fields.extend(
+        wallet
+            .unknown_fields
+            .iter()
+            .map(|(key, value)| (*key, value.clone())),
+    );
+    cbor::encode(&Value::Map(fields)).map_err(|_| WalletError::new(ErrorCode::SerializationFailure))
 }
 
 fn profile_to_value(profile: &ProfileEnvelope) -> Value {
-    Value::Map(vec![
+    let mut fields = vec![
         (0, Value::Bytes(profile.profile_id.to_vec())),
         (1, Value::UInt(profile.network.wire())),
         (2, Value::Bytes(profile.duplicate_tag.to_vec())),
         (3, Value::UInt(PROFILE_SCHEMA_VERSION)),
-        (
-            4,
-            Value::Map(vec![
-                (0, Value::UInt(KDF_ALGORITHM)),
-                (1, Value::UInt(crypto::KDF_VERSION as u64)),
-                (2, Value::UInt(crypto::KDF_MEMORY_KIB as u64)),
-                (3, Value::UInt(crypto::KDF_ITERATIONS as u64)),
-                (4, Value::UInt(crypto::KDF_PARALLELISM as u64)),
-                (5, Value::Bytes(profile.kdf.salt.to_vec())),
-            ]),
-        ),
-        (
-            5,
-            Value::Map(vec![
-                (0, Value::UInt(CIPHER_ALGORITHM)),
-                (1, Value::Bytes(profile.cipher.nonce.to_vec())),
-                (2, Value::Bytes(profile.cipher.ciphertext.clone())),
-                (3, Value::Bytes(profile.cipher.tag.to_vec())),
-            ]),
-        ),
+        (4, kdf_to_value(&profile.kdf)),
+        (5, cipher_to_value(&profile.cipher)),
         (6, Value::Array(profile.aad_software_key_index.clone())),
-    ])
+    ];
+    fields.extend(
+        profile
+            .unknown_fields
+            .iter()
+            .map(|(key, value)| (*key, value.clone())),
+    );
+    Value::Map(fields)
 }
 
 // payloadの保存順序はkey_idのbytewise昇順とし、登録順に意味を持たせない。
 fn encode_payload(payload: &ProfilePayload) -> WalletResult<Vec<u8>> {
     let mut keys = payload.software_keys.clone();
     keys.sort_by_key(|key| key.key_id);
-    cbor::encode(&Value::Map(vec![
+    let mut fields = vec![
         (0, Value::Bytes(payload.mnemonic_entropy.to_vec())),
         (1, Value::Array(keys.iter().map(key_to_value).collect())),
-    ]))
-    .map_err(|_| WalletError::new(ErrorCode::SerializationFailure))
+    ];
+    fields.extend(
+        payload
+            .unknown_fields
+            .iter()
+            .map(|(key, value)| (*key, value.clone())),
+    );
+    cbor::encode(&Value::Map(fields)).map_err(|_| WalletError::new(ErrorCode::SerializationFailure))
 }
 
 fn key_to_value(key: &KeyRecord) -> Value {
-    let origin = match key.origin {
-        SoftwareKeyOrigin::Derived { account_index } => Value::Map(vec![
-            (0, Value::UInt(0)),
-            (1, Value::UInt(account_index as u64)),
-        ]),
-        SoftwareKeyOrigin::Imported => Value::Map(vec![(0, Value::UInt(1))]),
-        SoftwareKeyOrigin::Generated => Value::Map(vec![(0, Value::UInt(2))]),
+    let mut origin_fields = match key.origin {
+        SoftwareKeyOrigin::Derived { account_index } => {
+            vec![(0, Value::UInt(0)), (1, Value::UInt(account_index as u64))]
+        }
+        SoftwareKeyOrigin::Imported => vec![(0, Value::UInt(1))],
+        SoftwareKeyOrigin::Generated => vec![(0, Value::UInt(2))],
     };
-    Value::Map(vec![
+    origin_fields.extend(
+        key.origin_unknown_fields
+            .iter()
+            .map(|(field, value)| (*field, value.clone())),
+    );
+    let mut fields = vec![
         (0, Value::Bytes(key.key_id.to_vec())),
         (1, Value::UInt(key.chain.wire())),
         (2, Value::Bytes(key.private_key.to_vec())),
-        (3, origin),
-    ])
+        (3, Value::Map(origin_fields)),
+    ];
+    fields.extend(
+        key.unknown_fields
+            .iter()
+            .map(|(field, value)| (*field, value.clone())),
+    );
+    Value::Map(fields)
+}
+
+fn kdf_to_value(kdf: &KdfParams) -> Value {
+    let mut fields = vec![
+        (0, Value::UInt(KDF_ALGORITHM)),
+        (1, Value::UInt(crypto::KDF_VERSION as u64)),
+        (2, Value::UInt(crypto::KDF_MEMORY_KIB as u64)),
+        (3, Value::UInt(crypto::KDF_ITERATIONS as u64)),
+        (4, Value::UInt(crypto::KDF_PARALLELISM as u64)),
+        (5, Value::Bytes(kdf.salt.to_vec())),
+    ];
+    fields.extend(
+        kdf.unknown_fields
+            .iter()
+            .map(|(key, value)| (*key, value.clone())),
+    );
+    Value::Map(fields)
+}
+
+fn cipher_to_value(cipher: &Ciphertext) -> Value {
+    let mut fields = vec![
+        (0, Value::UInt(CIPHER_ALGORITHM)),
+        (1, Value::Bytes(cipher.nonce.to_vec())),
+        (2, Value::Bytes(cipher.ciphertext.clone())),
+        (3, Value::Bytes(cipher.tag.to_vec())),
+    ];
+    fields.extend(
+        cipher
+            .unknown_fields
+            .iter()
+            .map(|(key, value)| (*key, value.clone())),
+    );
+    Value::Map(fields)
 }
 
 fn index_to_value(entry: &IndexEntry) -> Value {
@@ -1329,6 +1144,31 @@ fn index_to_value(entry: &IndexEntry) -> Value {
 
 fn index_to_values(entries: &[IndexEntry]) -> Vec<Value> {
     entries.iter().map(index_to_value).collect()
+}
+
+// 既存indexのunknown fieldをkey_idで引き継ぎ、既知fieldだけを更新する。
+fn index_values_from_payload(payload: &ProfilePayload, existing: &[Value]) -> Vec<Value> {
+    index_from_payload(payload)
+        .into_iter()
+        .map(|entry| {
+            let unknown = existing
+                .iter()
+                .find(|value| {
+                    as_map(value)
+                        .and_then(|map| fixed_bytes(map_value(map, 0), 16))
+                        .is_some_and(|key_id| key_id == entry.key_id)
+                })
+                .and_then(as_map)
+                .map(|map| unknown_fields(map, &[0, 1]))
+                .unwrap_or_default();
+            let mut fields = vec![
+                (0, Value::Bytes(entry.key_id.to_vec())),
+                (1, Value::UInt(entry.chain.wire())),
+            ];
+            fields.extend(unknown);
+            Value::Map(fields)
+        })
+        .collect()
 }
 
 fn index_from_payload(payload: &ProfilePayload) -> Vec<IndexEntry> {
@@ -1541,6 +1381,13 @@ fn as_array(value: &Value) -> Option<&[Value]> {
     }
 }
 
+fn unknown_fields(map: &[(u64, Value)], known: &[u64]) -> Vec<(u64, Value)> {
+    map.iter()
+        .filter(|(key, _)| !known.contains(key))
+        .map(|(key, value)| (*key, value.clone()))
+        .collect()
+}
+
 fn map_value(map: &[(u64, Value)], key: u64) -> Option<&Value> {
     map.iter()
         .find(|(candidate, _)| *candidate == key)
@@ -1561,14 +1408,6 @@ fn fixed_bytes<const N: usize>(value: Option<&Value>, _length: usize) -> Option<
     }
 }
 
-fn fixed_bytes_warning(value: Option<&Value>) -> &'static str {
-    match value {
-        None => "MissingRequiredField",
-        Some(Value::Bytes(_)) => "InvalidFieldLength",
-        Some(_) => "InvalidFieldType",
-    }
-}
-
 fn parse_network(value: Option<&Value>) -> Option<Network> {
     match uint(value)? {
         0 => Some(Network::Testnet),
@@ -1582,28 +1421,6 @@ fn parse_chain(value: Option<&Value>) -> Option<Chain> {
         0 => Some(Chain::Nem),
         1 => Some(Chain::Symbol),
         _ => None,
-    }
-}
-
-fn enum_warning_code(value: Option<&Value>) -> &'static str {
-    match value {
-        None => "MissingRequiredField",
-        Some(Value::UInt(_)) => "UnknownEnumValue",
-        Some(_) => "InvalidFieldType",
-    }
-}
-
-fn warning(
-    code: &'static str,
-    object_type: &'static str,
-    object_id: Option<Uuid>,
-    field: Option<&'static str>,
-) -> DecodeWarning {
-    DecodeWarning {
-        code,
-        object_type,
-        object_id,
-        field,
     }
 }
 
@@ -1777,38 +1594,117 @@ mod tests {
         cbor::encode(&value).unwrap()
     }
 
+    fn add_unknown_manifest_fields(store: &[u8]) -> Vec<u8> {
+        let mut value = cbor::decode(store).unwrap();
+        let map = match &mut value {
+            Value::Map(entries) => entries,
+            _ => unreachable!(),
+        };
+        map.push((99, Value::Text("store-extension".to_owned())));
+        let profile = first_profile_map_mut(&mut value);
+        profile.push((99, Value::Text("profile-extension".to_owned())));
+        let kdf = match map_value_mut(profile, 4) {
+            Value::Map(entries) => entries,
+            _ => unreachable!(),
+        };
+        kdf.push((99, Value::Text("kdf-extension".to_owned())));
+        let cipher = match map_value_mut(profile, 5) {
+            Value::Map(entries) => entries,
+            _ => unreachable!(),
+        };
+        cipher.push((99, Value::Text("cipher-extension".to_owned())));
+        cbor::encode(&value).unwrap()
+    }
+
+    fn add_unknown_payload_fields(store: &[u8]) -> Vec<u8> {
+        let (mut wallet, _) = decode_store(store).unwrap();
+        let profile = wallet.profiles.first().unwrap();
+        let key = crypto::derive_encryption_key(PASSWORD, &profile.kdf.salt).unwrap();
+        let aad = profile_aad(&wallet, profile).unwrap();
+        let plaintext = zeroize::Zeroizing::new(
+            crypto::decrypt(
+                &key,
+                &profile.cipher.nonce,
+                &profile.cipher.tag,
+                &aad,
+                &profile.cipher.ciphertext,
+            )
+            .unwrap(),
+        );
+        let mut payload = cbor::decode(&plaintext).unwrap();
+        let payload_map = match &mut payload {
+            Value::Map(entries) => entries,
+            _ => unreachable!(),
+        };
+        payload_map.push((99, Value::Text("payload-extension".to_owned())));
+        let keys = match map_value_mut(payload_map, 1) {
+            Value::Array(values) => values,
+            _ => unreachable!(),
+        };
+        let key_map = match keys.first_mut().unwrap() {
+            Value::Map(entries) => entries,
+            _ => unreachable!(),
+        };
+        key_map.push((99, Value::Text("key-extension".to_owned())));
+        let origin = match map_value_mut(key_map, 3) {
+            Value::Map(entries) => entries,
+            _ => unreachable!(),
+        };
+        origin.push((99, Value::Text("origin-extension".to_owned())));
+        let payload_bytes = zeroize::Zeroizing::new(cbor::encode(&payload).unwrap());
+        let (ciphertext, tag) =
+            crypto::encrypt(&key, &profile.cipher.nonce, &aad, &payload_bytes).unwrap();
+        let profile = wallet.profiles.first_mut().unwrap();
+        profile.cipher.ciphertext = ciphertext;
+        profile.cipher.tag = tag;
+        encode_store(&wallet).unwrap()
+    }
+
+    fn replace_duplicate_tag_with_authenticated_value(store: &[u8]) -> Vec<u8> {
+        let (mut wallet, _) = decode_store(store).unwrap();
+        let profile = wallet.profiles.first().unwrap();
+        let key = crypto::derive_encryption_key(PASSWORD, &profile.kdf.salt).unwrap();
+        let old_aad = profile_aad(&wallet, profile).unwrap();
+        let plaintext = zeroize::Zeroizing::new(
+            crypto::decrypt(
+                &key,
+                &profile.cipher.nonce,
+                &profile.cipher.tag,
+                &old_aad,
+                &profile.cipher.ciphertext,
+            )
+            .unwrap(),
+        );
+        wallet.profiles.first_mut().unwrap().duplicate_tag = [0xA5; 32];
+        let profile = wallet.profiles.first().unwrap();
+        let new_aad = profile_aad(&wallet, profile).unwrap();
+        let (ciphertext, tag) =
+            crypto::encrypt(&key, &profile.cipher.nonce, &new_aad, &plaintext).unwrap();
+        let profile = wallet.profiles.first_mut().unwrap();
+        profile.cipher.ciphertext = ciphertext;
+        profile.cipher.tag = tag;
+        encode_store(&wallet).unwrap()
+    }
+
     #[test]
-    fn decode_warnings_and_fatal_errors_follow_the_store_specification() {
+    fn malformed_profiles_and_unknown_enums_are_fatal_store_errors() {
         let store = create_empty_store().unwrap();
         let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
         let profile_id = restored.value.profile_id;
 
         for (field, name) in [(4, "kdf"), (5, "cipher")] {
             let malformed = mutate_algorithm(&restored.store, field, 99);
-            let result = list_profiles(&malformed).unwrap();
-            assert!(result.value.is_empty());
             assert_eq!(
-                result.warnings,
-                vec![DecodeWarning {
-                    code: "UnknownEnumValue",
-                    object_type: "ProfileEnvelope",
-                    object_id: Some(profile_id),
-                    field: Some(name),
-                }]
+                list_profiles(&malformed).unwrap_err().code,
+                ErrorCode::InvalidStore,
+                "未知enum {name} はProfileをskipせずfatalにする"
             );
         }
 
         let with_invalid_child = append_invalid_profile_child(&restored.store);
-        let result = list_profiles(&with_invalid_child).unwrap();
-        assert_eq!(result.value.len(), 1);
         assert_eq!(
-            result.warnings,
-            vec![DecodeWarning {
-                code: "InvalidFieldType",
-                object_type: "ProfileEnvelope",
-                object_id: None,
-                field: None,
-            }]
+            list_profiles(&with_invalid_child).unwrap_err().code,
+            ErrorCode::InvalidStore
         );
 
         assert_eq!(
@@ -1874,7 +1770,102 @@ mod tests {
     }
 
     #[test]
-    fn payload_key_order_and_fixed_field_warning_codes_follow_the_format() {
+    fn unknown_wire_fields_survive_non_target_and_target_mutations() {
+        let store = create_empty_store().unwrap();
+        let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
+        let profile_id = restored.value.profile_id;
+        let derived =
+            derive_software_key(&restored.store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
+        let with_index = add_unknown_index_field_with_matching_aad(&derived.store);
+        let with_manifest = add_unknown_manifest_fields(&with_index);
+        let with_payload = add_unknown_payload_fields(&with_manifest);
+
+        // 別Profileの追加で、対象外Profileのwire値を再構築してもunknown fieldを失わない。
+        let second = restore_profile(&with_payload, MNEMONIC, PASSWORD, Network::Testnet).unwrap();
+        let mutated =
+            derive_software_key(&second.store, profile_id, PASSWORD, Chain::Nem, 1).unwrap();
+        let value = cbor::decode(&mutated.store).unwrap();
+        let map = match &value {
+            Value::Map(entries) => entries,
+            _ => unreachable!(),
+        };
+        assert!(map_value(map, 99).is_some());
+        let profiles = match map_value(map, 3).unwrap() {
+            Value::Array(values) => values,
+            _ => unreachable!(),
+        };
+        let target = profiles
+            .iter()
+            .find(|value| {
+                as_map(value).and_then(|map| fixed_bytes(map_value(map, 0), 16))
+                    == Some(profile_id.into_bytes())
+            })
+            .unwrap();
+        let target_map = as_map(target).unwrap();
+        assert!(map_value(target_map, 99).is_some());
+        assert!(as_map(map_value(target_map, 4).unwrap())
+            .unwrap()
+            .iter()
+            .any(|(key, _)| *key == 99));
+        assert!(as_map(map_value(target_map, 5).unwrap())
+            .unwrap()
+            .iter()
+            .any(|(key, _)| *key == 99));
+        let index = match map_value(target_map, 6).unwrap() {
+            Value::Array(values) => values,
+            _ => unreachable!(),
+        };
+        assert!(index
+            .iter()
+            .any(|value| { as_map(value).unwrap().iter().any(|(key, _)| *key == 99) }));
+
+        let wallet = decode_store(&mutated.store).unwrap().0;
+        let target_profile = wallet
+            .profiles
+            .iter()
+            .find(|profile| profile.profile_id == profile_id.into_bytes())
+            .unwrap();
+        let key = crypto::derive_encryption_key(PASSWORD, &target_profile.kdf.salt).unwrap();
+        let aad = profile_aad(&wallet, target_profile).unwrap();
+        let plaintext = zeroize::Zeroizing::new(
+            crypto::decrypt(
+                &key,
+                &target_profile.cipher.nonce,
+                &target_profile.cipher.tag,
+                &aad,
+                &target_profile.cipher.ciphertext,
+            )
+            .unwrap(),
+        );
+        let payload = cbor::decode(&plaintext).unwrap();
+        let payload_map = as_map(&payload).unwrap();
+        assert!(map_value(payload_map, 99).is_some());
+        let keys = match map_value(payload_map, 1).unwrap() {
+            Value::Array(values) => values,
+            _ => unreachable!(),
+        };
+        let key_map = keys
+            .iter()
+            .filter_map(as_map)
+            .find(|map| map_value(map, 99).is_some())
+            .unwrap();
+        assert!(as_map(map_value(key_map, 3).unwrap())
+            .unwrap()
+            .iter()
+            .any(|(key, _)| *key == 99));
+    }
+
+    #[test]
+    fn restore_continues_when_existing_plaintext_tag_does_not_match_candidate() {
+        let store = create_empty_store().unwrap();
+        let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
+        let inconsistent = replace_duplicate_tag_with_authenticated_value(&restored.store);
+        let result = restore_profile(&inconsistent, MNEMONIC, PASSWORD, Network::Mainnet);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn payload_order_and_fixed_fields_are_fatal_store_errors() {
         let unsorted_payload = Value::Map(vec![
             (0, Value::Bytes(vec![0; 32])),
             (
@@ -1885,26 +1876,25 @@ mod tests {
                         chain: Chain::Symbol,
                         private_key: [1; 32],
                         origin: SoftwareKeyOrigin::Imported,
+                        unknown_fields: Vec::new(),
+                        origin_unknown_fields: Vec::new(),
                     }),
                     key_to_value(&KeyRecord {
                         key_id: [1; 16],
                         chain: Chain::Symbol,
                         private_key: [2; 32],
                         origin: SoftwareKeyOrigin::Imported,
+                        unknown_fields: Vec::new(),
+                        origin_unknown_fields: Vec::new(),
                     }),
                 ]),
             ),
         ]);
-        let mut warnings = Vec::new();
         assert_eq!(
-            parse_payload(
-                &cbor::encode(&unsorted_payload).unwrap(),
-                &mut warnings,
-                Uuid::nil()
-            )
-            .err()
-            .unwrap()
-            .code,
+            parse_payload(&cbor::encode(&unsorted_payload).unwrap())
+                .err()
+                .unwrap()
+                .code,
             ErrorCode::InvalidStore
         );
 
@@ -1936,7 +1926,7 @@ mod tests {
             (6, Value::Array(Vec::new())),
         ]);
 
-        let warning_for = |field: u64, replacement: Option<Value>| {
+        let error_for = |field: u64, replacement: Option<Value>| {
             let mut value = profile.clone();
             let map = match &mut value {
                 Value::Map(entries) => entries,
@@ -1947,46 +1937,47 @@ mod tests {
             } else {
                 map.retain(|(key, _)| *key != field);
             }
-            let mut warnings = Vec::new();
-            assert!(parse_profile(&value, &mut warnings).unwrap().is_none());
-            warnings.pop().unwrap().code
+            parse_profile(&value).err().unwrap().code
         };
 
-        assert_eq!(warning_for(2, Some(Value::UInt(1))), "InvalidFieldType");
+        assert_eq!(error_for(2, Some(Value::UInt(1))), ErrorCode::InvalidStore);
         assert_eq!(
-            warning_for(2, Some(Value::Bytes(vec![1]))),
-            "InvalidFieldLength"
+            error_for(2, Some(Value::Bytes(vec![1]))),
+            ErrorCode::InvalidStore
         );
-        assert_eq!(warning_for(2, None), "MissingRequiredField");
+        assert_eq!(error_for(2, None), ErrorCode::InvalidStore);
 
-        let mut key_warnings = Vec::new();
         let key = Value::Map(vec![
             (0, Value::Bytes([1; 16].to_vec())),
             (1, Value::UInt(Chain::Symbol.wire())),
             (3, Value::Map(vec![(0, Value::UInt(1))])),
         ]);
-        assert!(parse_key_record(&key, &mut key_warnings, Uuid::nil()).is_none());
-        assert_eq!(key_warnings.pop().unwrap().code, "MissingRequiredField");
+        assert_eq!(
+            parse_key_record(&key).err().unwrap().code,
+            ErrorCode::InvalidStore
+        );
 
-        let mut key_warnings = Vec::new();
         let key = Value::Map(vec![
             (0, Value::Bytes([1; 16].to_vec())),
             (1, Value::UInt(Chain::Symbol.wire())),
             (2, Value::UInt(1)),
             (3, Value::Map(vec![(0, Value::UInt(1))])),
         ]);
-        assert!(parse_key_record(&key, &mut key_warnings, Uuid::nil()).is_none());
-        assert_eq!(key_warnings.pop().unwrap().code, "InvalidFieldType");
+        assert_eq!(
+            parse_key_record(&key).err().unwrap().code,
+            ErrorCode::InvalidStore
+        );
 
-        let mut key_warnings = Vec::new();
         let key = Value::Map(vec![
             (0, Value::Bytes([1; 16].to_vec())),
             (1, Value::UInt(Chain::Symbol.wire())),
             (2, Value::Bytes(vec![1])),
             (3, Value::Map(vec![(0, Value::UInt(1))])),
         ]);
-        assert!(parse_key_record(&key, &mut key_warnings, Uuid::nil()).is_none());
-        assert_eq!(key_warnings.pop().unwrap().code, "InvalidFieldLength");
+        assert_eq!(
+            parse_key_record(&key).err().unwrap().code,
+            ErrorCode::InvalidStore
+        );
     }
 
     #[test]
@@ -2026,14 +2017,19 @@ mod tests {
             profile_id: [1; 16],
             network: Network::Mainnet,
             duplicate_tag: [2; 32],
-            kdf: KdfParams { salt: [3; 16] },
+            kdf: KdfParams {
+                salt: [3; 16],
+                unknown_fields: Vec::new(),
+            },
             cipher: Ciphertext {
                 nonce: [4; 12],
                 ciphertext: vec![5, 6, 7],
                 tag: [8; 16],
+                unknown_fields: Vec::new(),
             },
             software_key_index: Vec::new(),
             aad_software_key_index: Vec::new(),
+            unknown_fields: Vec::new(),
         };
         let aad = profile_aad_from_parts(&registry_key, &profile).unwrap();
         let duplicate = crypto::duplicate_tag(&registry_key, Network::Mainnet, &[9; 32]);

@@ -2,7 +2,7 @@
 //!
 //! 外部入力をそのまま汎用CBORとして受け入れず、unsigned integer map key、
 //! definite length、最短integer表現、重複map keyなしという仕様上の制約を
-//! parserで検証する。未知fieldは上位のStore decoderが無視して再保存時に落とす。
+//! parserで検証する。未知fieldは上位のStore decoderが意味解釈せず保持する。
 
 use core::fmt;
 
@@ -186,15 +186,17 @@ impl<'a> Parser<'a> {
             5 => {
                 let length = self.collection_length(additional, true)?;
                 let mut entries = Vec::with_capacity(length);
+                let mut previous_key = None;
                 for _ in 0..length {
                     let key = match self.value()? {
                         Value::UInt(key) => key,
                         _ => return Err(CborError),
                     };
-                    // 同一map keyはdecode時点で拒否し、後段の意味解釈を一意にする。
-                    if entries.iter().any(|(existing, _)| *existing == key) {
+                    // Deterministic CBORのmap key順序と重複をdecoderでも検証する。
+                    if previous_key.is_some_and(|previous| key <= previous) {
                         return Err(CborError);
                     }
+                    previous_key = Some(key);
                     entries.push((key, self.value()?));
                 }
                 Ok(Value::Map(entries))
@@ -272,5 +274,12 @@ mod tests {
         let mut deeply_nested = vec![0x81; MAX_NESTING_DEPTH + 1];
         deeply_nested.push(0x80);
         assert!(decode(&deeply_nested).is_err());
+    }
+
+    #[test]
+    fn parser_rejects_noncanonical_map_order_and_trailing_bytes() {
+        // {1: 0, 0: 0} はmap key順序がdeterministic CBORに反する。
+        assert!(decode(&[0xa2, 0x01, 0x00, 0x00, 0x00]).is_err());
+        assert!(decode(&[0x01, 0x00]).is_err());
     }
 }

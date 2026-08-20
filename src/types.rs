@@ -77,25 +77,28 @@ pub enum SoftwareKeyOrigin {
     Generated,
 }
 
-/// 不正な子オブジェクトをスキップした際に生成されるwarning。
+/// Store読み取り時に返す構造化warning。
+///
+/// v1の不正なProfileやSoftware Keyはwarning付きでskipせず、Store全体を
+/// fatal errorとして拒否する。型はBinding間の結果契約を維持するため公開する。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DecodeWarning {
     /// Store formatで定義された安定したwarning code。
     pub code: &'static str,
-    /// スキップしたオブジェクトの種類。
+    /// 対象オブジェクトの種類。
     pub object_type: &'static str,
-    /// 不正な秘密情報を信用せず復元できた場合の識別子。
+    /// 対象を特定できる場合の識別子。
     pub object_id: Option<Uuid>,
     /// warningに対応するfield。特定できる場合だけ設定される。
     pub field: Option<&'static str>,
 }
 
-/// 致命的ではないdecode診断情報を含む読み取り結果。
+/// 読み取り結果とdiagnosticsを含む結果。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReadResult<T> {
     /// 操作結果の値。
     pub value: T,
-    /// スキップしたオブジェクトに関する非致命的な診断情報。
+    /// 仕様上許容された非致命的な診断情報。
     pub warnings: Vec<DecodeWarning>,
 }
 
@@ -106,7 +109,7 @@ pub struct MutationResult<T> {
     pub store: WalletStoreBlob,
     /// 操作結果の値。
     pub value: T,
-    /// スキップしたオブジェクトに関する非致命的な診断情報。
+    /// 仕様上許容された非致命的な診断情報。
     pub warnings: Vec<DecodeWarning>,
 }
 
