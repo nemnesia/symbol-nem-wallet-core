@@ -1,47 +1,52 @@
+//! Wallet CoreとBindingの間で共有するエラー型。
+//!
+//! エラーは安定したcodeだけを公開し、password、Mnemonic、private key、
+//! 復号済みpayloadなどの秘密情報をmessageへ含めない。
+
 use core::fmt;
 
-/// Stable error codes exposed by Core and its bindings.
+/// CoreとBindingが共有する安定したエラーコード。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ErrorCode {
-    /// An argument, identifier, payload, or password input is invalid.
+    /// 引数、識別子、payloadまたはパスワード入力が不正。
     InvalidArgument,
-    /// The top-level Wallet Store cannot be interpreted.
+    /// Wallet Storeのトップレベル構造を解釈できない。
     InvalidStore,
-    /// The Wallet Store version is not supported.
+    /// Wallet Storeのバージョンが未対応。
     UnsupportedStoreVersion,
-    /// The Profile schema version is not supported.
+    /// Profile schemaのバージョンが未対応。
     UnsupportedProfileSchemaVersion,
-    /// The requested Profile does not exist.
+    /// 指定されたProfileが存在しない。
     ProfileNotFound,
-    /// The requested Software Key does not exist.
+    /// 指定されたSoftware Keyが存在しない。
     SoftwareKeyNotFound,
-    /// Password or authenticated encryption verification failed.
+    /// パスワードまたは認証付き暗号の検証に失敗した。
     AuthenticationFailed,
-    /// The Mnemonic is not a valid v1 Mnemonic.
+    /// Mnemonicがv1の形式として不正。
     InvalidMnemonic,
-    /// The private key is not valid for the selected Chain.
+    /// 指定Chainで有効なprivate keyではない。
     InvalidPrivateKey,
-    /// The Profile already exists for the same Mnemonic and Network.
+    /// 同じMnemonicとNetworkのProfileがすでに存在する。
     DuplicateProfile,
-    /// The Software Key already exists for the same Chain and private key.
+    /// 同じChainとprivate keyのSoftware Keyがすでに存在する。
     DuplicateSoftwareKey,
-    /// The derivation account index is outside the v1 range.
+    /// 導出用account indexがv1の範囲外。
     InvalidAccountIndex,
-    /// A requested Chain or Network relationship is invalid.
+    /// 指定されたChainとNetworkの組み合わせが不正。
     NetworkMismatch,
-    /// A cryptographic operation failed.
+    /// 暗号処理に失敗した。
     CryptoFailure,
-    /// The secure random source failed.
+    /// 暗号学的に安全な乱数源の呼び出しに失敗した。
     RandomSourceFailure,
-    /// Deterministic Store serialization failed.
+    /// 決定的なStoreシリアライズに失敗した。
     SerializationFailure,
-    /// A pending generated Profile blob is invalid or mismatched.
+    /// 生成途中のProfile blobが不正、または対象Storeと一致しない。
     PendingProfileInvalid,
 }
 
 impl ErrorCode {
-    /// Returns the binding-stable string representation.
+    /// Bindingで使用する安定した文字列表現を返す。
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidArgument => "InvalidArgument",
@@ -65,10 +70,10 @@ impl ErrorCode {
     }
 }
 
-/// A non-sensitive Core error.
+/// 秘密情報を含まないCoreエラー。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WalletError {
-    /// Stable error code.
+    /// 安定したエラーコード。
     pub code: ErrorCode,
 }
 
@@ -86,5 +91,5 @@ impl fmt::Display for WalletError {
 
 impl std::error::Error for WalletError {}
 
-/// Result type used by the wallet core.
+/// Wallet Coreが使用する結果型。
 pub type WalletResult<T> = Result<T, WalletError>;

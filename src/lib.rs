@@ -1,11 +1,14 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-//! Rust wallet core for Symbol and NEM.
+//! SymbolとNEMに対応するRust製Wallet Core。
 //!
-//! The public functions operate on opaque Wallet Store and pending-profile
-//! byte buffers. Secret inputs are byte slices, never textual private keys or
-//! passwords.
+//! 公開関数は、不透明なWallet StoreとPending Profileのbyte列を入出力する。
+//! 秘密入力は、textualなprivate keyやpasswordではなくbyte sliceとして扱う。
+//!
+//! 秘密情報を必要とする処理は、呼び出しごとにProfile passwordを受け取り、
+//! 継続的なunlocked状態を保持しない。状態を変更する操作は、成功時だけ
+//! 完全なreplacement Storeを返す。
 
 mod cbor;
 mod crypto;

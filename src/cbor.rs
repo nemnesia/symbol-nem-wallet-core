@@ -1,3 +1,9 @@
+//! Wallet Store v1で使用する、決定的CBORの最小実装。
+//!
+//! 外部入力をそのまま汎用CBORとして受け入れず、unsigned integer map key、
+//! definite length、最短integer表現、重複map keyなしという仕様上の制約を
+//! parserで検証する。未知fieldは上位のStore decoderが無視して再保存時に落とす。
+
 use core::fmt;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -21,6 +27,7 @@ impl fmt::Display for CborError {
 }
 
 pub(crate) fn decode(input: &[u8]) -> Result<Value, CborError> {
+    // ルートを1つだけ読み、後続byteがあれば不正なtrailing dataとして拒否する。
     let mut parser = Parser { input, offset: 0 };
     let value = parser.value()?;
     if parser.offset != input.len() {
@@ -56,6 +63,7 @@ fn write_value(value: &Value, output: &mut Vec<u8>) -> Result<(), CborError> {
             Ok(())
         }
         Value::Map(entries) => {
+            // CBOR map keyをunsigned integerの昇順へ正規化してdeterministicにする。
             let mut entries = entries.iter().collect::<Vec<_>>();
             entries.sort_by_key(|(key, _)| *key);
             if entries.windows(2).any(|pair| pair[0].0 == pair[1].0) {
@@ -117,6 +125,7 @@ impl<'a> Parser<'a> {
         let initial = *self.take(1)?.first().ok_or(CborError)?;
         let major = initial >> 5;
         let additional = initial & 0x1f;
+        // negative integer、tag、float、indefinite lengthはWallet Store v1で使用しない。
         match major {
             0 => Ok(Value::UInt(self.argument(additional)?)),
             1 => Err(CborError),
@@ -145,6 +154,7 @@ impl<'a> Parser<'a> {
                         Value::UInt(key) => key,
                         _ => return Err(CborError),
                     };
+                    // 同一map keyはdecode時点で拒否し、後段の意味解釈を一意にする。
                     if entries.iter().any(|(existing, _)| *existing == key) {
                         return Err(CborError);
                     }
@@ -185,6 +195,7 @@ impl<'a> Parser<'a> {
             ),
             _ => return Err(CborError),
         };
+        // RFC 8949 Core Deterministic Encodingの最短表現を要求する。
         if value < minimum {
             return Err(CborError);
         }

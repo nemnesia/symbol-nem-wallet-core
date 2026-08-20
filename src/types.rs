@@ -1,28 +1,34 @@
+//! Wallet Coreの公開DTO、識別子、Chain/Network型。
+//!
+//! 秘密情報を含むDTOは明示的なexport結果に限定し、`Debug`実装では値を
+//! redacted表記に置き換える。Wallet StoreとPending Profileはopaque byte列として扱う。
+
 use core::fmt;
 use uuid::Uuid;
 
-/// Opaque v1 Wallet Store bytes.
+/// 不透明なv1 Wallet Store byte列。
 pub type WalletStoreBlob = Vec<u8>;
 
-/// Opaque pending generated-profile bytes.
+/// 生成途中Profileを表す不透明なbyte列。
 pub type PendingProfileBlob = Vec<u8>;
 
-/// UUID identifying a Profile.
+/// Profileを識別するUUID。
 pub type ProfileId = Uuid;
 
-/// UUID identifying a Software Key.
+/// Software Keyを識別するUUID。
 pub type SoftwareKeyId = Uuid;
 
-/// Profile Network. The value is fixed at Profile creation.
+/// ProfileのNetwork。Profile作成時に固定される。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Network {
-    /// Symbol/NEM Testnet.
+    /// Symbol/NEM Testnet。
     Testnet,
-    /// Symbol/NEM Mainnet.
+    /// Symbol/NEM Mainnet。
     Mainnet,
 }
 
 impl Network {
+    // wire値はwallet-store-format-v1.mdの定義から変更しない。
     pub(crate) const fn wire(self) -> u64 {
         match self {
             Self::Testnet => 0,
@@ -38,16 +44,17 @@ impl Network {
     }
 }
 
-/// Blockchain family to which a Software Key is fixed.
+/// Software Keyに固定されたブロックチェーンの種類。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Chain {
-    /// NEM.
+    /// NEM。
     Nem,
-    /// Symbol.
+    /// Symbol。
     Symbol,
 }
 
 impl Chain {
+    // wire値はNEM=0、Symbol=1で固定する。
     pub(crate) const fn wire(self) -> u64 {
         match self {
             Self::Nem => 0,
@@ -56,103 +63,103 @@ impl Chain {
     }
 }
 
-/// Software Key origin.
+/// Software Keyの由来。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SoftwareKeyOrigin {
-    /// Derived from the Profile Mnemonic.
+    /// ProfileのMnemonicから導出した鍵。
     Derived {
-        /// Hardened account index used for derivation.
+        /// hardened導出に使用したaccount index。
         account_index: u32,
     },
-    /// Imported from a raw private key.
+    /// raw private keyをインポートした鍵。
     Imported,
-    /// Generated independently by Core.
+    /// Coreが独立して生成した鍵。
     Generated,
 }
 
-/// Warning generated while a malformed child object is skipped.
+/// 不正な子オブジェクトをスキップした際に生成されるwarning。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DecodeWarning {
-    /// Stable warning code from the Store format.
+    /// Store formatで定義された安定したwarning code。
     pub code: &'static str,
-    /// Object kind that was skipped.
+    /// スキップしたオブジェクトの種類。
     pub object_type: &'static str,
-    /// Identifier when it could be recovered without trusting a malformed secret.
+    /// 不正な秘密情報を信用せず復元できた場合の識別子。
     pub object_id: Option<Uuid>,
-    /// Field associated with the warning, when known.
+    /// warningに対応するfield。特定できる場合だけ設定される。
     pub field: Option<&'static str>,
 }
 
-/// A read result with non-fatal decode diagnostics.
+/// 致命的ではないdecode診断情報を含む読み取り結果。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReadResult<T> {
-    /// Operation value.
+    /// 操作結果の値。
     pub value: T,
-    /// Non-fatal skipped-object diagnostics.
+    /// スキップしたオブジェクトに関する非致命的な診断情報。
     pub warnings: Vec<DecodeWarning>,
 }
 
-/// A successful mutation and its complete replacement Store.
+/// 成功したmutationと、完全なreplacement Store。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MutationResult<T> {
-    /// Complete replacement Store bytes.
+    /// 置き換え用の完全なStore byte列。
     pub store: WalletStoreBlob,
-    /// Operation value.
+    /// 操作結果の値。
     pub value: T,
-    /// Non-fatal skipped-object diagnostics.
+    /// スキップしたオブジェクトに関する非致命的な診断情報。
     pub warnings: Vec<DecodeWarning>,
 }
 
-/// Public Profile information. It contains no secret.
+/// 秘密情報を含まない公開Profile情報。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProfileInfo {
-    /// Profile identifier.
+    /// Profile識別子。
     pub profile_id: ProfileId,
-    /// Fixed Profile Network.
+    /// 固定されたProfile Network。
     pub network: Network,
-    /// Number of indexed Software Keys.
+    /// indexに登録されたSoftware Keyの数。
     pub software_key_count: usize,
 }
 
-/// Public Software Key information returned after authenticated operations.
+/// 認証済み操作の結果として返す公開Software Key情報。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SoftwareKeyInfo {
-    /// Software Key identifier.
+    /// Software Key識別子。
     pub key_id: SoftwareKeyId,
-    /// Fixed Chain.
+    /// 固定されたChain。
     pub chain: Chain,
-    /// Key origin.
+    /// 鍵の由来。
     pub origin: SoftwareKeyOrigin,
 }
 
-/// Passwordless Software Key list item.
+/// パスワードなしで取得できるSoftware Key一覧項目。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SoftwareKeyListItem {
-    /// Software Key identifier.
+    /// Software Key識別子。
     pub key_id: SoftwareKeyId,
-    /// Fixed Chain.
+    /// 固定されたChain。
     pub chain: Chain,
 }
 
-/// Public account information.
+/// 公開アカウント情報。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicAccountInfo {
-    /// Software Key identifier.
+    /// Software Key識別子。
     pub key_id: SoftwareKeyId,
-    /// Fixed Chain.
+    /// 固定されたChain。
     pub chain: Chain,
-    /// Profile Network.
+    /// ProfileのNetwork。
     pub network: Network,
-    /// Raw 32-byte public key.
+    /// raw 32 byteのpublic key。
     pub public_key: [u8; 32],
-    /// Chain and Network-specific address string.
+    /// ChainとNetworkに対応したaddress文字列。
     pub address: String,
 }
 
-/// Raw signature result.
+/// raw signatureの結果。
 #[derive(Clone, Eq, PartialEq)]
 pub struct Signature {
-    /// Raw 64-byte signature.
+    /// raw 64 byteのsignature。
     pub signature: [u8; 64],
 }
 
@@ -165,13 +172,14 @@ impl fmt::Debug for Signature {
     }
 }
 
-/// Explicit Mnemonic export result.
+/// 明示的なMnemonic exportの結果。
 #[derive(Clone, Eq, PartialEq)]
 pub struct MnemonicExport {
-    /// Normalized BIP39 24-word UTF-8 bytes.
+    /// 正規化済みBIP39 24 wordsのUTF-8 byte列。
     pub mnemonic_utf8: Vec<u8>,
 }
 
+// 明示的にexportされた秘密情報でも、Debug/diagnostic経由では再出力しない。
 impl fmt::Debug for MnemonicExport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -181,10 +189,10 @@ impl fmt::Debug for MnemonicExport {
     }
 }
 
-/// Explicit private-key export result.
+/// 明示的なprivate key exportの結果。
 #[derive(Clone, Eq, PartialEq)]
 pub struct PrivateKeyExport {
-    /// Raw 32-byte private key.
+    /// raw 32 byteのprivate key。
     pub private_key: [u8; 32],
 }
 
@@ -197,12 +205,12 @@ impl fmt::Debug for PrivateKeyExport {
     }
 }
 
-/// Generated Profile data returned by the first backup handoff step.
+/// 初回バックアップ受渡しの最初の段階で返す生成Profileデータ。
 #[derive(Clone, Eq, PartialEq)]
 pub struct PreparedProfile {
-    /// Normalized BIP39 24-word UTF-8 bytes for the initial handoff.
+    /// 初回受渡しに使用する正規化済みBIP39 24 wordsのUTF-8 byte列。
     pub mnemonic_utf8: Vec<u8>,
-    /// Opaque pending Profile bytes to pass to finalize.
+    /// finalizeへ渡す不透明なPending Profile byte列。
     pub pending_profile: PendingProfileBlob,
 }
 

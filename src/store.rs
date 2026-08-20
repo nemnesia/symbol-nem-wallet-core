@@ -1,3 +1,8 @@
+//! Wallet Store v1のdecode、暗号化payload認証、atomic更新を担当するモジュール。
+//!
+//! 平文manifestは一覧処理に使用し、MnemonicとSoftware KeyはProfile passwordから
+//! 導出した鍵で暗号化する。更新処理では入力Storeを変更せず、新しいbyte列を返す。
+
 use uuid::Uuid;
 use zeroize::Zeroize;
 
@@ -12,11 +17,13 @@ use crate::{
     },
 };
 
+// Wallet Store v1の固定値。wire format仕様の値と一致させる。
 const MAGIC: [u8; 4] = *b"SNWC";
 const STORE_VERSION: u64 = 1;
 const PROFILE_SCHEMA_VERSION: u64 = 1;
 const KDF_ALGORITHM: u64 = 0;
 const CIPHER_ALGORITHM: u64 = 0;
+// Pending ProfileはWallet Storeのwire formatではないため、専用のmagic/versionを持つ。
 const PENDING_MAGIC: [u8; 8] = *b"SNWCPND1";
 const PENDING_VERSION: u8 = 1;
 
@@ -26,6 +33,8 @@ struct WalletStore {
     profiles: Vec<ProfileEnvelope>,
 }
 
+// ProfileEnvelopeは一覧取得に必要なmanifestと、暗号化payloadの認証情報を保持する。
+// Mnemonicやprivate keyはここへ置かず、ProfilePayloadに限定する。
 #[derive(Clone)]
 struct ProfileEnvelope {
     profile_id: [u8; 16],
@@ -68,6 +77,7 @@ struct ProfilePayload {
 }
 
 impl Drop for ProfilePayload {
+    // payloadがスコープを抜けた後も、entropyとprivate keyの平文を残さない。
     fn drop(&mut self) {
         self.mnemonic_entropy.zeroize();
         for key in &mut self.software_keys {
@@ -87,12 +97,15 @@ struct PendingDecoded {
 }
 
 impl Drop for PendingDecoded {
+    // Pending内の暗号文も不要になった時点で上書きする。
     fn drop(&mut self) {
         self.ciphertext.zeroize();
     }
 }
 
-/// Creates an empty v1 Wallet Store.
+/// 空のv1 Wallet Storeを生成する。
+///
+/// Store固有のregistry keyはCSPRNGから生成し、Profileは空の状態で返す。
 pub fn create_empty_store() -> WalletResult<WalletStoreBlob> {
     let store = WalletStore {
         registry_key: crypto::random()?,
@@ -101,7 +114,10 @@ pub fn create_empty_store() -> WalletResult<WalletStoreBlob> {
     encode_store(&store)
 }
 
-/// Generates mnemonic material and returns an encrypted pending profile without mutating the Store.
+/// Mnemonicを生成し、Storeを変更せずに暗号化済みPending Profileを返す。
+///
+/// 返却されたMnemonicは初回バックアップ受渡しに使用し、受渡し完了後に
+/// [`finalize_generated_profile`]へPending Profileを渡す。
 pub fn prepare_generated_profile(
     store: &[u8],
     password_utf8: &[u8],
@@ -123,7 +139,10 @@ pub fn prepare_generated_profile(
     })
 }
 
-/// Authenticates and commits a pending generated profile atomically.
+/// Pending Profileを認証し、atomicにProfileを確定する。
+///
+/// Pending Profile、対象Store、passwordおよび既存Profileの整合性を検証し、
+/// 成功時だけreplacement Storeを返す。
 pub fn finalize_generated_profile(
     store: &[u8],
     pending_profile: &[u8],
@@ -190,7 +209,7 @@ pub fn finalize_generated_profile(
     })
 }
 
-/// Restores a profile from a validated BIP39 mnemonic and returns a replacement Store.
+/// 検証済みBIP39 MnemonicからProfileを復元し、replacement Storeを返す。
 pub fn restore_profile(
     store: &[u8],
     mnemonic_utf8: &[u8],
@@ -232,7 +251,7 @@ pub fn restore_profile(
     })
 }
 
-/// Lists profiles without decrypting profile payloads.
+/// 暗号化payloadを復号せずにProfile一覧を返す。
 pub fn list_profiles(store: &[u8]) -> WalletResult<ReadResult<Vec<ProfileInfo>>> {
     let (wallet, warnings) = decode_store(store)?;
     Ok(ReadResult {
@@ -241,7 +260,9 @@ pub fn list_profiles(store: &[u8]) -> WalletResult<ReadResult<Vec<ProfileInfo>>>
     })
 }
 
-/// Lists indexed Software Keys for an authenticated Store structure.
+/// 平文indexからSoftware Key一覧を返す。
+///
+/// 一覧にはprivate keyやoriginを含めず、Profile passwordも要求しない。
 pub fn list_software_keys(
     store: &[u8],
     profile_id: Uuid,
@@ -261,7 +282,9 @@ pub fn list_software_keys(
     })
 }
 
-/// Exports a profile mnemonic after password authentication.
+/// password認証後にProfileのMnemonicを明示的にexportする。
+///
+/// 通常のProfile情報や一覧にはMnemonicを含めず、この関数の成功結果だけで返す。
 pub fn export_mnemonic(
     store: &[u8],
     profile_id: Uuid,
@@ -281,7 +304,7 @@ pub fn export_mnemonic(
     })
 }
 
-/// Exports a Software Key private key after password authentication.
+/// password認証後に指定Software Keyのprivate keyを明示的にexportする。
 pub fn export_private_key(
     store: &[u8],
     profile_id: Uuid,
@@ -308,7 +331,9 @@ pub fn export_private_key(
     })
 }
 
-/// Derives and stores a chain-specific Software Key from the profile mnemonic.
+/// ProfileのMnemonicからChain固有のSoftware Keyを導出して保存する。
+///
+/// 導出pathはProfile Network、Chain、account indexおよびschema versionから決定する。
 pub fn derive_software_key(
     store: &[u8],
     profile_id: Uuid,
@@ -352,7 +377,7 @@ pub fn derive_software_key(
     })
 }
 
-/// Validates and stores an imported chain-specific private key.
+/// 外部から受け取ったChain固有のprivate keyを検証して保存する。
 pub fn import_software_key(
     store: &[u8],
     profile_id: Uuid,
@@ -391,7 +416,7 @@ pub fn import_software_key(
     })
 }
 
-/// Generates and stores a random chain-specific private key.
+/// CSPRNGでChain固有のprivate keyを生成し、検証して保存する。
 pub fn generate_software_key(
     store: &[u8],
     profile_id: Uuid,
@@ -429,7 +454,7 @@ pub fn generate_software_key(
     })
 }
 
-/// Returns the public account and address for an authenticated Software Key.
+/// 認証済みSoftware Keyのpublic keyとaddressを返す。
 pub fn get_public_account(
     store: &[u8],
     profile_id: Uuid,
@@ -458,7 +483,9 @@ pub fn get_public_account(
     })
 }
 
-/// Signs caller-provided bytes with an authenticated Software Key.
+/// 認証済みSoftware Keyで呼び出し側のbyte列に署名する。
+///
+/// payloadの意味解釈やgeneration hashの追加は行わない。
 pub fn sign(
     store: &[u8],
     profile_id: Uuid,
@@ -486,7 +513,7 @@ pub fn sign(
     })
 }
 
-/// Re-encrypts one profile with a new password and a new KDF salt.
+/// 新しいpasswordとKDF saltでProfile全体を再暗号化する。
 pub fn change_profile_password(
     store: &[u8],
     profile_id: Uuid,
@@ -516,7 +543,7 @@ pub fn change_profile_password(
     })
 }
 
-/// Deletes one Software Key and returns a replacement Store.
+/// 指定Software Keyを削除し、replacement Storeを返す。
 pub fn delete_software_key(
     store: &[u8],
     profile_id: Uuid,
@@ -547,7 +574,7 @@ pub fn delete_software_key(
     })
 }
 
-/// Deletes one profile after password authentication.
+/// password認証後に指定Profileを削除する。
 pub fn delete_profile(
     store: &[u8],
     profile_id: Uuid,
@@ -565,6 +592,7 @@ pub fn delete_profile(
     })
 }
 
+// Storeのトップレベルは解釈不能ならfatal error、子Profileの不正はwarningとして扱う。
 fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)> {
     let value = cbor::decode(bytes).map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
     let map = as_map(&value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
@@ -607,6 +635,7 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
     ))
 }
 
+// ProfileEnvelopeを検証し、子要素の不正だけをwarning付きでスキップする。
 fn parse_profile(
     value: &Value,
     warnings: &mut Vec<DecodeWarning>,
@@ -714,6 +743,7 @@ fn parse_profile(
     }))
 }
 
+// KDFはv1で固定されたArgon2idのパラメータだけを受理する。
 fn parse_kdf(value: Option<&Value>) -> Option<KdfParams> {
     let map = as_map(value?)?;
     if uint(map_value(map, 0))? != KDF_ALGORITHM
@@ -729,6 +759,7 @@ fn parse_kdf(value: Option<&Value>) -> Option<KdfParams> {
     })
 }
 
+// Cipherはv1で固定されたAES-256-GCMのnonce、ciphertext、tagを保持する。
 fn parse_cipher(value: Option<&Value>) -> Option<Ciphertext> {
     let map = as_map(value?)?;
     if uint(map_value(map, 0))? != CIPHER_ALGORITHM {
@@ -747,6 +778,7 @@ fn parse_cipher(value: Option<&Value>) -> Option<Ciphertext> {
     })
 }
 
+// 平文indexはprivate keyを含まず、一覧取得用のkey_idとChainだけを保持する。
 fn parse_index_entry(
     value: &Value,
     warnings: &mut Vec<DecodeWarning>,
@@ -788,6 +820,7 @@ fn parse_index_entry(
     Some(IndexEntry { key_id, chain })
 }
 
+// 認証済みciphertextを復号した後にだけ呼び出し、payload内の子Keyを解釈する。
 fn parse_payload(
     bytes: &[u8],
     warnings: &mut Vec<DecodeWarning>,
@@ -818,6 +851,7 @@ fn parse_payload(
     })
 }
 
+// SoftwareKeyRecordの不正は秘密情報をwarningへ含めず、対象record全体をスキップする。
 fn parse_key_record(
     value: &Value,
     warnings: &mut Vec<DecodeWarning>,
@@ -965,6 +999,8 @@ fn parse_key_record(
     })
 }
 
+// Profile認証の順序は、AAD認証、payload構造検証、duplicate_tag意味検証、
+// index整合性検証、private key妥当性検証の順に固定する。
 fn authenticate_profile(
     wallet: &WalletStore,
     profile_id: &[u8; 16],
@@ -990,6 +1026,7 @@ fn authenticate_profile(
     Ok(payload)
 }
 
+// AEADだけでは確認できないduplicate_tagの意味とmanifest/payloadの対応を検証する。
 fn validate_authenticated_profile(
     wallet: &WalletStore,
     profile: &ProfileEnvelope,
@@ -1025,6 +1062,7 @@ fn validate_authenticated_profile(
     Ok(())
 }
 
+// mutation後のpayloadと平文indexを同時に新しいnonceで再暗号化する。
 fn reencrypt_profile(
     wallet: &mut WalletStore,
     profile_index: usize,
@@ -1051,6 +1089,7 @@ fn reencrypt_profile(
     Ok(())
 }
 
+// 新規Profileのpayloadを暗号化し、一覧用manifestと認証情報を組み立てる。
 fn new_encrypted_profile(
     registry_key: &[u8; 32],
     profile_id: [u8; 16],
@@ -1085,10 +1124,12 @@ fn new_encrypted_profile(
     Ok(profile)
 }
 
+// 既存Profileのmanifestから、暗号化時と同じAADを再構築する。
 fn profile_aad(wallet: &WalletStore, profile: &ProfileEnvelope) -> WalletResult<Vec<u8>> {
     profile_aad_from_parts(&wallet.registry_key, profile)
 }
 
+// AADにはStore、Profile、暗号方式、software_key_indexの全contextを含める。
 fn profile_aad_from_parts(
     registry_key: &[u8; 32],
     profile: &ProfileEnvelope,
@@ -1108,6 +1149,7 @@ fn profile_aad_from_parts(
     .map_err(|_| WalletError::new(ErrorCode::SerializationFailure))
 }
 
+// 保存時はProfileとindex/payload内のkeyをbytewise昇順へ正規化する。
 fn encode_store(wallet: &WalletStore) -> WalletResult<Vec<u8>> {
     let mut profiles = wallet.profiles.clone();
     profiles.sort_by_key(|profile| profile.profile_id);
@@ -1155,6 +1197,7 @@ fn profile_to_value(profile: &ProfileEnvelope) -> Value {
     ])
 }
 
+// payloadの保存順序はkey_idのbytewise昇順とし、登録順に意味を持たせない。
 fn encode_payload(payload: &ProfilePayload) -> WalletResult<Vec<u8>> {
     let mut keys = payload.software_keys.clone();
     keys.sort_by_key(|key| key.key_id);
@@ -1270,6 +1313,7 @@ fn new_key_id(payload: &ProfilePayload) -> WalletResult<[u8; 16]> {
     }
 }
 
+// Pendingは対象Store hashをAAD相当のcontextへ含め、別Storeへの移植を防ぐ。
 fn make_pending(
     store: &[u8],
     profile_id: &[u8; 16],
@@ -1302,6 +1346,7 @@ fn make_pending(
     Ok(encode_pending(&pending))
 }
 
+// Pendingは固定長のopaque envelopeとして厳密にparseする。
 fn parse_pending(bytes: &[u8]) -> WalletResult<PendingDecoded> {
     const SIZE: usize = 8 + 1 + 32 + 16 + 1 + 16 + 12 + 32 + 16;
     if bytes.len() != SIZE || bytes[..8] != PENDING_MAGIC || bytes[8] != PENDING_VERSION {
