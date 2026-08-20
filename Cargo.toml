@@ -1,0 +1,31 @@
+[package]
+name = "symbol-nem-wallet-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Symbol and NEM wallet core"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen"]
+
+[dependencies]
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"] }
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
+bip39 = "2.1.0"
+curve25519-dalek = "4.1.3"
+getrandom = { version = "0.3.4", features = ["wasm_js"] }
+hmac = "0.12.1"
+ripemd = "0.1.3"
+sha2 = "0.10.9"
+sha3 = "0.10.8"
+unicode-normalization = "0.1.24"
+uuid = { version = "1.18.1", default-features = false }
+wasm-bindgen = { version = "0.2.105", optional = true }
+zeroize = { version = "1.8.2", features = ["derive"] }
+
+[dev-dependencies]
+hex = "0.4.3"

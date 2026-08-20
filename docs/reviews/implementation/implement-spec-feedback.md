@@ -1,6 +1,6 @@
 # 実装から仕様書への改善依頼
 
-- 対象仕様: `docs/specifications/specification.md` v1（HEAD `2b197ba`）および `docs/specifications/wallet-store-format-v1.md`
+- 対象仕様: `docs/specifications/specification.md` v1（HEAD `89069e1`）および `docs/specifications/wallet-store-format-v1.md`
 - 実装対象: Rust Wallet Core v1
 - 作成日時: 2026-08-20T00:00:00Z
 - 作成者: blockchain-implementer
@@ -28,3 +28,8 @@
 - 推奨案: 既存の保存形式仕様および現行仕様を維持する場合は「同一 Profile・同一 Chain・同一 private key」を正式な重複条件として要件側を修正する。これは提案であり、実装で決定しない。
 - 暫定対応: 同一 Chain の重複判定は実装対象とする。Chain をまたぐケースは仕様確定まで互換性・受入完了を主張しない。
 - 検証条件: Symbol/NEM の同一 raw private key 登録ケースについて、登録可否、返却 error、`key_id`、replacement Store および再読込結果を仕様・要件・fixture が同じ期待値で判定できる。
+
+## 解決状況
+
+- `INTEROP-001`: 解決済み。仕様 §4.2 が Symbol の `"ed25519 seed"`、NEM の `"ed25519-keccak seed"`、および NEM 最終 private key の reverse を明記したため、`symbol-sdk` 3.3.2 と照合可能になった。
+- `CRITICAL-001`: 解決済み。仕様・要件・保存形式が、同一 Profile・同一 Chain・同一 private key のみを重複とし、異なる Chain の同一 private key を別 Software Key として許可する方針で統一された。
