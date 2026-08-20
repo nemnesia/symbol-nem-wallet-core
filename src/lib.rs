@@ -16,6 +16,9 @@ mod error;
 mod store;
 mod types;
 
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
+mod wasm;
+
 pub use error::{ErrorCode, WalletError, WalletResult};
 pub use types::{
     Chain, DecodeWarning, MnemonicExport, MutationResult, Network, PendingProfileBlob,
