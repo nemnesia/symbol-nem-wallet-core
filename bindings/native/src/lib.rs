@@ -7,6 +7,7 @@
 
 use core::ffi::c_char;
 use std::{panic::AssertUnwindSafe, ptr, slice};
+use zeroize::Zeroizing;
 
 use symbol_nem_wallet_core::{
     change_profile_password, create_empty_store, delete_profile, delete_software_key,
@@ -329,8 +330,11 @@ pub unsafe extern "C" fn snwc_prepare_generated_profile(
         let out_mnemonic = output(out_mnemonic)?;
         let out_pending = output(out_pending)?;
         let out_warnings = output(out_warnings)?;
-        *out_mnemonic = owned_bytes(value.mnemonic_utf8);
-        *out_pending = owned_bytes(value.pending_profile);
+        // C callerへ所有権を移すまではZeroizingで保持し、元DTOはDropでzeroizeする。
+        let mut mnemonic = Zeroizing::new(value.mnemonic_utf8.to_vec());
+        let mut pending = Zeroizing::new(value.pending_profile.to_vec());
+        *out_mnemonic = owned_bytes(std::mem::take(&mut *mnemonic));
+        *out_pending = owned_bytes(std::mem::take(&mut *pending));
         *out_warnings = warnings_value;
         Ok(success())
     })
@@ -431,7 +435,8 @@ pub unsafe extern "C" fn snwc_export_mnemonic(
             input(password_utf8)?,
         )?;
         let (value, warnings_value) = read_warnings(value);
-        *output(out_mnemonic)? = owned_bytes(value.mnemonic_utf8);
+        let mut mnemonic = Zeroizing::new(value.mnemonic_utf8.to_vec());
+        *output(out_mnemonic)? = owned_bytes(std::mem::take(&mut *mnemonic));
         *output(out_warnings)? = warnings_value;
         Ok(success())
     })
@@ -461,10 +466,8 @@ pub unsafe extern "C" fn snwc_export_private_key(
             input(password_utf8)?,
         )?;
         let (value, warnings_value) = read_warnings(value);
-        let mut private_key = value.private_key;
-        let owned_private_key = owned_bytes(private_key.to_vec());
-        zeroize::Zeroize::zeroize(&mut private_key);
-        *output(out_private_key)? = owned_private_key;
+        let mut private_key = Zeroizing::new(value.private_key.to_vec());
+        *output(out_private_key)? = owned_bytes(std::mem::take(&mut *private_key));
         *output(out_warnings)? = warnings_value;
         Ok(success())
     })

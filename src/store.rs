@@ -88,7 +88,6 @@ struct IndexEntry {
     chain: Chain,
 }
 
-#[derive(Clone)]
 struct KeyRecord {
     key_id: [u8; 16],
     chain: Chain,
@@ -902,15 +901,14 @@ fn validate_authenticated_profile(
     if profile.software_key_index.len() != payload.software_keys.len() {
         return Err(WalletError::new(ErrorCode::InvalidStore));
     }
-    for index in &profile.software_key_index {
-        let Some(key) = payload
-            .software_keys
-            .iter()
-            .find(|key| key.key_id == index.key_id)
-        else {
-            return Err(WalletError::new(ErrorCode::InvalidStore));
-        };
-        if key.chain != index.chain {
+    // 両方ともdecode時点でkey_idの狭義昇順を検証済みなので、二本の列を
+    // 同時走査すれば、秘密鍵を検索するO(n^2)処理を避けられる。
+    for (index, key) in profile
+        .software_key_index
+        .iter()
+        .zip(payload.software_keys.iter())
+    {
+        if index.key_id != key.key_id || key.chain != index.chain {
             return Err(WalletError::new(ErrorCode::InvalidStore));
         }
     }
@@ -1060,11 +1058,15 @@ fn profile_to_value(profile: &ProfileEnvelope) -> Value {
 
 // payloadの保存順序はkey_idのbytewise昇順とし、登録順に意味を持たせない。
 fn encode_payload(payload: &ProfilePayload) -> WalletResult<Vec<u8>> {
-    let mut keys = payload.software_keys.clone();
-    keys.sort_by_key(|key| key.key_id);
+    // 秘密鍵を含むKeyRecord自体はcloneせず、参照だけを保存順に並べ替える。
+    let mut keys = payload.software_keys.iter().collect::<Vec<_>>();
+    keys.sort_unstable_by_key(|key| key.key_id);
     let mut fields = vec![
         (0, Value::Bytes(payload.mnemonic_entropy.to_vec())),
-        (1, Value::Array(keys.iter().map(key_to_value).collect())),
+        (
+            1,
+            Value::Array(keys.into_iter().map(key_to_value).collect()),
+        ),
     ];
     fields.extend(
         payload
@@ -1148,17 +1150,33 @@ fn index_to_values(entries: &[IndexEntry]) -> Vec<Value> {
 
 // 既存indexのunknown fieldをkey_idで引き継ぎ、既知fieldだけを更新する。
 fn index_values_from_payload(payload: &ProfilePayload, existing: &[Value]) -> Vec<Value> {
+    let mut existing = existing.iter().peekable();
     index_from_payload(payload)
         .into_iter()
         .map(|entry| {
+            // 既存wire indexと新indexはいずれもkey_id昇順。現在のentryより
+            // 小さい既存要素を一度だけ消費し、全体をO(n)でmergeする。
+            while let Some(value) = existing.peek() {
+                let Some(map) = as_map(value) else {
+                    existing.next();
+                    continue;
+                };
+                let Some(key_id) = fixed_bytes(map_value(map, 0), 16) else {
+                    existing.next();
+                    continue;
+                };
+                if key_id < entry.key_id {
+                    existing.next();
+                    continue;
+                }
+                break;
+            }
             let unknown = existing
-                .iter()
-                .find(|value| {
-                    as_map(value)
-                        .and_then(|map| fixed_bytes(map_value(map, 0), 16))
-                        .is_some_and(|key_id| key_id == entry.key_id)
+                .peek()
+                .and_then(|value| as_map(value))
+                .filter(|map| {
+                    fixed_bytes(map_value(map, 0), 16).is_some_and(|key_id| key_id == entry.key_id)
                 })
-                .and_then(as_map)
                 .map(|map| unknown_fields(map, &[0, 1]))
                 .unwrap_or_default();
             let mut fields = vec![
@@ -1551,7 +1569,9 @@ mod tests {
 
         let mut updated_profile = profile.clone();
         match updated_profile.aad_software_key_index.first_mut().unwrap() {
-            Value::Map(entries) => entries.push((99, Value::UInt(7))),
+            Value::Map(entries) => {
+                entries.push((99, Value::Tag(100, Box::new(Value::Negative(7)))))
+            }
             _ => panic!("テストfixtureのindex entryがmapではありません"),
         }
         let new_aad = profile_aad_from_parts(&wallet.registry_key, &updated_profile).unwrap();
@@ -1600,19 +1620,19 @@ mod tests {
             Value::Map(entries) => entries,
             _ => unreachable!(),
         };
-        map.push((99, Value::Text("store-extension".to_owned())));
+        map.push((99, Value::Negative(3)));
         let profile = first_profile_map_mut(&mut value);
-        profile.push((99, Value::Text("profile-extension".to_owned())));
+        profile.push((99, Value::Tag(101, Box::new(Value::Negative(4)))));
         let kdf = match map_value_mut(profile, 4) {
             Value::Map(entries) => entries,
             _ => unreachable!(),
         };
-        kdf.push((99, Value::Text("kdf-extension".to_owned())));
+        kdf.push((99, Value::Negative(5)));
         let cipher = match map_value_mut(profile, 5) {
             Value::Map(entries) => entries,
             _ => unreachable!(),
         };
-        cipher.push((99, Value::Text("cipher-extension".to_owned())));
+        cipher.push((99, Value::Tag(102, Box::new(Value::Negative(6)))));
         cbor::encode(&value).unwrap()
     }
 
@@ -1636,7 +1656,7 @@ mod tests {
             Value::Map(entries) => entries,
             _ => unreachable!(),
         };
-        payload_map.push((99, Value::Text("payload-extension".to_owned())));
+        payload_map.push((99, Value::Negative(7)));
         let keys = match map_value_mut(payload_map, 1) {
             Value::Array(values) => values,
             _ => unreachable!(),
@@ -1645,12 +1665,12 @@ mod tests {
             Value::Map(entries) => entries,
             _ => unreachable!(),
         };
-        key_map.push((99, Value::Text("key-extension".to_owned())));
+        key_map.push((99, Value::Tag(103, Box::new(Value::Negative(8)))));
         let origin = match map_value_mut(key_map, 3) {
             Value::Map(entries) => entries,
             _ => unreachable!(),
         };
-        origin.push((99, Value::Text("origin-extension".to_owned())));
+        origin.push((99, Value::Negative(9)));
         let payload_bytes = zeroize::Zeroizing::new(cbor::encode(&payload).unwrap());
         let (ciphertext, tag) =
             crypto::encrypt(&key, &profile.cipher.nonce, &aad, &payload_bytes).unwrap();
@@ -1789,7 +1809,7 @@ mod tests {
             Value::Map(entries) => entries,
             _ => unreachable!(),
         };
-        assert!(map_value(map, 99).is_some());
+        assert_eq!(map_value(map, 99), Some(&Value::Negative(3)));
         let profiles = match map_value(map, 3).unwrap() {
             Value::Array(values) => values,
             _ => unreachable!(),
@@ -1802,22 +1822,28 @@ mod tests {
             })
             .unwrap();
         let target_map = as_map(target).unwrap();
-        assert!(map_value(target_map, 99).is_some());
-        assert!(as_map(map_value(target_map, 4).unwrap())
-            .unwrap()
-            .iter()
-            .any(|(key, _)| *key == 99));
-        assert!(as_map(map_value(target_map, 5).unwrap())
-            .unwrap()
-            .iter()
-            .any(|(key, _)| *key == 99));
+        assert_eq!(
+            map_value(target_map, 99),
+            Some(&Value::Tag(101, Box::new(Value::Negative(4))))
+        );
+        assert_eq!(
+            map_value(as_map(map_value(target_map, 4).unwrap()).unwrap(), 99),
+            Some(&Value::Negative(5))
+        );
+        assert_eq!(
+            map_value(as_map(map_value(target_map, 5).unwrap()).unwrap(), 99),
+            Some(&Value::Tag(102, Box::new(Value::Negative(6))))
+        );
         let index = match map_value(target_map, 6).unwrap() {
             Value::Array(values) => values,
             _ => unreachable!(),
         };
-        assert!(index
-            .iter()
-            .any(|value| { as_map(value).unwrap().iter().any(|(key, _)| *key == 99) }));
+        assert_eq!(
+            index
+                .iter()
+                .find_map(|value| as_map(value).and_then(|map| map_value(map, 99))),
+            Some(&Value::Tag(100, Box::new(Value::Negative(7))))
+        );
 
         let wallet = decode_store(&mutated.store).unwrap().0;
         let target_profile = wallet
@@ -1839,7 +1865,7 @@ mod tests {
         );
         let payload = cbor::decode(&plaintext).unwrap();
         let payload_map = as_map(&payload).unwrap();
-        assert!(map_value(payload_map, 99).is_some());
+        assert_eq!(map_value(payload_map, 99), Some(&Value::Negative(7)));
         let keys = match map_value(payload_map, 1).unwrap() {
             Value::Array(values) => values,
             _ => unreachable!(),
@@ -1849,10 +1875,14 @@ mod tests {
             .filter_map(as_map)
             .find(|map| map_value(map, 99).is_some())
             .unwrap();
-        assert!(as_map(map_value(key_map, 3).unwrap())
-            .unwrap()
-            .iter()
-            .any(|(key, _)| *key == 99));
+        assert_eq!(
+            map_value(key_map, 99),
+            Some(&Value::Tag(103, Box::new(Value::Negative(8))))
+        );
+        assert_eq!(
+            map_value(as_map(map_value(key_map, 3).unwrap()).unwrap(), 99),
+            Some(&Value::Negative(9))
+        );
     }
 
     #[test]

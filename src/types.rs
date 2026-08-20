@@ -5,6 +5,7 @@
 
 use core::fmt;
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 /// 不透明なv1 Wallet Store byte列。
 pub type WalletStoreBlob = Vec<u8>;
@@ -94,7 +95,7 @@ pub struct DecodeWarning {
 }
 
 /// 読み取り結果とdiagnosticsを含む結果。
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ReadResult<T> {
     /// 操作結果の値。
     pub value: T,
@@ -103,7 +104,7 @@ pub struct ReadResult<T> {
 }
 
 /// 成功したmutationと、完全なreplacement Store。
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct MutationResult<T> {
     /// 置き換え用の完全なStore byte列。
     pub store: WalletStoreBlob,
@@ -176,7 +177,7 @@ impl fmt::Debug for Signature {
 }
 
 /// 明示的なMnemonic exportの結果。
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Eq, PartialEq)]
 pub struct MnemonicExport {
     /// 正規化済みBIP39 24 wordsのUTF-8 byte列。
     pub mnemonic_utf8: Vec<u8>,
@@ -192,8 +193,14 @@ impl fmt::Debug for MnemonicExport {
     }
 }
 
+impl Drop for MnemonicExport {
+    fn drop(&mut self) {
+        self.mnemonic_utf8.zeroize();
+    }
+}
+
 /// 明示的なprivate key exportの結果。
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Eq, PartialEq)]
 pub struct PrivateKeyExport {
     /// raw 32 byteのprivate key。
     pub private_key: [u8; 32],
@@ -208,8 +215,14 @@ impl fmt::Debug for PrivateKeyExport {
     }
 }
 
+impl Drop for PrivateKeyExport {
+    fn drop(&mut self) {
+        self.private_key.zeroize();
+    }
+}
+
 /// 初回バックアップ受渡しの最初の段階で返す生成Profileデータ。
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Eq, PartialEq)]
 pub struct PreparedProfile {
     /// 初回受渡しに使用する正規化済みBIP39 24 wordsのUTF-8 byte列。
     pub mnemonic_utf8: Vec<u8>,
@@ -224,5 +237,35 @@ impl fmt::Debug for PreparedProfile {
             .field("mnemonic_utf8", &"[redacted]")
             .field("pending_profile", &"[redacted]")
             .finish()
+    }
+}
+
+impl Drop for PreparedProfile {
+    fn drop(&mut self) {
+        self.mnemonic_utf8.zeroize();
+        self.pending_profile.zeroize();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secret_dto_debug_output_is_redacted() {
+        let mnemonic = MnemonicExport {
+            mnemonic_utf8: b"secret mnemonic".to_vec(),
+        };
+        let private_key = PrivateKeyExport {
+            private_key: [0xA5; 32],
+        };
+        let prepared = PreparedProfile {
+            mnemonic_utf8: b"secret prepared mnemonic".to_vec(),
+            pending_profile: b"secret pending profile".to_vec(),
+        };
+
+        assert!(!format!("{mnemonic:?}").contains("secret mnemonic"));
+        assert!(!format!("{private_key:?}").contains("A5"));
+        assert!(!format!("{prepared:?}").contains("secret"));
     }
 }

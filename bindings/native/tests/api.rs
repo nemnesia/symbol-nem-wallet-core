@@ -219,7 +219,11 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             &mut export_warnings,
         )
         .is_null());
-        assert_eq!(take_bytes(private_key).len(), 32);
+        assert_eq!(
+            take_bytes(private_key),
+            hex::decode("521BF2A56DD3BCA09A43D8378FB6659ABA155A02DE0486A0FEF8026F464AB764")
+                .unwrap()
+        );
         snwc_free_warnings(export_warnings);
 
         let mut account = SnwcPublicAccountInfo {
@@ -256,6 +260,16 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         .value;
         assert_eq!(account.public_key, core_account.public_key);
         assert_eq!(native_address, core_account.address.as_bytes());
+        let expected_public_key: [u8; 32] =
+            hex::decode("54ADC79E3BEE5D0EF899832172C3CCF29DC5F5F3BC0E0D5FD06E3E64D8DB51D2")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        assert_eq!(account.public_key, expected_public_key);
+        assert_eq!(
+            core_account.address,
+            "NBPYVRSCYLIJH7VU6XNR7I3H7GBQOGHHAMLJC3A"
+        );
         assert!(!account.address.ptr.is_null());
         snwc_free_bytes(account.address);
         snwc_free_warnings(account_warnings);

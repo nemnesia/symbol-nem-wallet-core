@@ -34,3 +34,4 @@ zeroize = { version = "1.8.2", features = ["derive"] }
 
 [dev-dependencies]
 hex = "0.4.3"
+wasm-bindgen-test = "0.3.55"

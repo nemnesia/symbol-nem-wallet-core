@@ -511,6 +511,56 @@ mod tests {
     }
 
     #[test]
+    fn hd_derivation_matches_fixed_sdk_fixture_for_all_v1_networks() {
+        let mnemonic = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+        let (entropy, _) = parse_mnemonic(mnemonic).unwrap();
+        // symbol-sdk 3.3.2のBip32 / Facadeから取得した固定fixture。
+        for (chain, network, private_key, expected_public_key, expected_address) in [
+            (
+                Chain::Symbol,
+                Network::Mainnet,
+                "521BF2A56DD3BCA09A43D8378FB6659ABA155A02DE0486A0FEF8026F464AB764",
+                "54ADC79E3BEE5D0EF899832172C3CCF29DC5F5F3BC0E0D5FD06E3E64D8DB51D2",
+                "NBPYVRSCYLIJH7VU6XNR7I3H7GBQOGHHAMLJC3A",
+            ),
+            (
+                Chain::Symbol,
+                Network::Testnet,
+                "99DA0B339E5C3E3DDDD59678B52A7C7E5F9E02BD07AF4E220CD69228766BCDDB",
+                "811B322F9C28877BF9F543A8E8DB1F3C4FD45A6CCC6CADF315499893D49B8299",
+                "TAPS6PH4GZNA6GQ26S7T44S4BYM3Z2CHUJ53HGA",
+            ),
+            (
+                Chain::Nem,
+                Network::Mainnet,
+                "658143CB972E4DFA0941F29E275C42B3F941CB6133CABCFEAF103AFF2FD2DE11",
+                "58892BC737B493D837D7F7EC4519371B9498F23BBC7F2A2A10DE11A70E7BCF84",
+                "NCMYA4ZDEYSPUH5GWJO65TUPRLXRPF4KG7OHLJCQ",
+            ),
+            (
+                Chain::Nem,
+                Network::Testnet,
+                "53E4DA95E71C511EEFB5A34B0CD91815903F3DFF8E5644CC4DAAE8EF22850FB3",
+                "BAA6148215906BC6FA2A2D0CCFC0EB62750EB18AD4678361F6C32BA219A83A78",
+                "TCOROZCSDL3RSHUSSJFBBUT2WTVAFPZHEPUYLCSY",
+            ),
+        ] {
+            let private_key = bytes::<32>(private_key);
+            let expected_public_key = bytes::<32>(expected_public_key);
+            assert_eq!(
+                derive_private_key(&entropy, chain, network, 0).unwrap(),
+                private_key
+            );
+            let derived_public_key = public_key(chain, &private_key).unwrap();
+            assert_eq!(derived_public_key, expected_public_key);
+            assert_eq!(
+                address(chain, network, &expected_public_key),
+                expected_address
+            );
+        }
+    }
+
+    #[test]
     fn bip32_root_and_child_nodes_match_symbol_sdk_vectors() {
         let seed = bytes::<16>("000102030405060708090A0B0C0D0E0F");
         let mut root = hmac_sha512(b"ed25519 seed", &seed).unwrap();

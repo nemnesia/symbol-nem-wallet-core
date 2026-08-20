@@ -12,3 +12,6 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 symbol-nem-wallet-core = { path = "../.." }
 uuid = { version = "1.18.1", default-features = false }
 zeroize = "1.8.2"
+
+[dev-dependencies]
+hex = "0.4.3"
