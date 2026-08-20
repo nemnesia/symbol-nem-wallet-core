@@ -141,8 +141,10 @@ fn write_simple(value: u8, output: &mut Vec<u8>) -> Result<(), CborError> {
             Ok(())
         }
         20..=22 => Err(CborError),
-        // 24以上はadditional information 24と後続1 byteで表現する。
-        24..=u8::MAX => {
+        // 24..31はRFC 8949でreservedのため生成しない。
+        24..=31 => Err(CborError),
+        // 32以上はadditional information 24と後続1 byteで表現する。
+        32..=u8::MAX => {
             output.extend_from_slice(&[0xf8, value]);
             Ok(())
         }
@@ -249,8 +251,8 @@ impl<'a> Parser<'a> {
                 22 => Ok(Value::Null),
                 24 => {
                     let value = self.take(1)?[0];
-                    // 23以下をadditional information 24で表すのは非canonical。
-                    if value < 24 {
+                    // 31以下は非canonicalまたはRFC 8949でreserved。
+                    if value < 32 {
                         return Err(CborError);
                     }
                     Ok(Value::Simple(value))
@@ -366,6 +368,22 @@ mod tests {
         assert!(decode(&[0xf8, 23]).is_err());
         assert!(decode(&[0xf8, 20]).is_err());
         assert!(encode(&Value::Simple(20)).is_err());
+
+        // RFC 8949でreservedのsimple valueはdecode/encodeともに拒否する。
+        for value in 24..=31 {
+            assert!(decode(&[0xf8, value]).is_err());
+            assert!(encode(&Value::Simple(value)).is_err());
+        }
+
+        for (value, expected) in [
+            (Value::Simple(23), &[0xf7][..]),
+            (Value::Simple(32), &[0xf8, 0x20][..]),
+            (Value::Simple(u8::MAX), &[0xf8, 0xff][..]),
+        ] {
+            let encoded = encode(&value).unwrap();
+            assert_eq!(encoded, expected);
+            assert_eq!(decode(&encoded).unwrap(), value);
+        }
 
         // float16 / float32 / float64はStore v1で使用しない。
         assert!(decode(&[0xf9, 0x00, 0x00]).is_err());
