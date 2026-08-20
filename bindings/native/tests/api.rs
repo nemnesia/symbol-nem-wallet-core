@@ -1,5 +1,6 @@
 use std::{ptr, slice};
 
+use symbol_nem_wallet_core::{get_public_account, sign};
 use symbol_nem_wallet_core_native::{
     snwc_create_empty_store, snwc_derive_software_key, snwc_export_private_key, snwc_free_bytes,
     snwc_free_profiles, snwc_free_software_key_list, snwc_free_warnings, snwc_get_public_account,
@@ -61,6 +62,27 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             std::ffi::CStr::from_ptr(error).to_str().unwrap(),
             "InvalidMnemonic"
         );
+
+        let mut null_profile = SnwcProfileInfo::default();
+        let mut null_warnings = SnwcWarnings {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        let error = snwc_restore_profile(
+            borrowed(&store),
+            borrowed(MNEMONIC),
+            borrowed(PASSWORD),
+            1,
+            ptr::null_mut(),
+            &mut null_profile,
+            &mut null_warnings,
+        );
+        assert_eq!(
+            std::ffi::CStr::from_ptr(error).to_str().unwrap(),
+            "InvalidArgument"
+        );
+        assert!(null_warnings.ptr.is_null());
+        assert_eq!(null_warnings.len, 0);
 
         let mut restored_store = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
@@ -166,7 +188,18 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             &mut sign_warnings,
         )
         .is_null());
-        assert_eq!(take_bytes(signature).len(), 64);
+        let native_signature = take_bytes(signature);
+        let core_signature = sign(
+            &store,
+            uuid::Uuid::from_bytes(profile_id.bytes),
+            uuid::Uuid::from_bytes(key_id.bytes),
+            PASSWORD,
+            b"payload",
+        )
+        .unwrap()
+        .value
+        .signature;
+        assert_eq!(native_signature, core_signature);
         snwc_free_warnings(sign_warnings);
 
         let mut private_key = SnwcOwnedBytes {
@@ -212,7 +245,17 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             &mut account_warnings,
         )
         .is_null());
-        assert_eq!(account.public_key.len(), 32);
+        let native_address = slice::from_raw_parts(account.address.ptr, account.address.len);
+        let core_account = get_public_account(
+            &store,
+            uuid::Uuid::from_bytes(profile_id.bytes),
+            uuid::Uuid::from_bytes(key_id.bytes),
+            PASSWORD,
+        )
+        .unwrap()
+        .value;
+        assert_eq!(account.public_key, core_account.public_key);
+        assert_eq!(native_address, core_account.address.as_bytes());
         assert!(!account.address.ptr.is_null());
         snwc_free_bytes(account.address);
         snwc_free_warnings(account_warnings);

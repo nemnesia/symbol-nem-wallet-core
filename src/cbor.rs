@@ -6,6 +6,8 @@
 
 use core::fmt;
 
+use zeroize::Zeroize;
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Value {
     UInt(u64),
@@ -15,6 +17,16 @@ pub(crate) enum Value {
     Map(Vec<(u64, Value)>),
     Bool(bool),
     Null,
+}
+
+impl Drop for Value {
+    fn drop(&mut self) {
+        match self {
+            Self::Bytes(value) => value.zeroize(),
+            Self::Text(value) => value.zeroize(),
+            Self::UInt(_) | Self::Array(_) | Self::Map(_) | Self::Bool(_) | Self::Null => {}
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,8 +50,13 @@ pub(crate) fn decode(input: &[u8]) -> Result<Value, CborError> {
 
 pub(crate) fn encode(value: &Value) -> Result<Vec<u8>, CborError> {
     let mut output = Vec::new();
-    write_value(value, &mut output)?;
-    Ok(output)
+    match write_value(value, &mut output) {
+        Ok(()) => Ok(output),
+        Err(error) => {
+            output.zeroize();
+            Err(error)
+        }
+    }
 }
 
 fn write_value(value: &Value, output: &mut Vec<u8>) -> Result<(), CborError> {

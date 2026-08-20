@@ -233,4 +233,5 @@ fn invalid_secret_inputs_are_rejected_without_mutating_the_store() {
         .code,
         ErrorCode::InvalidAccountIndex
     );
+    assert_eq!(created.store, before);
 }

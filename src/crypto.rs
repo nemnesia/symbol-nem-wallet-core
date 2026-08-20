@@ -59,7 +59,7 @@ pub(crate) fn mnemonic_from_entropy(entropy: &[u8; 32]) -> WalletResult<Vec<u8>>
     Ok(mnemonic.to_string().into_bytes())
 }
 
-pub(crate) fn parse_mnemonic(input: &[u8]) -> WalletResult<([u8; 32], Vec<u8>)> {
+pub(crate) fn parse_mnemonic(input: &[u8]) -> WalletResult<([u8; 32], Zeroizing<Vec<u8>>)> {
     let input =
         core::str::from_utf8(input).map_err(|_| WalletError::new(ErrorCode::InvalidMnemonic))?;
     let normalized = Zeroizing::new(input.nfkd().collect::<String>());
@@ -69,19 +69,19 @@ pub(crate) fn parse_mnemonic(input: &[u8]) -> WalletResult<([u8; 32], Vec<u8>)> 
         return Err(WalletError::new(ErrorCode::InvalidMnemonic));
     }
 
-    let entropy = mnemonic.to_entropy();
+    let entropy = Zeroizing::new(mnemonic.to_entropy());
     let entropy: [u8; 32] = entropy
+        .as_slice()
         .try_into()
         .map_err(|_| WalletError::new(ErrorCode::InvalidMnemonic))?;
-    Ok((entropy, mnemonic.to_string().into_bytes()))
+    Ok((entropy, Zeroizing::new(mnemonic.to_string().into_bytes())))
 }
 
 // BIP39 passphraseはv1では空文字列に固定する。
-pub(crate) fn seed_from_entropy(entropy: &[u8; 32]) -> WalletResult<[u8; 64]> {
+pub(crate) fn seed_from_entropy(entropy: &[u8; 32]) -> WalletResult<Zeroizing<[u8; 64]>> {
     let mnemonic = Mnemonic::from_entropy_in(Language::English, entropy)
         .map_err(|_| WalletError::new(ErrorCode::InvalidMnemonic))?;
-    let seed = mnemonic.to_seed("");
-    Ok(seed)
+    Ok(Zeroizing::new(mnemonic.to_seed("")))
 }
 
 pub(crate) fn derive_private_key(
@@ -94,7 +94,7 @@ pub(crate) fn derive_private_key(
         return Err(WalletError::new(ErrorCode::InvalidAccountIndex));
     }
 
-    let mut seed = seed_from_entropy(entropy)?;
+    let seed = seed_from_entropy(entropy)?;
     // Symbol/NEMとMainnet/Testnetでcoin typeを明示的に分ける。
     let coin_type = match (chain, network) {
         (Chain::Symbol, Network::Mainnet) => 4_343,
@@ -109,17 +109,25 @@ pub(crate) fn derive_private_key(
         Chain::Nem => b"ed25519-keccak seed".as_slice(),
     };
 
-    let mut node = hmac_sha512(root_key, &seed)?;
+    let mut node = hmac_sha512(root_key, &seed[..])?;
     // v1のpathは44' / coin_type' / account' / 0' / 0'で全要素をhardenedにする。
     for identifier in path {
         let mut child_data = [0u8; 37];
         child_data[0] = 0;
         child_data[1..33].copy_from_slice(&node[..32]);
         child_data[33..].copy_from_slice(&(identifier | 0x8000_0000).to_be_bytes());
-        node = hmac_sha512(&node[32..], &child_data)?;
+        let next_node = match hmac_sha512(&node[32..], &child_data) {
+            Ok(value) => value,
+            Err(error) => {
+                child_data.zeroize();
+                node.zeroize();
+                return Err(error);
+            }
+        };
         child_data.zeroize();
+        node.zeroize();
+        node = next_node;
     }
-    seed.zeroize();
 
     let mut private_key = [0u8; 32];
     private_key.copy_from_slice(&node[..32]);
@@ -129,14 +137,24 @@ pub(crate) fn derive_private_key(
     if matches!(chain, Chain::Nem) {
         private_key.reverse();
     }
-    validate_private_key(chain, &private_key)?;
-    Ok(private_key)
+    let validated = validate_private_key(chain, &private_key);
+    match validated {
+        Ok(_) => Ok(private_key),
+        Err(error) => {
+            private_key.zeroize();
+            Err(error)
+        }
+    }
 }
 
-pub(crate) fn validate_private_key(chain: Chain, private_key: &[u8]) -> WalletResult<[u8; 32]> {
+pub(crate) fn validate_private_key(
+    chain: Chain,
+    private_key: &[u8],
+) -> WalletResult<Zeroizing<[u8; 32]>> {
     let private_key: [u8; 32] = private_key
         .try_into()
         .map_err(|_| WalletError::new(ErrorCode::InvalidPrivateKey))?;
+    let private_key = Zeroizing::new(private_key);
     if private_key.iter().all(|byte| *byte == 0) {
         return Err(WalletError::new(ErrorCode::InvalidPrivateKey));
     }
@@ -147,15 +165,16 @@ pub(crate) fn validate_private_key(chain: Chain, private_key: &[u8]) -> WalletRe
 pub(crate) fn generate_private_key(chain: Chain) -> WalletResult<[u8; 32]> {
     // 乱数候補をChain固有の鍵処理で検証し、通過した値だけを返す。
     loop {
-        let candidate = random::<32>()?;
-        if let Ok(private_key) = validate_private_key(chain, &candidate) {
-            return Ok(private_key);
+        let candidate = Zeroizing::new(random::<32>()?);
+        if let Ok(private_key) = validate_private_key(chain, &candidate[..]) {
+            return Ok(*private_key);
         }
     }
 }
 
 pub(crate) fn public_key(chain: Chain, private_key: &[u8; 32]) -> WalletResult<[u8; 32]> {
-    let (public_key, _) = key_material(chain, private_key)?;
+    let (public_key, mut prefix) = key_material(chain, private_key)?;
+    prefix.zeroize();
     Ok(public_key)
 }
 
@@ -168,7 +187,7 @@ pub(crate) fn sign(chain: Chain, private_key: &[u8; 32], message: &[u8]) -> Wall
     let mut nonce_hash = hash_512(chain, &nonce_data);
     nonce_data.zeroize();
     prefix.zeroize();
-    let nonce = Scalar::from_bytes_mod_order_wide(&nonce_hash);
+    let mut nonce = Scalar::from_bytes_mod_order_wide(&nonce_hash);
     nonce_hash.zeroize();
     let encoded_r = (ED25519_BASEPOINT_POINT * nonce).compress().to_bytes();
 
@@ -178,18 +197,30 @@ pub(crate) fn sign(chain: Chain, private_key: &[u8; 32], message: &[u8]) -> Wall
     challenge_data.extend_from_slice(message);
     let mut challenge_hash = hash_512(chain, &challenge_data);
     challenge_data.zeroize();
-    let challenge = Scalar::from_bytes_mod_order_wide(&challenge_hash);
+    let mut challenge = Scalar::from_bytes_mod_order_wide(&challenge_hash);
     challenge_hash.zeroize();
 
     let mut signature = [0u8; 64];
     signature[..32].copy_from_slice(&encoded_r);
-    signature[32..]
-        .copy_from_slice(&(nonce + challenge * private_scalar(chain, private_key)?).to_bytes());
+    let mut private_scalar = match private_scalar(chain, private_key) {
+        Ok(value) => value,
+        Err(error) => {
+            nonce.zeroize();
+            challenge.zeroize();
+            return Err(error);
+        }
+    };
+    let mut response = nonce + challenge * private_scalar;
+    signature[32..].copy_from_slice(&response.to_bytes());
+    response.zeroize();
+    private_scalar.zeroize();
+    nonce.zeroize();
+    challenge.zeroize();
     Ok(signature)
 }
 
 fn key_material(chain: Chain, private_key: &[u8; 32]) -> WalletResult<([u8; 32], [u8; 32])> {
-    let scalar = private_scalar(chain, private_key)?;
+    let mut scalar = private_scalar(chain, private_key)?;
     let mut seed = *private_key;
     if matches!(chain, Chain::Nem) {
         seed.reverse();
@@ -199,10 +230,9 @@ fn key_material(chain: Chain, private_key: &[u8; 32]) -> WalletResult<([u8; 32],
     prefix.copy_from_slice(&digest[32..]);
     digest.zeroize();
     seed.zeroize();
-    Ok((
-        (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes(),
-        prefix,
-    ))
+    let public_key = (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes();
+    scalar.zeroize();
+    Ok((public_key, prefix))
 }
 
 fn private_scalar(chain: Chain, private_key: &[u8; 32]) -> WalletResult<Scalar> {
@@ -252,14 +282,17 @@ pub(crate) fn address(chain: Chain, network: Network, public_key: &[u8; 32]) -> 
     base32_encode(&address)
 }
 
-pub(crate) fn derive_encryption_key(password: &[u8], salt: &[u8; 16]) -> WalletResult<[u8; 32]> {
+pub(crate) fn derive_encryption_key(
+    password: &[u8],
+    salt: &[u8; 16],
+) -> WalletResult<Zeroizing<[u8; 32]>> {
     validate_password(password)?;
     let params = Params::new(KDF_MEMORY_KIB, KDF_ITERATIONS, KDF_PARALLELISM, Some(32))
         .map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-    let mut output = [0u8; 32];
+    let mut output = Zeroizing::new([0u8; 32]);
     argon2
-        .hash_password_into(password, salt, &mut output)
+        .hash_password_into(password, salt, &mut *output)
         .map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
     Ok(output)
 }
@@ -274,10 +307,14 @@ pub(crate) fn encrypt(
     let cipher =
         Aes256Gcm::new_from_slice(key).map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
     let mut ciphertext = plaintext.to_vec();
-    let tag = cipher
-        .encrypt_in_place_detached(Nonce::from_slice(nonce), aad, &mut ciphertext)
-        .map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
-    Ok((ciphertext, tag.into()))
+    let result = cipher.encrypt_in_place_detached(Nonce::from_slice(nonce), aad, &mut ciphertext);
+    match result {
+        Ok(tag) => Ok((ciphertext, tag.into())),
+        Err(_) => {
+            ciphertext.zeroize();
+            Err(WalletError::new(ErrorCode::CryptoFailure))
+        }
+    }
 }
 
 pub(crate) fn decrypt(
@@ -290,15 +327,19 @@ pub(crate) fn decrypt(
     let cipher =
         Aes256Gcm::new_from_slice(key).map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
     let mut plaintext = ciphertext.to_vec();
-    cipher
-        .decrypt_in_place_detached(
-            Nonce::from_slice(nonce),
-            aad,
-            &mut plaintext,
-            Tag::from_slice(tag),
-        )
-        .map_err(|_| WalletError::new(ErrorCode::AuthenticationFailed))?;
-    Ok(plaintext)
+    let result = cipher.decrypt_in_place_detached(
+        Nonce::from_slice(nonce),
+        aad,
+        &mut plaintext,
+        Tag::from_slice(tag),
+    );
+    match result {
+        Ok(()) => Ok(plaintext),
+        Err(_) => {
+            plaintext.zeroize();
+            Err(WalletError::new(ErrorCode::AuthenticationFailed))
+        }
+    }
 }
 
 pub(crate) fn duplicate_tag(
@@ -420,9 +461,9 @@ mod tests {
     fn hd_derivation_matches_24_word_sdk_vectors() {
         let mnemonic = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
         let (entropy, normalized) = parse_mnemonic(mnemonic).unwrap();
-        assert_eq!(normalized, mnemonic);
+        assert_eq!(normalized.as_slice(), mnemonic);
         assert_eq!(
-            seed_from_entropy(&entropy).unwrap(),
+            seed_from_entropy(&entropy).unwrap().as_slice(),
             bytes::<64>("408B285C123836004F4B8842C89324C1F01382450C0D439AF345BA7FC49ACF705489C6FC77DBD4E3DC1DD8CC6BC9F043DB8ADA1E243C4A0EAFB290D399480840")
         );
 
@@ -437,5 +478,29 @@ mod tests {
             public_key(Chain::Nem, &nem_private).unwrap(),
             bytes::<32>("58892BC737B493D837D7F7EC4519371B9498F23BBC7F2A2A10DE11A70E7BCF84")
         );
+    }
+
+    #[test]
+    fn hd_derivation_covers_all_v1_networks_chains_and_account_boundaries() {
+        let mnemonic = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+        let (entropy, _) = parse_mnemonic(mnemonic).unwrap();
+        let mut derived = Vec::new();
+        for chain in [Chain::Nem, Chain::Symbol] {
+            for network in [Network::Testnet, Network::Mainnet] {
+                for account_index in [0, 1, 2_147_483_647] {
+                    let private_key =
+                        derive_private_key(&entropy, chain, network, account_index).unwrap();
+                    assert_ne!(private_key, [0; 32]);
+                    assert!(public_key(chain, &private_key).is_ok());
+                    derived.push((chain, network, account_index, private_key));
+                }
+            }
+        }
+        assert_eq!(derived.len(), 12);
+        for (index, (_, _, _, private_key)) in derived.iter().enumerate() {
+            assert!(derived[index + 1..]
+                .iter()
+                .all(|(_, _, _, other)| other != private_key));
+        }
     }
 }
