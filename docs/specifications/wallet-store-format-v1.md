@@ -19,8 +19,8 @@ Wallet Store v1 は **RFC 8949 Core Deterministic Encoding Requirements に従�
 - integer および length は最短表現を使用する。
 - duplicate map key は許可しない。
 - float は使用しない。
-- 未定義 field は decoder が無視する。
-- 未定義 field は再保存時に保持しない。
+- 未定義 field は decoder が論理モデルへ取り込まず無視する。
+- 未定義 field は通常の再保存時に保持しない。ただし、別 Profile の mutationで対象外 Profile の暗号化 payload を再利用する場合、`ProfileEnvelopeV1` key `6` (`software_key_index`) の受信 wire 値は、index entry 内の未知 field を含めて保持しなければならない。この例外は対象外 Profile の ciphertext / tag と AAD を変更せずに保持するためだけに適用し、未知 field を論理値、一覧結果または将来形式として扱う根拠にはしない。
 - 未知 enum 値は decoder がエラーにせず無視する。
 
 同一の論理値について deterministic な CBOR 表現を生成する。
@@ -244,6 +244,8 @@ SoftwareKeyIndexEntryV1 {
 ```
 
 `key_id` は raw 16 bytes、`chain` は §4.2 の wire 値を使用する。配列は `key_id` の raw bytes を bytewise に比較した狭義昇順で保存する。同じ Profile 内では `key_id` は Chain にかかわらず一意とし、同じ `key_id` を同一または異なる Chain の複数 entry に使用してはならない。
+
+index entry 内の未定義 map key は論理的には無視し、`key_id` と `chain` の有限写像、一覧結果および重複検証へ含めない。既存 Profile が対象外のまま保存される場合に限り、その未定義 map key を含む受信 `software_key_index` wire 値を AAD 入力および保存値として保持する。対象 Profile を保持する mutation（Software Key 登録・削除または password change）が成功した場合は、復号済み `ProfilePayloadV1.software_keys` から canonical な index を再生成し、未定義 map key を出力しない。Profile delete では対象 envelope を除去する。
 
 認証・復号後、`software_key_index` と暗号化 `ProfilePayloadV1.software_keys` は同一の有限写像 `key_id -> chain` を表さなければならない。両者の要素数は等しく、各 `key_id` は双方にちょうど 1 回存在し、対応する `chain` が一致しなければならない。不一致、`key_id` の重複または型・長さ・値の不正は Profile 全体を `InvalidStore` として拒否する。
 
@@ -487,7 +489,7 @@ Profile encryption の AAD は次の値を **RFC 8949 Core Deterministic Encodin
 
 `registry_key` は `WalletStoreV1` key `2` の raw `bytes[32]`、`duplicate_tag` は `ProfileEnvelopeV1` key `2` の raw `bytes[32]` とする。これらの値は、StoreまたはProfileのmanifestが改変された場合に、Profile payloadのAEAD認証へ反映される。
 
-`software_key_index` は `ProfileEnvelopeV1` key `6` の実際の配列値を、同じ要素順序・整数 key・空配列表現で AAD の最後の要素として使用する。別の正規化表現、`null` または省略表現へ変換してはならない。
+既存 Profile を decode する場合、`software_key_index` は `ProfileEnvelopeV1` key `6` の受信 wire 値を、同じ要素順序・整数 key・空配列表現で AAD の最後の要素として使用する。新規 Profile または対象 Profile を保持する成功 mutationでは、復号済み payload から生成した canonical な index を使用する。Profile delete では対象 envelope を除去する。いずれの場合も、別の正規化表現、`null` または省略表現へ変換してはならない。未知 field を含む対象外 Profile の mutation では受信 wire 値を保持する。
 
 これにより `software_key_index` の `key_id` または `chain` の改変を、`registry_key`、`duplicate_tag` とともに AES-256-GCM の認証によって検知する。認証・復号後は、§7.1 に従って index と暗号化 payload が同一の `key_id -> chain` 写像を表すことを検証し、不一致の場合は `InvalidStore` とする。
 
@@ -511,6 +513,14 @@ AAD 認証の成功は、保存された `duplicate_tag` が改変されてい�
 ```
 
 AAD により暗号文を別 Profile、Network、schema、algorithm または Software Key index context へ移植して正常データとして扱うことを防ぐ。
+
+Mutation における保存規則は次のとおりとする。
+
+- 対象外 Profile は再認証・再暗号化せず、`software_key_index` の受信 wire 値をそのまま AAD 入力および保存値として保持する。
+- 対象 Profile を保持する成功 mutation（Software Key 登録・削除または password change）は、復号済み payload から index を再生成し、未知 field を除いた canonical 値を AAD と保存値へ使用して、新しい nonce で再暗号化する。Profile delete では対象 envelope を除去する。
+- 対象外 Profile の `software_key_index` 以外の未知 field、および対象 Profile の未知 field は、成功した replacement Store へ再出力しない。
+
+これらは、対象 Profile のみを置換する atomicity と、対象外 Profile の ciphertext / tag / AAD を変更しない契約を同時に満たすための v1 規則である。未知 field の一般的な前方互換性または意味解釈を提供するものではない。
 
 ---
 

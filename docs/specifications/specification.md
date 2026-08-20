@@ -238,6 +238,8 @@ TAG          = 16 bytes
 
 対象 Profile の認証・復号後は、保存された `duplicate_tag` と、復号済み Mnemonic entropy および AAD で認証された Profile Network との意味的一致を `wallet-store-format-v1.md` §12 に従って検証する。AAD 認証の成功だけを、この意味的一致の証明としてはならない。
 
+`software_key_index` の論理値には既知の `key_id` と `chain` だけを含める。Decoder は未知 field を論理モデル、一覧結果および意味検証へ取り込まない。ただし、対象外 Profile の暗号化 payload を再利用する mutation では、当該 Profile の `software_key_index` の受信 wire 値（index entry 内の未知 field を含む）を AAD の入力および保存値として保持する。これは対象外 Profile の ciphertext / tag と AAD を変更しないためだけの例外であり、未知 field を公開・解釈・将来形式として保証するものではない。対象 Profile を保持する mutation（Software Key 登録・削除または password change）が成功した場合は、復号済み payload から canonical な index を再生成し、未知 field を出力せずに新しい nonce で再暗号化する。Profile delete では対象 envelope を除去し、再暗号化しない。正確な wire 表現は `wallet-store-format-v1.md` §2、§7.1、§11 を正本とする。
+
 ### 6.4 Profile パスワード認証
 
 独立した password hash は保存しない。
@@ -245,6 +247,8 @@ TAG          = 16 bytes
 AEAD 復号と authentication tag 検証の成功を Profile パスワード認証として扱う。
 
 認証失敗時は「password 不一致」と「暗号文または AAD 改ざん」の差を外部へ公開せず `AuthenticationFailed` とする。
+
+v1 は Profile パスワードの復旧またはリセットを提供しない。パスワードを紛失した場合、正しい Profile パスワードを必要とする秘密情報処理、パスワード変更および削除は成功させず、代替認証による復旧・リセット経路も提供しない。利用者が別途保持する Mnemonic から同一 Network の新しい Profile を作成することは、削除済みまたは利用不能な Profile の復旧・リセットとは扱わない。
 
 ### 6.5 password change
 
@@ -265,7 +269,7 @@ Wallet Store の CBOR schema、整数 key、enum wire 値、並び順、AAD、�
 - 構造上受理された Profile の `profile_id` は Store 内で一意、対象 Profile の `key_id` は Chain にかかわらず Profile 内で一意でなければならない。
 - 子オブジェクトの必須 field 欠落、型・長さ・値不正、未知 enum は保存フォーマット仕様に従って対象オブジェクトをスキップし、構造化 warning を返す。
 - Store top-level を解釈できない不正は `InvalidStore` または version 専用 error とする。
-- 未知 field は読み込み時に無視し、再保存時に保持しない。
+- 未知 field は論理デコード時に無視し、通常は再保存時に保持しない。対象外 Profile の `software_key_index` wire 値だけは、当該 Profile の暗号化 payload を再利用する mutation で AAD 整合性を維持するため、`wallet-store-format-v1.md` §2、§7.1、§11 に従って保持する。
 - Store / Profile schema の migration は暗黙に行わない。
 - 将来 migration が必要な場合は `migrate_store_v1_to_v2` のような変換元・変換先 version 固定 API を追加する。
 
@@ -319,6 +323,8 @@ Profile および Software Key の表示名は Core の管理対象外とする�
 保存済み秘密情報を対象識別子だけで取得する API は提供しない。
 
 Mnemonic / Software Key 秘密鍵の返却は、正しい Profile パスワードを要求する明示的な個別エクスポート操作に限る。
+
+Profile パスワードの復旧・リセット API は v1 で提供しない。パスワード紛失時は、正しい Profile パスワードを必要とする秘密情報処理、パスワード変更および削除を成功させない。
 
 ---
 
@@ -603,6 +609,8 @@ Store子オブジェクトのスキップ可能な不正は `wallet-store-format
 
 Mutation は要求対象 Profile の envelope だけを置換し、他 Profile の encrypted payload、salt、nonce、ID、duplicate tag を変更しない。Profile delete の場合のみ対象 envelope を除去する。
 
+対象外 Profile は再認証または再暗号化せず、`software_key_index` の受信 wire 値（未知 field を含む）を保持して、変更前と同じ AAD を再構成できるようにする。対象 Profile を保持する成功 mutation（Software Key 登録・削除または password change）では、暗号化 payload から `software_key_index` を再生成し、未知 field を除いた canonical 値へ更新してから新しい nonce で再暗号化する。Profile delete では対象 envelope を除去し、再暗号化しない。対象外 Profile の `software_key_index` 以外の未知 field は再保存時に保持しない。
+
 成功時の replacement Store は、Store 内の `profile_id` 一意性と、各 Profile 内の Chain に依存しない `key_id` 一意性を維持しなければならない。
 
 Software Key の登録・削除では、暗号化 payload の `software_keys` と平文 `software_key_index` を同一 replacement Store で更新する。index は payload の `(key_id, chain)` 射影から生成し、Application が index だけを変更する API は提供しない。index は AAD の一部であるため、対象 Profile を認証・復号して new nonce で再暗号化する。
@@ -703,6 +711,8 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 - ciphertext / tag / AAD 1 bit 改変で認証失敗
 - `software_key_index` 改変後の認証失敗
 - `software_key_index` と暗号化 payload の不一致を `InvalidStore` として拒否
+- unknown field を含む非対象 Profile と別 Profile の mutationを組み合わせ、非対象 Profile の `software_key_index` wire 値、ciphertext、tag および AAD 認証が維持されること
+- unknown field を含む対象 Profile の mutation後に、対象 Profile の `software_key_index` が canonical な既知 field だけになり、再暗号化後の AAD と payload の対応が維持されること
 - 構造上有効な複数 Profile が同じ `profile_id` を持つ Store を `InvalidStore` として拒否し、どの Profile も選択しない
 - `software_key_index` または認証済み payload が、同一または異なる Chain で同じ `key_id` を複数持つ Profile を `InvalidStore` として拒否する
 - 異なる Profile に同じ `key_id` が 1 件ずつ存在する場合は、`profile_id + key_id` で各対象を一意に解決する
@@ -726,6 +736,7 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 - failed mutation で input Store が変更されない
 - password change 後に旧 password 使用不可
 - delete key / Profile 後に対象操作不可
+- パスワード紛失時に復旧・リセット API、秘密情報処理、パスワード変更および削除が成功しないこと
 - 別 Profile へ mutation が越境しない
 - 正しい password で Mnemonic / Derived / Imported / Generated private key を個別エクスポートできる
 - 誤 password、対象不存在、復号失敗で秘密情報を返さない

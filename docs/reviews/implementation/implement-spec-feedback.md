@@ -29,11 +29,6 @@
 - 暫定対応: 同一 Chain の重複判定は実装対象とする。Chain をまたぐケースは仕様確定まで互換性・受入完了を主張しない。
 - 検証条件: Symbol/NEM の同一 raw private key 登録ケースについて、登録可否、返却 error、`key_id`、replacement Store および再読込結果を仕様・要件・fixture が同じ期待値で判定できる。
 
-## 解決状況
-
-- `INTEROP-001`: 解決済み。仕様 §4.2 が Symbol の `"ed25519 seed"`、NEM の `"ed25519-keccak seed"`、および NEM 最終 private key の reverse を明記したため、`symbol-sdk` 3.3.2 と照合可能になった。
-- `CRITICAL-001`: 解決済み。仕様・要件・保存形式が、同一 Profile・同一 Chain・同一 private key のみを重複とし、異なる Chain の同一 private key を別 Software Key として許可する方針で統一された。
-
 ## INTEROP-002: software_key_indexの未知field保持とAAD再暗号化方針が競合
 
 - 分類: INTEROP
@@ -45,3 +40,9 @@
 - 推奨案: `software_key_index`のようにAADへ含まれるfieldは、対象Profile以外では受信wire値を保持し、対象Profileのmutation成功時だけcanonical値へ更新する。unknown fieldの再保存禁止を維持する場合は、対象外Profileの再暗号化を許可するmutation契約へ変更する。
 - 暫定対応: `src/store.rs`の`ProfileEnvelope.aad_software_key_index`で受信wire値を保持し、decoderでProfile/index/payloadのcanonical orderを検証する。`reencrypt_profile`では対象Profileだけcanonical indexへ更新し、`profile_to_value`では非対象ProfileのAAD整合性を優先してwire値を保持する。
 - 検証条件: unknown fieldを含むProfileと別Profileのmutationを組み合わせ、対象外Profileのciphertext/tag/AAD認証が維持されること、対象Profileのmutation後は仕様で確定したunknown field方針と一致することを固定fixtureで確認する。
+
+## 解決状況
+
+- `INTEROP-001`: 解決済み。仕様 §4.2 が Symbol の `"ed25519 seed"`、NEM の `"ed25519-keccak seed"`、および NEM 最終 private key の reverse を明記したため、`symbol-sdk` 3.3.2 と照合可能になった。
+- `CRITICAL-001`: 解決済み。仕様・要件・保存形式が、同一 Profile・同一 Chain・同一 private key のみを重複とし、異なる Chain の同一 private key を別 Software Key として許可する方針で統一された。
+- `INTEROP-002`: 解決済み。`specification.md` §6.3、§7、§11、§14.2 および `wallet-store-format-v1.md` §2、§7.1、§11 が、unknown field を論理モデル・一覧結果・意味検証へ取り込まず、対象外 Profile の受信 `software_key_index` wire 値を AAD と保存値へ保持し、対象 Profile を保持する成功 mutation では canonical index へ更新して unknown field を除去する規則を定義した。Profile delete は対象 envelope を除去する。非対象 Profile の暗号文・tag・AAD維持、および対象 Profile の canonical 化を検証条件へ追加した。
