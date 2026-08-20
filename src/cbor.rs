@@ -24,6 +24,8 @@ pub(crate) enum Value {
     Map(Vec<(u64, Value)>),
     /// CBOR tag番号と、そのtagが修飾する値を保持する。
     Tag(u64, Box<Value>),
+    /// CBORのfloatではないsimple valueを保持する。false/true/nullは専用variantを使う。
+    Simple(u8),
     Bool(bool),
     Null,
 }
@@ -38,6 +40,7 @@ impl Drop for Value {
             | Self::Array(_)
             | Self::Map(_)
             | Self::Tag(_, _)
+            | Self::Simple(_)
             | Self::Bool(_)
             | Self::Null => {}
         }
@@ -117,12 +120,30 @@ fn write_value(value: &Value, output: &mut Vec<u8>) -> Result<(), CborError> {
             write_argument(6, *tag, output)?;
             write_value(value, output)
         }
+        Value::Simple(value) => write_simple(*value, output),
         Value::Bool(value) => {
             output.push(if *value { 0xf5 } else { 0xf4 });
             Ok(())
         }
         Value::Null => {
             output.push(0xf6);
+            Ok(())
+        }
+    }
+}
+
+fn write_simple(value: u8, output: &mut Vec<u8>) -> Result<(), CborError> {
+    match value {
+        // 20..22はBool/Nullの専用variantと同じwire値になるため、generic
+        // Simpleとしては生成しない。
+        0..=19 | 23 => {
+            output.push(0xe0 | value);
+            Ok(())
+        }
+        20..=22 => Err(CborError),
+        // 24以上はadditional information 24と後続1 byteで表現する。
+        24..=u8::MAX => {
+            output.extend_from_slice(&[0xf8, value]);
             Ok(())
         }
     }
@@ -177,8 +198,8 @@ impl<'a> Parser<'a> {
         let initial = *self.take(1)?.first().ok_or(CborError)?;
         let major = initial >> 5;
         let additional = initial & 0x1f;
-        // floatとindefinite lengthはWallet Store v1で使用しない。未知fieldの負整数と
-        // tagは、意味解釈せず再出力できるようgeneric Valueとして保持する。
+        // floatとindefinite lengthはWallet Store v1で使用しない。未知fieldの負整数、
+        // tag、floatではないsimple valueは、意味解釈せず再出力できるよう保持する。
         match major {
             0 => Ok(Value::UInt(self.argument(additional)?)),
             1 => Ok(Value::Negative(self.argument(additional)?)),
@@ -222,9 +243,19 @@ impl<'a> Parser<'a> {
                 Box::new(self.value()?),
             )),
             7 => match additional {
+                0..=19 | 23 => Ok(Value::Simple(additional)),
                 20 => Ok(Value::Bool(false)),
                 21 => Ok(Value::Bool(true)),
                 22 => Ok(Value::Null),
+                24 => {
+                    let value = self.take(1)?[0];
+                    // 23以下をadditional information 24で表すのは非canonical。
+                    if value < 24 {
+                        return Err(CborError);
+                    }
+                    Ok(Value::Simple(value))
+                }
+                // 25..27はfloat16/32/64、28..31はreservedまたはbreak。
                 _ => Err(CborError),
             },
             _ => Err(CborError),
@@ -314,5 +345,31 @@ mod tests {
             }
             _ => panic!("mapとしてdecodeされていません"),
         }
+    }
+
+    #[test]
+    fn parser_round_trips_simple_values_and_undefined() {
+        for (encoded, expected) in [
+            (&[0xf7][..], Value::Simple(23)),
+            (&[0xe0][..], Value::Simple(0)),
+            (&[0xf8, 42][..], Value::Simple(42)),
+        ] {
+            let value = decode(encoded).unwrap();
+            assert_eq!(value, expected);
+            assert_eq!(encode(&value).unwrap(), encoded);
+        }
+    }
+
+    #[test]
+    fn parser_rejects_noncanonical_simple_values_and_floats() {
+        // 0..23をadditional information 24で表す形式は非canonical。
+        assert!(decode(&[0xf8, 23]).is_err());
+        assert!(decode(&[0xf8, 20]).is_err());
+        assert!(encode(&Value::Simple(20)).is_err());
+
+        // float16 / float32 / float64はStore v1で使用しない。
+        assert!(decode(&[0xf9, 0x00, 0x00]).is_err());
+        assert!(decode(&[0xfa, 0x00, 0x00, 0x00, 0x00]).is_err());
+        assert!(decode(&[0xfb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]).is_err());
     }
 }
