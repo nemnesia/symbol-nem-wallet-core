@@ -8,6 +8,11 @@ use core::fmt;
 
 use zeroize::Zeroize;
 
+// Wallet Store v1の固定schemaに必要な深さ・要素数を十分に上回る、parserの資源上限。
+// 入力長を超える配列・mapは個数だけでのcapacity確保を行わず、先に拒否する。
+const MAX_NESTING_DEPTH: usize = 32;
+const MAX_COLLECTION_ELEMENTS: usize = 65_536;
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Value {
     UInt(u64),
@@ -40,7 +45,11 @@ impl fmt::Display for CborError {
 
 pub(crate) fn decode(input: &[u8]) -> Result<Value, CborError> {
     // ルートを1つだけ読み、後続byteがあれば不正なtrailing dataとして拒否する。
-    let mut parser = Parser { input, offset: 0 };
+    let mut parser = Parser {
+        input,
+        offset: 0,
+        depth: 0,
+    };
     let value = parser.value()?;
     if parser.offset != input.len() {
         return Err(CborError);
@@ -128,6 +137,7 @@ fn write_argument(major: u8, value: u64, output: &mut Vec<u8>) -> Result<(), Cbo
 struct Parser<'a> {
     input: &'a [u8],
     offset: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -139,6 +149,16 @@ impl<'a> Parser<'a> {
     }
 
     fn value(&mut self) -> Result<Value, CborError> {
+        if self.depth >= MAX_NESTING_DEPTH {
+            return Err(CborError);
+        }
+        self.depth += 1;
+        let result = self.value_inner();
+        self.depth -= 1;
+        result
+    }
+
+    fn value_inner(&mut self) -> Result<Value, CborError> {
         let initial = *self.take(1)?.first().ok_or(CborError)?;
         let major = initial >> 5;
         let additional = initial & 0x1f;
@@ -156,7 +176,7 @@ impl<'a> Parser<'a> {
                 Ok(Value::Text(text.to_owned()))
             }
             4 => {
-                let length = self.length(additional)?;
+                let length = self.collection_length(additional, false)?;
                 let mut values = Vec::with_capacity(length);
                 for _ in 0..length {
                     values.push(self.value()?);
@@ -164,7 +184,7 @@ impl<'a> Parser<'a> {
                 Ok(Value::Array(values))
             }
             5 => {
-                let length = self.length(additional)?;
+                let length = self.collection_length(additional, true)?;
                 let mut entries = Vec::with_capacity(length);
                 for _ in 0..length {
                     let key = match self.value()? {
@@ -221,5 +241,36 @@ impl<'a> Parser<'a> {
 
     fn length(&mut self, additional: u8) -> Result<usize, CborError> {
         usize::try_from(self.argument(additional)?).map_err(|_| CborError)
+    }
+
+    fn collection_length(&mut self, additional: u8, map: bool) -> Result<usize, CborError> {
+        let length = self.length(additional)?;
+        let remaining_item_capacity = if map {
+            self.input.len().saturating_sub(self.offset) / 2
+        } else {
+            self.input.len().saturating_sub(self.offset)
+        };
+        if length > MAX_COLLECTION_ELEMENTS || length > remaining_item_capacity {
+            return Err(CborError);
+        }
+        Ok(length)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parser_rejects_resource_exhaustion_inputs_before_allocation_or_deep_recursion() {
+        let huge_array = [0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+        assert!(decode(&huge_array).is_err());
+
+        let huge_map = [0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+        assert!(decode(&huge_map).is_err());
+
+        let mut deeply_nested = vec![0x81; MAX_NESTING_DEPTH + 1];
+        deeply_nested.push(0x80);
+        assert!(decode(&deeply_nested).is_err());
     }
 }

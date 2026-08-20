@@ -33,3 +33,15 @@
 
 - `INTEROP-001`: 解決済み。仕様 §4.2 が Symbol の `"ed25519 seed"`、NEM の `"ed25519-keccak seed"`、および NEM 最終 private key の reverse を明記したため、`symbol-sdk` 3.3.2 と照合可能になった。
 - `CRITICAL-001`: 解決済み。仕様・要件・保存形式が、同一 Profile・同一 Chain・同一 private key のみを重複とし、異なる Chain の同一 private key を別 Software Key として許可する方針で統一された。
+
+## INTEROP-002: software_key_indexの未知field保持とAAD再暗号化方針が競合
+
+- 分類: INTEROP
+- 該当箇所: `docs/specifications/wallet-store-format-v1.md` §2、§7.1、§11; `docs/specifications/specification.md` §11
+- 確認できた事実: 保存フォーマットは未知fieldをdecoderが無視し、再保存時に保持しないと規定する。一方、AADは`ProfileEnvelopeV1` key `6`の実際の`software_key_index`配列を同じ要素順・整数keyで使用し、mutationは要求対象Profileのenvelopeだけを置換して他Profileの暗号化payload等を変更しないと規定する。
+- 未決定または矛盾: 未知fieldを含むProfileを別Profileのmutation時に再保存する場合、未知fieldを削除するとAADが変化する。対象外Profileを再暗号化せずに認証を維持するには未知fieldを保持する必要があり、「再保存時に保持しない」と両立しない。
+- 実装への影響: 実装は受信した`software_key_index`のwire値をAAD用に保持し、非対象Profileの再保存時もその値を保持する。対象Profileを再暗号化するmutationでは、payloadから生成したcanonical indexへ置換する。仕様を確定しない場合、unknown fieldを含むStoreのmutation後互換性を一意に保証できない。
+- 仕様書作成者に求める決定: unknown fieldを含むProfileの別Profile mutation時について、(a)対象外Profileのwire値を保持する、(b)対象外Profileも再暗号化してunknown fieldを削除する、または(c)該当Storeを拒否する、のいずれかを仕様・atomicity・AAD規定で統一する。
+- 推奨案: `software_key_index`のようにAADへ含まれるfieldは、対象Profile以外では受信wire値を保持し、対象Profileのmutation成功時だけcanonical値へ更新する。unknown fieldの再保存禁止を維持する場合は、対象外Profileの再暗号化を許可するmutation契約へ変更する。
+- 暫定対応: `src/store.rs`の`ProfileEnvelope.aad_software_key_index`で受信wire値を保持し、decoderでProfile/index/payloadのcanonical orderを検証する。`reencrypt_profile`では対象Profileだけcanonical indexへ更新し、`profile_to_value`では非対象ProfileのAAD整合性を優先してwire値を保持する。
+- 検証条件: unknown fieldを含むProfileと別Profileのmutationを組み合わせ、対象外Profileのciphertext/tag/AAD認証が維持されること、対象Profileのmutation後は仕様で確定したunknown field方針と一致することを固定fixtureで確認する。

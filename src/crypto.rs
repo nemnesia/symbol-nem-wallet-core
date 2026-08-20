@@ -210,8 +210,14 @@ pub(crate) fn sign(chain: Chain, private_key: &[u8; 32], message: &[u8]) -> Wall
             return Err(error);
         }
     };
-    let mut response = nonce + challenge * private_scalar;
-    signature[32..].copy_from_slice(&response.to_bytes());
+    let mut private_term = challenge;
+    private_term *= private_scalar;
+    let mut response = nonce;
+    response += private_term;
+    let mut response_bytes = response.to_bytes();
+    signature[32..].copy_from_slice(&response_bytes);
+    response_bytes.zeroize();
+    private_term.zeroize();
     response.zeroize();
     private_scalar.zeroize();
     nonce.zeroize();
@@ -502,5 +508,75 @@ mod tests {
                 .iter()
                 .all(|(_, _, _, other)| other != private_key));
         }
+    }
+
+    #[test]
+    fn bip32_root_and_child_nodes_match_symbol_sdk_vectors() {
+        let seed = bytes::<16>("000102030405060708090A0B0C0D0E0F");
+        let mut root = hmac_sha512(b"ed25519 seed", &seed).unwrap();
+        assert_eq!(
+            &root[..32],
+            &bytes::<32>("2B4BE7F19EE27BBF30C667B642D5F4AA69FD169872F8FC3059C08EBAE2EB19E7")
+        );
+        assert_eq!(
+            &root[32..],
+            &bytes::<32>("90046A93DE5380A72B5E45010748567D5EA02BBF6522F979E05C0D8D8CA9FFFB")
+        );
+
+        for identifier in [44u32, 4_343, 0, 0, 0] {
+            let mut child_data = [0u8; 37];
+            child_data[1..33].copy_from_slice(&root[..32]);
+            child_data[33..].copy_from_slice(&(identifier | 0x8000_0000).to_be_bytes());
+            let next = hmac_sha512(&root[32..], &child_data).unwrap();
+            child_data.zeroize();
+            root.zeroize();
+            root = next;
+        }
+        assert_eq!(
+            &root[..32],
+            &bytes::<32>("BB2724A538CFD64E4366FEB36BB982B954D58EA78F7163451B3B514EDD692159")
+        );
+        assert_eq!(
+            &root[32..],
+            &bytes::<32>("B8E16D407C8837B46A9445C6417310F3C7A4DCD9B8FF2679C383E6DEF721AC11")
+        );
+        root.zeroize();
+
+        let mut nem_root = hmac_sha512(b"ed25519-keccak seed", &seed).unwrap();
+        assert_eq!(
+            &nem_root[..32],
+            &bytes::<32>("A3D76D92ACF784D68F4EA2F6DE5507A3520385237A80277132B6C8F3685601B2")
+        );
+        assert_eq!(
+            &nem_root[32..],
+            &bytes::<32>("9CFCA256458AAC0A0550A30DC7639D87364E4323BA61ED41454818E3317BAED0")
+        );
+        nem_root.zeroize();
+    }
+
+    #[test]
+    fn fixed_encryption_fixture_values() {
+        let password = b"fixture password";
+        let salt = bytes::<16>("000102030405060708090A0B0C0D0E0F");
+        let key = derive_encryption_key(password, &salt).unwrap();
+        let nonce = bytes::<12>("101112131415161718191A1B");
+        let aad = b"symbol-nem-wallet-core/aad/v1";
+        let plaintext = b"fixture payload";
+        let (ciphertext, tag) = encrypt(&key, &nonce, aad, plaintext).unwrap();
+        assert_eq!(
+            key.as_slice(),
+            &bytes::<32>("F4F7B6DD88FE4A26ED534D0B14EE0E5E3102AF15579ECDF91ED19795623FE621")
+        );
+        assert_eq!(
+            ciphertext.as_slice(),
+            &bytes::<15>("16F1CBBC6E8F704179910A5160B185")
+        );
+        assert_eq!(tag, bytes::<16>("48D27CC71C274D3F19260E7AF3AA240D"));
+        assert_eq!(
+            decrypt(&key, &nonce, &tag, aad, &ciphertext)
+                .unwrap()
+                .as_slice(),
+            plaintext
+        );
     }
 }
