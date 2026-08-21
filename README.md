@@ -224,6 +224,7 @@ WASM の binary data は `Uint8Array`、Native の入力は借用 buffer、Nativ
 ## 検証
 
 ```bash
+python3 scripts/check-invisible-characters.py
 cargo test --workspace
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
