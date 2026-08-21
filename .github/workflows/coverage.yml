@@ -1,0 +1,132 @@
+name: Rust quality
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CORE_LINE_COVERAGE_TARGET: "90"
+  CORE_FUNCTION_COVERAGE_TARGET: "90"
+  CORE_BRANCH_COVERAGE_TARGET: "85"
+
+jobs:
+  checks:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace --all-features
+
+      - name: Check WASM target
+        run: cargo check --target wasm32-unknown-unknown --features wasm
+
+  core-coverage:
+    name: Core coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Measure Core coverage
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov \
+            --package symbol-nem-wallet-core \
+            --all-features \
+            --json \
+            --output-path coverage/core.json
+
+      - name: Write uncovered-line report
+        run: |
+          cargo llvm-cov report \
+            --package symbol-nem-wallet-core \
+            --text \
+            --show-missing-lines \
+            --output-path coverage/core.txt
+
+      - name: Enforce line and function targets
+        run: |
+          cargo llvm-cov report \
+            --package symbol-nem-wallet-core \
+            --fail-under-lines "$CORE_LINE_COVERAGE_TARGET" \
+            --fail-under-functions "$CORE_FUNCTION_COVERAGE_TARGET"
+
+      - name: Upload Core coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-coverage
+          path: coverage/
+
+  core-branch-coverage:
+    name: Core branch coverage (informational)
+    runs-on: ubuntu-latest
+    # cargo-llvm-cov documents --branch as unstable and does not provide a
+    # --fail-under-branches option, so this result is reported separately.
+    continue-on-error: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install nightly Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Measure Core branch coverage
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov \
+            --package symbol-nem-wallet-core \
+            --all-features \
+            --branch \
+            --json \
+            --summary-only \
+            --output-path coverage/core-branch.json
+
+      - name: Print branch coverage result
+        if: always()
+        run: |
+          if test -f coverage/core-branch.json; then
+            echo "Branch coverage target: ${CORE_BRANCH_COVERAGE_TARGET}%"
+            jq '.data[0].totals.branches' coverage/core-branch.json
+          fi
+
+      - name: Upload Core branch coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-branch-coverage
+          path: coverage/

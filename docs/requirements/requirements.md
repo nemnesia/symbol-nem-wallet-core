@@ -209,6 +209,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | NFR-002 | MUST | Core、Binding、Application の実装・レビュー・保守責任を区別でき、Binding が Core 責任や外部責任を重複実装しないこと。 |
 | NFR-003 | MUST | Core、Binding、UI / Application、上位 Application / Package の責任境界を第三者が説明できること。 |
 | NFR-004 | MUST | Native / WASM の違いによって秘密情報管理方針、認可責務、責任境界が変わらないこと。 |
+| NFR-005 | SHOULD | Core の自動検証では、行・関数カバレッジ90%以上、分岐カバレッジ85%以上を目標とし、未達時は未カバー範囲、理由および影響を確認可能にすること。カバレッジ率だけで仕様適合性、セキュリティまたは相互運用性を合格判定しないこと。 |
 
 ---
 
@@ -302,6 +303,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | AC-041 | FR-022, SEC-010, SEC-021 | 正しい Profile パスワードで指定 Profile の Mnemonic を個別エクスポートでき、誤パスワード・対象不存在・処理失敗時は Mnemonic を返さず Profile 状態を変更しない。 |
 | AC-042 | FR-023, SEC-010, SEC-021 | 正しい Profile パスワードで指定 Profile 配下の Derived / Imported / Generated Software Key の秘密鍵を個別エクスポートでき、誤パスワード・対象不存在・処理失敗時は秘密鍵を返さず Profile 状態を変更しない。 |
 | AC-043 | FR-019, SEC-017, SEC-020 | Native / WASM Binding は個別エクスポート結果を Application へ受け渡せるが、秘密情報を継続保持・キャッシュ・ログ出力せず、Profile 全体の一括バックアップ機能を提供しない。 |
+| AC-044 | NFR-005 | Core の行・関数・分岐カバレッジの計測結果を確認でき、目標未達の場合は未カバー範囲、理由および影響が記録されている。重要な仕様・セキュリティ・相互運用性・異常系の未検証を、カバレッジ目標達成だけで合格扱いしない。 |
 
 `AC-036` は OPEN-002 により廃止した。Wallet Core による Profile パスワード品質判定は受入対象としない。
 
@@ -368,6 +370,7 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 - 重複判定方式
 - atomic なパスワード変更・登録・削除を実現する保存方式
 - Profile 間分離を保証する識別・アクセス方式
+- カバレッジ計測の対象範囲、除外範囲および継続検証への適用方式
 
 ---
 
