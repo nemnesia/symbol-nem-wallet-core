@@ -96,16 +96,25 @@ cargo build --target wasm32-unknown-unknown --features wasm --release
 
 ### TypeScript から利用する
 
-このリポジトリには生成済みの npm パッケージは含まれません。WASM glue code の生成には、別途インストールした `wasm-bindgen` CLIを使用します。
+このリポジトリには生成済みの npm パッケージは含まれません。別途 `wasm-bindgen` CLIをインストールしたうえで、次のスクリプトを実行すると、WASM glue code と TypeScript 定義を `pkg/` に生成できます。
+
+`Cargo.lock` に合わせて `wasm-bindgen-cli` は `0.2.127` を使用します。
 
 ```bash
-wasm-bindgen \
-  target/wasm32-unknown-unknown/release/symbol_nem_wallet_core.wasm \
-  --target web \
-  --out-dir pkg
+cargo install wasm-bindgen-cli --version 0.2.127
 ```
 
-生成された JavaScript / TypeScript 定義をアプリケーションから import し、最初に default export を `await` してWASMを初期化します。`./pkg/symbol_nem_wallet_core.js` は上記コマンドの生成先例です。
+```bash
+./scripts/build-wasm.sh
+```
+
+出力先は第1引数で変更できます。相対パスはリポジトリルートから解決されます。
+
+```bash
+./scripts/build-wasm.sh dist/wasm
+```
+
+生成された JavaScript / TypeScript 定義をアプリケーションから import し、最初に default export を `await` してWASMを初期化します。`./pkg/symbol_nem_wallet_core.js` は生成先の例です。
 
 ```typescript
 import init, {

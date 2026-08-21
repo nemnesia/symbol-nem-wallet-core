@@ -6,6 +6,7 @@ node_modules/
 .reviews/
 
 dist
+pkg/
 coverage
 test-*/
 target/
