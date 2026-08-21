@@ -1,3 +1,8 @@
+//! Native C ABIの統合テスト。
+//!
+//! borrowed input、owned output、free関数、error code、CoreとNativeの署名・公開情報の
+//! 一致を、RustからC ABI関数を呼び出す形で確認する。
+
 use std::{ptr, slice};
 
 use symbol_nem_wallet_core::{get_public_account, sign};
@@ -20,6 +25,7 @@ fn borrowed(value: &[u8]) -> SnwcBytes {
 }
 
 unsafe fn take_bytes(value: SnwcOwnedBytes) -> Vec<u8> {
+    // Binding所有のbufferをコピーしてから、契約されたfree関数へ返す。
     let copied = if value.ptr.is_null() || value.len == 0 {
         Vec::new()
     } else {
@@ -31,6 +37,8 @@ unsafe fn take_bytes(value: SnwcOwnedBytes) -> Vec<u8> {
 
 #[test]
 fn c_abi_keeps_byte_boundaries_and_core_results() {
+    // 不正入力とNULL outputの境界を確認した後、Profile・Key・署名・公開情報の
+    // C ABI結果がRust Core APIと一致することを確認する。
     unsafe {
         let mut empty = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
@@ -57,6 +65,7 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             &mut invalid_profile,
             &mut invalid_warnings,
         );
+        // 秘密情報や内部メッセージではなく、安定したErrorCodeだけが返る。
         assert!(!error.is_null());
         assert_eq!(
             std::ffi::CStr::from_ptr(error).to_str().unwrap(),
@@ -81,6 +90,7 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             std::ffi::CStr::from_ptr(error).to_str().unwrap(),
             "InvalidArgument"
         );
+        // NULL出力を渡した失敗では、他の出力領域を書き換えない。
         assert!(null_warnings.ptr.is_null());
         assert_eq!(null_warnings.len, 0);
 
@@ -189,6 +199,7 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         )
         .is_null());
         let native_signature = take_bytes(signature);
+        // C ABIのraw signatureは、同じ入力をCoreへ渡した結果と一致する。
         let core_signature = sign(
             &store,
             uuid::Uuid::from_bytes(profile_id.bytes),
@@ -250,6 +261,7 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         )
         .is_null());
         let native_address = slice::from_raw_parts(account.address.ptr, account.address.len);
+        // addressとpublic keyもCoreの公開情報と一致し、address bufferは後で解放する。
         let core_account = get_public_account(
             &store,
             uuid::Uuid::from_bytes(profile_id.bytes),

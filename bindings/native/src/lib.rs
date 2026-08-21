@@ -2,6 +2,15 @@
 //!
 //! このcrateはCのbyte slice、固定長DTO、所有権付きbuffer、error codeへの変換だけを
 //! 担当する。暗号処理やStore操作は`symbol-nem-wallet-core`へ委譲する。
+//!
+//! C関数は、成功時に`NULL`、失敗時にNUL終端された安定error code文字列を返す。
+//! 入力bufferは呼び出し側が所有し、出力buffer・warning配列・一覧配列はBindingが
+//! 所有する。呼び出し側は各`snwc_free_*`関数を使って、成功・失敗後の所有権を
+//! 明示的に解放する。
+//!
+//! Networkは`0`=Testnet / `1`=Mainnet、Chainは`0`=NEM / `1`=Symbol、Software Keyの
+//! originは`0`=Derived / `1`=Imported / `2`=Generatedである。UUIDはCoreと同じraw
+//! 16 bytes表現を使用する。
 
 #![allow(unsafe_code)]
 
@@ -19,40 +28,62 @@ use symbol_nem_wallet_core::{
 };
 
 /// C callerから借用するbyte slice。Bindingは所有権を取得しない。
+///
+/// `len == 0`の場合は`ptr`がNULLでも空sliceとして扱う。`len != 0`の場合、
+/// `ptr`は呼び出し中に読み取り可能な範囲を指していなければならない。
 #[repr(C)]
 pub struct SnwcBytes {
+    /// 入力byte列の先頭。所有権はC callerに残る。
     pub ptr: *const u8,
+    /// `ptr`から読み取るbyte数。
     pub len: usize,
 }
 
 /// UUIDをC ABIで値渡しするための固定長型。
+///
+/// byte orderはRust Coreの`Uuid::as_bytes()`と同じで、文字列表現のUTF-8ではない。
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct SnwcUuid {
+    /// UUIDのraw 16 bytes。
     pub bytes: [u8; 16],
 }
 
 /// Coreから返された所有権付きbyte buffer。
+///
+/// 成功した関数が返したbufferは、内容を必要な範囲で使用した後に
+/// [`snwc_free_bytes`]へ値渡しして解放する。
 #[repr(C)]
 pub struct SnwcOwnedBytes {
+    /// Bindingが所有するbufferの先頭。
     pub ptr: *mut u8,
+    /// `ptr`から読み取るbyte数。
     pub len: usize,
 }
 
 /// warning配列の所有権付きbuffer。
+///
+/// 配列要素の文字列ポインターはBinding所有の静的文字列を指し、個別に解放しない。
 #[repr(C)]
 pub struct SnwcWarnings {
+    /// `SnwcWarning`配列の先頭。
     pub ptr: *mut SnwcWarning,
+    /// 配列要素数。
     pub len: usize,
 }
 
 /// 秘密情報を含まないDecodeWarningのC表現。
 #[repr(C)]
 pub struct SnwcWarning {
+    /// warning codeの静的NUL終端文字列。
     pub code: *const c_char,
+    /// 対象オブジェクト種別の静的NUL終端文字列。
     pub object_type: *const c_char,
+    /// 対象ID。`has_object_id == 0`の場合は未設定。
     pub object_id: [u8; 16],
+    /// `object_id`が有効かを示すフラグ。
     pub has_object_id: u8,
+    /// field名の静的NUL終端文字列。未設定の場合はNULL。
     pub field: *const c_char,
 }
 
@@ -60,18 +91,28 @@ pub struct SnwcWarning {
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct SnwcProfileInfo {
+    /// Profile IDのraw 16 bytes。
     pub profile_id: [u8; 16],
+    /// `0`=Testnet、`1`=Mainnet。
     pub network: u8,
+    /// 平文indexに登録されたSoftware Key数。
     pub software_key_count: usize,
 }
 
-/// Software Key情報のC表現。originは0=Derived、1=Imported、2=Generated。
+/// Software Key情報のC表現。
+///
+/// `origin`は`0`=Derived、`1`=Imported、`2`=Generated。`account_index`はDerivedの
+/// 場合だけ有効で、他のoriginでは0になる。
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct SnwcSoftwareKeyInfo {
+    /// Software Key IDのraw 16 bytes。
     pub key_id: [u8; 16],
+    /// `0`=NEM、`1`=Symbol。
     pub chain: u8,
+    /// Software Keyの由来。
     pub origin: u8,
+    /// Derived時のhardened account index。
     pub account_index: u32,
 }
 
@@ -79,17 +120,24 @@ pub struct SnwcSoftwareKeyInfo {
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct SnwcSoftwareKeyListItem {
+    /// Software Key IDのraw 16 bytes。
     pub key_id: [u8; 16],
+    /// `0`=NEM、`1`=Symbol。
     pub chain: u8,
 }
 
 /// 公開アカウント情報のC表現。addressはUTF-8の所有権付き文字列。
 #[repr(C)]
 pub struct SnwcPublicAccountInfo {
+    /// Software Key IDのraw 16 bytes。
     pub key_id: [u8; 16],
+    /// `0`=NEM、`1`=Symbol。
     pub chain: u8,
+    /// `0`=Testnet、`1`=Mainnet。
     pub network: u8,
+    /// 対象Chainのraw 32 byte public key。
     pub public_key: [u8; 32],
+    /// UTF-8 addressの所有buffer。`snwc_free_bytes`で解放する。
     pub address: SnwcOwnedBytes,
 }
 
@@ -125,6 +173,7 @@ fn success() -> *const c_char {
 }
 
 unsafe fn input<'a>(value: SnwcBytes) -> Result<&'a [u8], WalletError> {
+    // C callerの借用bufferをCoreが扱うsliceへ変換する。所有権は移さない。
     if value.len == 0 {
         return Ok(&[]);
     }
@@ -137,6 +186,7 @@ unsafe fn input<'a>(value: SnwcBytes) -> Result<&'a [u8], WalletError> {
 }
 
 unsafe fn output<'a, T>(value: *mut T) -> Result<&'a mut T, WalletError> {
+    // すべての出力ポインターはNULLを先に拒否し、呼び出し側の領域へだけ書き込む。
     value.as_mut().ok_or(WalletError {
         code: ErrorCode::InvalidArgument,
     })
@@ -153,6 +203,7 @@ unsafe fn require_output<T>(value: *mut T) -> Result<(), WalletError> {
 }
 
 fn owned_bytes(value: Vec<u8>) -> SnwcOwnedBytes {
+    // Vecの所有権をC callerへ移す。解放は必ずsnwc_free_bytesで行う。
     let boxed = value.into_boxed_slice();
     let len = boxed.len();
     let ptr = Box::into_raw(boxed).cast();
@@ -270,6 +321,7 @@ fn mutation_warnings<T>(value: MutationResult<T>) -> (Vec<u8>, T, SnwcWarnings) 
 
 macro_rules! ffi_call {
     ($body:block) => {{
+        // C ABI境界からRust panicを外へ出さず、安定したエラーコードへ変換する。
         match std::panic::catch_unwind(AssertUnwindSafe(|| $body)) {
             Ok(Ok(value)) => value,
             Ok(Err(err)) => error(err),

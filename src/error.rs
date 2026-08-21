@@ -2,10 +2,15 @@
 //!
 //! エラーは安定したcodeだけを公開し、password、Mnemonic、private key、
 //! 復号済みpayloadなどの秘密情報をmessageへ含めない。
+//! `ErrorCode`はBinding間で共有する機械判定用の契約であり、エラー詳細を
+//! 推測するためのログメッセージではない。
 
 use core::fmt;
 
 /// CoreとBindingが共有する安定したエラーコード。
+///
+/// 文字列表現は[`ErrorCode::as_str`]で取得できる。`#[non_exhaustive]`のため、
+/// Bindingやアプリケーションは未知の将来値を安全側へ扱えるように実装する。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ErrorCode {
@@ -29,7 +34,7 @@ pub enum ErrorCode {
     InvalidPrivateKey,
     /// 同じMnemonicとNetworkのProfileがすでに存在する。
     DuplicateProfile,
-    /// 同じChainとprivate keyのSoftware Keyがすでに存在する。
+    /// 同じProfile・同じChain・同じprivate keyのSoftware Keyがすでに存在する。
     DuplicateSoftwareKey,
     /// 導出用account indexがv1の範囲外。
     InvalidAccountIndex,
@@ -47,6 +52,8 @@ pub enum ErrorCode {
 
 impl ErrorCode {
     /// Bindingで使用する安定した文字列表現を返す。
+    ///
+    /// 返される文字列には秘密情報や内部エラーの詳細を含めない。
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidArgument => "InvalidArgument",
@@ -71,6 +78,9 @@ impl ErrorCode {
 }
 
 /// 秘密情報を含まないCoreエラー。
+///
+/// パスワード不一致、認証タグ不一致、Store改ざんなどの詳細は外部へ分けて
+/// 公開せず、呼び出し側は`code`だけを処理する。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WalletError {
     /// 安定したエラーコード。
@@ -92,4 +102,7 @@ impl fmt::Display for WalletError {
 impl std::error::Error for WalletError {}
 
 /// Wallet Coreが使用する結果型。
+///
+/// 成功値は読み取り結果またはreplacement Storeを含み、失敗時は秘密情報を
+/// 含まない[`WalletError`]だけを返す。
 pub type WalletResult<T> = Result<T, WalletError>;

@@ -1,3 +1,8 @@
+//! 公開Core APIの統合テスト。
+//!
+//! 状態変更APIが入力Storeを直接変更せず、成功時にreplacement Storeを返すこと、
+//! Symbol/NEMのChain境界、認証失敗・不正入力時のエラー分類を確認する。
+
 use symbol_nem_wallet_core::{
     change_profile_password, create_empty_store, delete_profile, delete_software_key,
     derive_software_key, export_mnemonic, export_private_key, finalize_generated_profile,
@@ -10,11 +15,14 @@ const PASSWORD: &[u8] = b"correct horse battery staple";
 const NEW_PASSWORD: &[u8] = b"new correct horse battery staple";
 
 fn array32(hex_value: &str) -> [u8; 32] {
+    // 公開APIが返すraw 32 byte値をfixtureのhex表記と比較するための補助関数。
     hex::decode(hex_value).unwrap().try_into().unwrap()
 }
 
 #[test]
 fn profile_and_software_key_lifecycle_is_atomic() {
+    // Profile作成から鍵の導出・import・署名・password変更・削除までを通し、
+    // 各mutationが次の入力に渡せる完全なStoreを返すことを確認する。
     let store = create_empty_store().unwrap();
     let created = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
     let profile_id = created.value.profile_id;
@@ -68,6 +76,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         &symbol_private,
     )
     .unwrap();
+    // 同じraw private keyでもChainが異なれば別Software Keyとして登録できる。
     assert_eq!(
         list_software_keys(&cross_chain.store, profile_id)
             .unwrap()
@@ -84,6 +93,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         &symbol_private,
     )
     .unwrap_err();
+    // 重複判定はProfile内かつ同一Chainに限定される。
     assert_eq!(duplicate.code, ErrorCode::DuplicateSoftwareKey);
     assert_eq!(
         export_private_key(&nem.store, profile_id, symbol.value.key_id, PASSWORD)
@@ -163,6 +173,8 @@ fn profile_and_software_key_lifecycle_is_atomic() {
 
 #[test]
 fn generated_profile_requires_a_matching_pending_handoff() {
+    // prepareだけではStoreを変更せず、passwordと対象Storeが一致するfinalizeだけが
+    // Profileを追加できること、およびPendingの再利用を拒否することを確認する。
     let store = create_empty_store().unwrap();
     let prepared = prepare_generated_profile(&store, PASSWORD, Network::Testnet).unwrap();
     assert!(list_profiles(&store).unwrap().value.is_empty());
@@ -199,6 +211,8 @@ fn generated_profile_requires_a_matching_pending_handoff() {
 
 #[test]
 fn invalid_secret_inputs_are_rejected_without_mutating_the_store() {
+    // Mnemonic、private key、account indexの不正入力を拒否し、失敗したmutationが
+    // 入力Storeを変更しないことを確認する。
     let store = create_empty_store().unwrap();
     assert_eq!(
         restore_profile(&store, b"not a mnemonic", PASSWORD, Network::Mainnet)

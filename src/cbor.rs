@@ -3,6 +3,10 @@
 //! 外部入力をそのまま汎用CBORとして受け入れず、unsigned integer map key、
 //! definite length、最短integer表現、重複map keyなしという仕様上の制約を
 //! parserで検証する。未知fieldは上位のStore decoderが意味解釈せず保持する。
+//!
+//! このモジュールはWallet Storeが必要とする範囲だけを実装し、floatやindefinite
+//! lengthなど、v1で使用しない表現を受け付けない。BytesとTextはDrop時にzeroizeし、
+//! 復号payloadがparser中間値に長く残らないようにする。
 
 use core::fmt;
 
@@ -13,6 +17,10 @@ use zeroize::Zeroize;
 const MAX_NESTING_DEPTH: usize = 32;
 const MAX_COLLECTION_ELEMENTS: usize = 65_536;
 
+/// deterministic CBORの内部表現。
+///
+/// Map keyはWallet Store v1の制約に合わせてunsigned integerだけを保持する。未知fieldの
+/// wire値を再出力できるよう、Store decoderが意味を理解しない型も表現する。
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Value {
     UInt(u64),
@@ -47,6 +55,7 @@ impl Drop for Value {
     }
 }
 
+/// CBORの構造、canonical表現または入力境界に関するエラー。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CborError;
 
@@ -58,6 +67,7 @@ impl fmt::Display for CborError {
 
 pub(crate) fn decode(input: &[u8]) -> Result<Value, CborError> {
     // ルートを1つだけ読み、後続byteがあれば不正なtrailing dataとして拒否する。
+    // Parser内で深さ、collection長、map順序、integer最短表現も検証する。
     let mut parser = Parser {
         input,
         offset: 0,
@@ -71,6 +81,7 @@ pub(crate) fn decode(input: &[u8]) -> Result<Value, CborError> {
 }
 
 pub(crate) fn encode(value: &Value) -> Result<Vec<u8>, CborError> {
+    // Mapはkey順序を正規化し、重複keyや予約されたsimple valueは拒否する。
     let mut output = Vec::new();
     match write_value(value, &mut output) {
         Ok(()) => Ok(output),
@@ -180,6 +191,7 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn take(&mut self, count: usize) -> Result<&'a [u8], CborError> {
+        // checked_addとslice境界でinteger overflowおよびtruncated inputを拒否する。
         let end = self.offset.checked_add(count).ok_or(CborError)?;
         let bytes = self.input.get(self.offset..end).ok_or(CborError)?;
         self.offset = end;
@@ -187,6 +199,7 @@ impl<'a> Parser<'a> {
     }
 
     fn value(&mut self) -> Result<Value, CborError> {
+        // ネスト上限を先に確認し、悪意ある入力による再帰・stack消費を抑える。
         if self.depth >= MAX_NESTING_DEPTH {
             return Err(CborError);
         }
@@ -313,10 +326,13 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
+    //! deterministic CBORのcanonical表現、未知wire value、資源上限を検証する。
+
     use super::*;
 
     #[test]
     fn parser_rejects_resource_exhaustion_inputs_before_allocation_or_deep_recursion() {
+        // 巨大なcollection長と深いnestingを、allocationや再帰の前に拒否する。
         let huge_array = [0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
         assert!(decode(&huge_array).is_err());
 
@@ -337,6 +353,7 @@ mod tests {
 
     #[test]
     fn parser_round_trips_negative_integers_and_tags() {
+        // Store v1で意味解釈しない負数・tagも、wire値を保持して再出力できる。
         let encoded = [0xa2, 0x00, 0x20, 0x01, 0xc1, 0x82, 0x21, 0xf6];
         let value = decode(&encoded).unwrap();
         assert_eq!(encode(&value).unwrap(), encoded);
@@ -351,6 +368,7 @@ mod tests {
 
     #[test]
     fn parser_round_trips_simple_values_and_undefined() {
+        // Bool/Nullと衝突しないsimple value、およびundefined相当の値を検証する。
         for (encoded, expected) in [
             (&[0xf7][..], Value::Simple(23)),
             (&[0xe0][..], Value::Simple(0)),

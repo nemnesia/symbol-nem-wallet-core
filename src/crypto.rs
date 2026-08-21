@@ -3,6 +3,11 @@
 //! SymbolはSHA-512とSHA3、NEMはKeccak-512とKeccak-256を使用するため、
 //! Chain分岐をこのモジュールへ閉じ込める。HD導出はsymbol-sdk 3.3.2の
 //! BIP32動作を基準にし、NEMだけ最終private keyのbyte orderを反転する。
+//!
+//! Profile payloadの保護にはArgon2idとAES-256-GCMを使用する。password、Mnemonic、
+//! private key、seedおよび主要なbyte中間値は、所有期間を限定し、明示的にzeroize
+//! できる型や終了経路で管理する。エラーへ秘密値を含めない。署名primitive内部で
+//! 依存ライブラリが生成する一時値のzeroize保証は、このモジュールの管理範囲外である。
 
 use aes_gcm::{
     aead::{AeadInPlace, KeyInit},
@@ -27,7 +32,7 @@ use crate::{
 type HmacSha256 = Hmac<Sha256>;
 type HmacSha512 = Hmac<Sha512>;
 
-// Wallet Store v1で固定されたArgon2idパラメータ。
+// Wallet Store v1で固定されたArgon2idパラメータ。変更すると既存Storeを復号できない。
 pub(crate) const KDF_MEMORY_KIB: u32 = 65_536;
 pub(crate) const KDF_ITERATIONS: u32 = 3;
 pub(crate) const KDF_PARALLELISM: u32 = 1;
@@ -42,10 +47,12 @@ pub(crate) fn random<const N: usize>() -> WalletResult<[u8; N]> {
 }
 
 pub(crate) fn random_uuid() -> WalletResult<Uuid> {
+    // UUIDは秘密値や公開情報から導出せず、Store内の識別子として独立生成する。
     Ok(Uuid::from_bytes(random()?))
 }
 
 pub(crate) fn validate_password(password: &[u8]) -> WalletResult<()> {
+    // password policyは決めず、空でないUTF-8 byte列という境界だけを検証する。
     if password.is_empty() || core::str::from_utf8(password).is_err() {
         return Err(WalletError::new(ErrorCode::InvalidArgument));
     }
@@ -60,6 +67,7 @@ pub(crate) fn mnemonic_from_entropy(entropy: &[u8; 32]) -> WalletResult<Vec<u8>>
 }
 
 pub(crate) fn parse_mnemonic(input: &[u8]) -> WalletResult<([u8; 32], Zeroizing<Vec<u8>>)> {
+    // 入力境界ではUTF-8とNFKDを検証し、BIP39のword list・checksum・24 wordsを確認する。
     let input =
         core::str::from_utf8(input).map_err(|_| WalletError::new(ErrorCode::InvalidMnemonic))?;
     let normalized = Zeroizing::new(input.nfkd().collect::<String>());
@@ -79,6 +87,7 @@ pub(crate) fn parse_mnemonic(input: &[u8]) -> WalletResult<([u8; 32], Zeroizing<
 
 // BIP39 passphraseはv1では空文字列に固定する。
 pub(crate) fn seed_from_entropy(entropy: &[u8; 32]) -> WalletResult<Zeroizing<[u8; 64]>> {
+    // v1ではBIP39 passphraseを空文字列に固定し、seedは保存せず呼び出し中だけ保持する。
     let mnemonic = Mnemonic::from_entropy_in(Language::English, entropy)
         .map_err(|_| WalletError::new(ErrorCode::InvalidMnemonic))?;
     Ok(Zeroizing::new(mnemonic.to_seed("")))
@@ -90,6 +99,7 @@ pub(crate) fn derive_private_key(
     network: Network,
     account_index: u32,
 ) -> WalletResult<[u8; 32]> {
+    // 仕様のaccount index上限を先に検証し、BIP32の全segmentをhardenedとして導出する。
     if account_index > 2_147_483_647 {
         return Err(WalletError::new(ErrorCode::InvalidAccountIndex));
     }
@@ -109,9 +119,11 @@ pub(crate) fn derive_private_key(
         Chain::Nem => b"ed25519-keccak seed".as_slice(),
     };
 
+    // HMAC-SHA512の先頭32 bytesをnode private key、後半32 bytesをchain codeとする。
     let mut node = hmac_sha512(root_key, &seed[..])?;
     // v1のpathは44' / coin_type' / account' / 0' / 0'で全要素をhardenedにする。
     for identifier in path {
+        // hardened child dataは0x00 || parent private key || big-endian child index。
         let mut child_data = [0u8; 37];
         child_data[0] = 0;
         child_data[1..33].copy_from_slice(&node[..32]);
@@ -151,6 +163,7 @@ pub(crate) fn validate_private_key(
     chain: Chain,
     private_key: &[u8],
 ) -> WalletResult<Zeroizing<[u8; 32]>> {
+    // 長さ、all-zero、対象Chainで公開鍵を生成できるかを順に検証する。
     let private_key: [u8; 32] = private_key
         .try_into()
         .map_err(|_| WalletError::new(ErrorCode::InvalidPrivateKey))?;
@@ -173,6 +186,7 @@ pub(crate) fn generate_private_key(chain: Chain) -> WalletResult<[u8; 32]> {
 }
 
 pub(crate) fn public_key(chain: Chain, private_key: &[u8; 32]) -> WalletResult<[u8; 32]> {
+    // public key計算のためだけに必要なprefixは返却せず、関数内でzeroizeする。
     let (public_key, mut prefix) = key_material(chain, private_key)?;
     prefix.zeroize();
     Ok(public_key)
@@ -180,6 +194,7 @@ pub(crate) fn public_key(chain: Chain, private_key: &[u8; 32]) -> WalletResult<[
 
 pub(crate) fn sign(chain: Chain, private_key: &[u8; 32], message: &[u8]) -> WalletResult<[u8; 64]> {
     // Ed25519のnonce/challengeをChain固有hashで計算し、messageへ暗黙のprefixを追加しない。
+    // 署名はR || Sのraw 64 bytesで返し、payloadの意味はこの層で解釈しない。
     let (public_key, mut prefix) = key_material(chain, private_key)?;
     let mut nonce_data = Vec::with_capacity(prefix.len() + message.len());
     nonce_data.extend_from_slice(&prefix);
@@ -226,6 +241,7 @@ pub(crate) fn sign(chain: Chain, private_key: &[u8; 32], message: &[u8]) -> Wall
 }
 
 fn key_material(chain: Chain, private_key: &[u8; 32]) -> WalletResult<([u8; 32], [u8; 32])> {
+    // private keyから、公開鍵とdeterministic nonceに使う32-byte prefixを同時に作る。
     let mut scalar = private_scalar(chain, private_key)?;
     let mut seed = *private_key;
     if matches!(chain, Chain::Nem) {
@@ -242,6 +258,7 @@ fn key_material(chain: Chain, private_key: &[u8; 32]) -> WalletResult<([u8; 32],
 }
 
 fn private_scalar(chain: Chain, private_key: &[u8; 32]) -> WalletResult<Scalar> {
+    // Chainに応じたhash結果をEd25519 scalarのclamp規則へ通す。
     let mut seed = *private_key;
     if matches!(chain, Chain::Nem) {
         seed.reverse();
@@ -260,6 +277,7 @@ fn private_scalar(chain: Chain, private_key: &[u8; 32]) -> WalletResult<Scalar> 
 }
 
 fn hash_512(chain: Chain, data: &[u8]) -> [u8; 64] {
+    // SymbolはSHA-512、NEMはKeccak-512を使用する。ここがChain分岐の境界である。
     match chain {
         Chain::Symbol => Sha512::digest(data).into(),
         Chain::Nem => Keccak512::digest(data).into(),
@@ -268,6 +286,7 @@ fn hash_512(chain: Chain, data: &[u8]) -> [u8; 64] {
 
 pub(crate) fn address(chain: Chain, network: Network, public_key: &[u8; 32]) -> String {
     // 公開鍵hash、RIPEMD160、Network byte、Chain固有checksum、Base32の順で組み立てる。
+    // Network byteはProfileのNetworkから決まり、Chainと混同しない。
     let digest = match chain {
         Chain::Symbol => Sha3_256::digest(public_key).to_vec(),
         Chain::Nem => Keccak256::digest(public_key).to_vec(),
@@ -292,6 +311,7 @@ pub(crate) fn derive_encryption_key(
     password: &[u8],
     salt: &[u8; 16],
 ) -> WalletResult<Zeroizing<[u8; 32]>> {
+    // Store v1で固定されたArgon2id parametersからAES-256-GCM keyを作る。
     validate_password(password)?;
     let params = Params::new(KDF_MEMORY_KIB, KDF_ITERATIONS, KDF_PARALLELISM, Some(32))
         .map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
@@ -310,6 +330,7 @@ pub(crate) fn encrypt(
     plaintext: &[u8],
 ) -> WalletResult<(Vec<u8>, [u8; 16])> {
     // AADは呼び出し側でwire-level contextをdeterministic CBORへencodeして渡す。
+    // 認証失敗時は生成途中のciphertextをzeroizeしてからエラーを返す。
     let cipher =
         Aes256Gcm::new_from_slice(key).map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
     let mut ciphertext = plaintext.to_vec();
@@ -330,6 +351,7 @@ pub(crate) fn decrypt(
     aad: &[u8],
     ciphertext: &[u8],
 ) -> WalletResult<Vec<u8>> {
+    // tag検証に成功するまでplaintextを呼び出し側へ返さない。
     let cipher =
         Aes256Gcm::new_from_slice(key).map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
     let mut plaintext = ciphertext.to_vec();
@@ -354,6 +376,7 @@ pub(crate) fn duplicate_tag(
     entropy: &[u8; 32],
 ) -> [u8; 32] {
     // registry keyをStore単位の秘密として、Mnemonic+Networkの重複判定tagを作る。
+    // tagは暗号化payloadの代替ではなく、認証後の意味的一致検証に使う。
     let mut input = Vec::with_capacity(DUPLICATE_DOMAIN.len() + 33);
     input.extend_from_slice(DUPLICATE_DOMAIN);
     input.push(network.wire() as u8);
@@ -367,10 +390,12 @@ pub(crate) fn duplicate_tag(
 }
 
 pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
+    // Pending Profileを作成した対象Storeへ結び付けるためのhash。
     Sha256::digest(data).into()
 }
 
 fn hmac_sha512(key: &[u8], data: &[u8]) -> WalletResult<[u8; 64]> {
+    // HD導出のroot/child nodeで共通に使用するHMAC-SHA512処理。
     let mut mac = <HmacSha512 as Mac>::new_from_slice(key)
         .map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
     mac.update(data);
@@ -378,6 +403,7 @@ fn hmac_sha512(key: &[u8], data: &[u8]) -> WalletResult<[u8; 64]> {
 }
 
 fn base32_encode(bytes: &[u8]) -> String {
+    // Symbol/NEM addressで使用する大文字RFC 4648 Base32相当のエンコード。
     const ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
     let mut output = String::with_capacity((bytes.len() * 8).div_ceil(5));
     let mut buffer = 0u32;
@@ -403,6 +429,8 @@ fn base32_encode(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    //! Symbol/NEMの暗号処理を、仕様およびsymbol-sdk由来の固定fixtureと照合する。
+
     use super::*;
 
     fn bytes<const N: usize>(hex: &str) -> [u8; N] {
@@ -411,6 +439,7 @@ mod tests {
 
     #[test]
     fn symbol_key_address_and_signature_match_sdk_vectors() {
+        // Symbolの公開鍵、Mainnet/Testnet address、raw signatureをfixtureと照合する。
         let private_key =
             bytes::<32>("575DBB3062267EFF57C970A336EBBC8FBCFE12C5BD3ED7BC11EB0481D7704CED");
         let public_key = public_key(Chain::Symbol, &private_key).unwrap();
@@ -438,6 +467,7 @@ mod tests {
 
     #[test]
     fn nem_key_address_and_signature_match_sdk_vectors() {
+        // NEMのhash系統、address checksum、raw signatureがSymbolと混同されないことを確認する。
         let private_key =
             bytes::<32>("575DBB3062267EFF57C970A336EBBC8FBCFE12C5BD3ED7BC11EB0481D7704CED");
         let public_key = public_key(Chain::Nem, &private_key).unwrap();
@@ -465,6 +495,7 @@ mod tests {
 
     #[test]
     fn hd_derivation_matches_24_word_sdk_vectors() {
+        // BIP39 English 24 words、空passphrase、Symbol/NEMのHD導出結果を照合する。
         let mnemonic = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
         let (entropy, normalized) = parse_mnemonic(mnemonic).unwrap();
         assert_eq!(normalized.as_slice(), mnemonic);
@@ -488,6 +519,7 @@ mod tests {
 
     #[test]
     fn hd_derivation_covers_all_v1_networks_chains_and_account_boundaries() {
+        // 2 Chain × 2 Network × account indexの下限・中間・上限を検証する。
         let mnemonic = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
         let (entropy, _) = parse_mnemonic(mnemonic).unwrap();
         let mut derived = Vec::new();
@@ -562,6 +594,7 @@ mod tests {
 
     #[test]
     fn bip32_root_and_child_nodes_match_symbol_sdk_vectors() {
+        // root HMACとhardened child pathの中間値を固定fixtureと照合する。
         let seed = bytes::<16>("000102030405060708090A0B0C0D0E0F");
         let mut root = hmac_sha512(b"ed25519 seed", &seed).unwrap();
         assert_eq!(
@@ -606,6 +639,7 @@ mod tests {
 
     #[test]
     fn fixed_encryption_fixture_values() {
+        // Argon2id、AES-256-GCM、AAD、tagの固定値を照合し、暗号形式の変更を検知する。
         let password = b"fixture password";
         let salt = bytes::<16>("000102030405060708090A0B0C0D0E0F");
         let key = derive_encryption_key(password, &salt).unwrap();

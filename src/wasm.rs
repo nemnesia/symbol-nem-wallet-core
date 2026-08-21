@@ -3,6 +3,12 @@
 //! このモジュールはUint8ArrayとJavaScript objectへの変換、Core error codeと
 //! DecodeWarningのmapping、入力bufferの一時所有だけを担当する。暗号処理、
 //! 認証、導出、署名および重複判定はすべて親crateのCoreへ委譲する。
+//!
+//! JavaScript側では、Store・Pending Profile・Mnemonic・password・private key・payload・
+//! signature・public keyを`Uint8Array`で扱う。UUIDは文字列、Networkは`0`=Testnet /
+//! `1`=Mainnet、Chainは`0`=NEM / `1`=Symbolとして受け取る。読み取り結果は
+//! `{ value, warnings }`、状態変更結果は`{ store, value, warnings }`のobjectに変換する。
+//! `Result`のエラーは秘密情報を含まないerror code文字列としてJavaScriptへ投げる。
 
 use js_sys::{Array, Object, Reflect, Uint8Array};
 use uuid::Uuid;
@@ -42,6 +48,7 @@ fn set(object: &Object, key: &str, value: JsValue) -> Result<(), JsValue> {
 }
 
 fn bytes(value: &Uint8Array) -> Vec<u8> {
+    // JS管理下の入力をCoreへ渡す一時Vec。Core処理終了後にBinding側の所有を終える。
     value.to_vec()
 }
 
@@ -50,6 +57,7 @@ fn uint8_array(value: &[u8]) -> JsValue {
 }
 
 fn parse_network(value: u8) -> Result<Network, WalletError> {
+    // C ABIと同じwire mappingを使い、未知値を暗黙に補正しない。
     match value {
         0 => Ok(Network::Testnet),
         1 => Ok(Network::Mainnet),
@@ -60,6 +68,7 @@ fn parse_network(value: u8) -> Result<Network, WalletError> {
 }
 
 fn parse_chain(value: u8) -> Result<Chain, WalletError> {
+    // Chain値の取り違えを防ぐため、0/1以外は入力エラーにする。
     match value {
         0 => Ok(Chain::Nem),
         1 => Ok(Chain::Symbol),
@@ -70,6 +79,7 @@ fn parse_chain(value: u8) -> Result<Chain, WalletError> {
 }
 
 fn parse_uuid(value: &str) -> Result<Uuid, WalletError> {
+    // 公開APIのUUIDはcanonicalな36文字表現だけを受け付ける。
     let bytes = value.as_bytes();
     let hyphen_positions = [8, 13, 18, 23];
     if bytes.len() != 36
@@ -121,6 +131,7 @@ fn origin_object(origin: SoftwareKeyOrigin) -> Result<JsValue, JsValue> {
 }
 
 fn warning_array(warnings: &[DecodeWarning]) -> Result<JsValue, JsValue> {
+    // Warningは診断情報として変換し、Mnemonicやprivate keyなどの秘密値はコピーしない。
     let array = Array::new();
     for warning in warnings {
         let object = Object::new();
@@ -148,6 +159,7 @@ fn warning_array(warnings: &[DecodeWarning]) -> Result<JsValue, JsValue> {
 }
 
 fn read_result(value: JsValue, warnings: Vec<DecodeWarning>) -> Result<JsValue, JsValue> {
+    // CoreのReadResult<T>をJavaScript objectへ変換する共通経路。
     let object = Object::new();
     set(&object, "value", value)?;
     set(&object, "warnings", warning_array(&warnings)?)?;
@@ -155,6 +167,7 @@ fn read_result(value: JsValue, warnings: Vec<DecodeWarning>) -> Result<JsValue, 
 }
 
 fn mutation_result<T>(result: MutationResult<T>, value: JsValue) -> Result<JsValue, JsValue> {
+    // 成功時だけ完全なreplacement StoreをUint8Arrayで返す共通経路。
     let object = Object::new();
     set(&object, "store", uint8_array(&result.store))?;
     set(&object, "value", value)?;
@@ -256,7 +269,10 @@ fn prepared_profile(value: PreparedProfile) -> Result<JsValue, JsValue> {
     Ok(object.into())
 }
 
-/// 空のWallet Storeを作成する。
+/// JavaScriptから空のWallet Storeを作成する。
+///
+/// 成功時はopaqueなStoreを`Uint8Array`で返す。Storeの内容をJavaScript側で編集せず、
+/// Coreの状態変更結果へ置き換える。
 #[wasm_bindgen(js_name = create_empty_store)]
 pub fn create_empty_store() -> Result<Uint8Array, JsValue> {
     core_create_empty_store()
@@ -265,6 +281,9 @@ pub fn create_empty_store() -> Result<Uint8Array, JsValue> {
 }
 
 /// Mnemonic生成の初回段階を実行し、Storeを変更せずにPending Profileを返す。
+///
+/// 成功結果は`{ value: { mnemonic_utf8, pending_profile }, warnings }`であり、秘密値は
+/// すべて`Uint8Array`である。利用者へのバックアップ確認後だけfinalizeへ進む。
 #[wasm_bindgen(js_name = prepare_generated_profile)]
 pub fn prepare_generated_profile(
     store: &Uint8Array,
@@ -280,6 +299,8 @@ pub fn prepare_generated_profile(
 }
 
 /// Pending Profileを認証してProfileを確定する。
+///
+/// 成功結果は`{ store, value: ProfileInfo, warnings }`である。
 #[wasm_bindgen(js_name = finalize_generated_profile)]
 pub fn finalize_generated_profile(
     store: &Uint8Array,
@@ -296,6 +317,9 @@ pub fn finalize_generated_profile(
 }
 
 /// UTF-8 BIP39 MnemonicからProfileを復元する。
+///
+/// `mnemonic_utf8`と`password_utf8`は`Uint8Array`で渡し、成功時はreplacement Storeと
+/// Profile情報を返す。Profile情報の`profile_id`はUUID文字列である。
 #[wasm_bindgen(js_name = restore_profile)]
 pub fn restore_profile(
     store: &Uint8Array,
@@ -314,6 +338,9 @@ pub fn restore_profile(
 }
 
 /// ProfileのMnemonicを明示的にexportする。
+///
+/// 成功結果は`{ value: { mnemonic_utf8 }, warnings }`である。返却後の保管・表示・破棄は
+/// アプリケーションの秘密情報管理責任であり、Bindingはキャッシュしない。
 #[wasm_bindgen(js_name = export_mnemonic)]
 pub fn export_mnemonic(
     store: &Uint8Array,
@@ -329,6 +356,9 @@ pub fn export_mnemonic(
 }
 
 /// Software Keyのprivate keyを明示的にexportする。
+///
+/// 成功結果は`{ value: { private_key }, warnings }`で、`private_key`はraw 32 bytesの
+/// `Uint8Array`である。
 #[wasm_bindgen(js_name = export_private_key)]
 pub fn export_private_key(
     store: &Uint8Array,
@@ -346,6 +376,9 @@ pub fn export_private_key(
 }
 
 /// passwordなしでProfile一覧を取得する。
+///
+/// 成功結果は`{ value: ProfileInfo[], warnings }`である。結果は平文manifest由来であり、
+/// payloadのAEAD認証済み情報とは区別する。
 #[wasm_bindgen(js_name = list_profiles)]
 pub fn list_profiles(store: &Uint8Array) -> Result<JsValue, JsValue> {
     let store_bytes = bytes(store);
@@ -359,6 +392,9 @@ pub fn list_profiles(store: &Uint8Array) -> Result<JsValue, JsValue> {
 }
 
 /// Profile内のSoftware Key一覧を取得する。
+///
+/// 成功結果は`{ value: SoftwareKeyListItem[], warnings }`であり、private keyやoriginは
+/// 含まない。
 #[wasm_bindgen(js_name = list_software_keys)]
 pub fn list_software_keys(store: &Uint8Array, profile_id: &str) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
@@ -373,6 +409,9 @@ pub fn list_software_keys(store: &Uint8Array, profile_id: &str) -> Result<JsValu
 }
 
 /// MnemonicからSoftware Keyを導出して保存する。
+///
+/// `account_index`はv1のhardened導出範囲で解釈し、成功時はreplacement Storeと
+/// `SoftwareKeyInfo`を返す。
 #[wasm_bindgen(js_name = derive_software_key)]
 pub fn derive_software_key(
     store: &Uint8Array,
@@ -393,6 +432,8 @@ pub fn derive_software_key(
 }
 
 /// raw private keyを検証してSoftware Keyとして保存する。
+///
+/// `private_key`はtextual encodingではなくraw 32 bytesの`Uint8Array`で渡す。
 #[wasm_bindgen(js_name = import_software_key)]
 pub fn import_software_key(
     store: &Uint8Array,
@@ -413,6 +454,9 @@ pub fn import_software_key(
 }
 
 /// CSPRNGでSoftware Keyを生成して保存する。
+///
+/// 成功時はreplacement Storeと`SoftwareKeyInfo`を返す。乱数生成と鍵の妥当性検証は
+/// Coreへ委譲する。
 #[wasm_bindgen(js_name = generate_software_key)]
 pub fn generate_software_key(
     store: &Uint8Array,
@@ -431,6 +475,9 @@ pub fn generate_software_key(
 }
 
 /// Software Keyのpublic account情報を取得する。
+///
+/// 成功結果は`{ value: { key_id, chain, network, public_key, address }, warnings }`である。
+/// `public_key`はraw 32 bytes、`address`はChain/Networkに対応する文字列となる。
 #[wasm_bindgen(js_name = get_public_account)]
 pub fn get_public_account(
     store: &Uint8Array,
@@ -448,6 +495,9 @@ pub fn get_public_account(
 }
 
 /// Software Keyでpayload byte列に署名する。
+///
+/// payloadをTransactionとして解釈せず、渡された`Uint8Array`をそのまま署名する。成功
+/// 結果の`value.signature`はraw 64 bytesの`Uint8Array`である。
 #[wasm_bindgen(js_name = sign)]
 pub fn sign(
     store: &Uint8Array,
@@ -467,6 +517,9 @@ pub fn sign(
 }
 
 /// Profile passwordを変更してreplacement Storeを返す。
+///
+/// 成功結果は`{ store, value: null, warnings }`である。呼び出し側は旧Storeではなく
+/// 返却Storeを保存対象に置き換える。
 #[wasm_bindgen(js_name = change_profile_password)]
 pub fn change_profile_password(
     store: &Uint8Array,
@@ -485,6 +538,9 @@ pub fn change_profile_password(
 }
 
 /// Software Keyを削除してreplacement Storeを返す。
+///
+/// 成功結果は`{ store, value: null, warnings }`であり、対象Profile内の指定Keyだけを
+/// 削除する。
 #[wasm_bindgen(js_name = delete_software_key)]
 pub fn delete_software_key(
     store: &Uint8Array,
@@ -502,6 +558,9 @@ pub fn delete_software_key(
 }
 
 /// Profileを削除してreplacement Storeを返す。
+///
+/// 成功結果は`{ store, value: null, warnings }`であり、対象Profileとその秘密payloadを
+/// Storeから除去する。
 #[wasm_bindgen(js_name = delete_profile)]
 pub fn delete_profile(
     store: &Uint8Array,

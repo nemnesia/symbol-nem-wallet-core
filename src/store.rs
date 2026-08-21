@@ -2,6 +2,10 @@
 //!
 //! 平文manifestは一覧処理に使用し、MnemonicとSoftware KeyはProfile passwordから
 //! 導出した鍵で暗号化する。更新処理では入力Storeを変更せず、新しいbyte列を返す。
+//!
+//! デコードではStore全体の構造・canonical order・ID一意性を先に検証する。
+//! 認証が必要な操作では、AAD、復号payload、`duplicate_tag`、平文indexとpayloadの
+//! 対応を順番に検証してから秘密情報を利用する。
 
 use uuid::Uuid;
 use zeroize::Zeroize;
@@ -29,8 +33,11 @@ const PENDING_VERSION: u8 = 1;
 
 #[derive(Clone)]
 struct WalletStore {
+    // Store単位の秘密。Profile重複tagのdomain separationに使用する。
     registry_key: [u8; 32],
+    // 一覧処理とProfile単位のmutationが対象にする順序付きenvelope。
     profiles: Vec<ProfileEnvelope>,
+    // v1が解釈しないtop-level field。mutation時もwire値を保持する。
     unknown_fields: Vec<(u64, Value)>,
 }
 
@@ -44,11 +51,15 @@ impl Drop for WalletStore {
 // Mnemonicやprivate keyはここへ置かず、ProfilePayloadに限定する。
 #[derive(Clone)]
 struct ProfileEnvelope {
+    // 秘密payloadを復号せずに解決できる公開manifest。
     profile_id: [u8; 16],
     network: Network,
+    // Mnemonic + Networkとの意味的一致を認証後に検証するtag。
     duplicate_tag: [u8; 32],
+    // Profile payloadを保護するKDFとAEADのwire parameters。
     kdf: KdfParams,
     cipher: Ciphertext,
+    // 一覧用の論理index。private keyやMnemonicは含めない。
     software_key_index: Vec<IndexEntry>,
     // AADには意味解釈後のindexではなく、受信した配列のwire値を使用する。
     aad_software_key_index: Vec<Value>,
@@ -64,12 +75,14 @@ impl Drop for ProfileEnvelope {
 
 #[derive(Clone)]
 struct KdfParams {
+    // Argon2idへ渡すProfile固有salt。
     salt: [u8; 16],
     unknown_fields: Vec<(u64, Value)>,
 }
 
 #[derive(Clone)]
 struct Ciphertext {
+    // AES-256-GCMで暗号化したpayloadのnonce、ciphertext、認証tag。
     nonce: [u8; 12],
     ciphertext: Vec<u8>,
     tag: [u8; 16],
@@ -89,6 +102,7 @@ struct IndexEntry {
 }
 
 struct KeyRecord {
+    // 復号後のpayloadだけが保持する秘密Software Key。
     key_id: [u8; 16],
     chain: Chain,
     private_key: [u8; 32],
@@ -135,7 +149,13 @@ impl Drop for PendingDecoded {
 
 /// 空のv1 Wallet Storeを生成する。
 ///
-/// Store固有のregistry keyはCSPRNGから生成し、Profileは空の状態で返す。
+/// Store固有の`registry_key`をCSPRNGから生成し、Profileを持たない完全なStoreを
+/// 返す。返却されたbyte列は、以後のProfile作成・復元APIの入力として使用できる。
+///
+/// # Errors
+///
+/// 乱数源を利用できない場合は`RandomSourceFailure`を返す。失敗時に不完全なStoreは
+/// 返さない。
 pub fn create_empty_store() -> WalletResult<WalletStoreBlob> {
     let store = WalletStore {
         registry_key: crypto::random()?,
@@ -147,8 +167,18 @@ pub fn create_empty_store() -> WalletResult<WalletStoreBlob> {
 
 /// Mnemonicを生成し、Storeを変更せずに暗号化済みPending Profileを返す。
 ///
-/// 返却されたMnemonicは初回バックアップ受渡しに使用し、受渡し完了後に
-/// [`finalize_generated_profile`]へPending Profileを渡す。
+/// 返却されたMnemonicは初回バックアップ受渡しに使用し、利用者が正確なMnemonicを
+/// 記録・受領したことをアプリケーション側で明示確認した後に、同じStoreとpasswordを
+/// 使って[`finalize_generated_profile`]へPending Profileを渡す。この関数だけでは
+/// ProfileはStoreへ追加されない。
+///
+/// MnemonicとPending Profileは秘密情報を含むため、アプリケーションはログ、例外、
+/// 長期キャッシュへ含めず、受渡しまたは破棄が完了したら保持を終了する。
+///
+/// # Errors
+///
+/// Storeが不正な場合は`InvalidStore`、passwordが空またはUTF-8でない場合は
+/// `InvalidArgument`、乱数源や暗号処理に失敗した場合は対応するエラーを返す。
 pub fn prepare_generated_profile(
     store: &[u8],
     password_utf8: &[u8],
@@ -172,7 +202,15 @@ pub fn prepare_generated_profile(
 /// Pending Profileを認証し、atomicにProfileを確定する。
 ///
 /// Pending Profile、対象Store、passwordおよび既存Profileの整合性を検証し、
-/// 成功時だけreplacement Storeを返す。
+/// 成功時だけ完全なreplacement Storeを返す。Pending Profileが作成時と異なる
+/// Storeへ渡された場合、または一度確定したPending Profileを再利用した場合は
+/// Profileを追加しない。
+///
+/// # Errors
+///
+/// password認証に失敗した場合は`AuthenticationFailed`、Pending Profileの形式・
+/// 対象Store・改ざん状態が不正な場合は`PendingProfileInvalid`、同じMnemonicと
+/// NetworkのProfileが存在する場合は`DuplicateProfile`を返す。
 pub fn finalize_generated_profile(
     store: &[u8],
     pending_profile: &[u8],
@@ -247,6 +285,15 @@ pub fn finalize_generated_profile(
 }
 
 /// 検証済みBIP39 MnemonicからProfileを復元し、replacement Storeを返す。
+///
+/// 入力MnemonicはUTF-8のBIP39 English 24 wordsとして正規化・検証する。Profileの
+/// Networkは作成時に固定され、後から変更できない。同じMnemonicとNetworkのProfileが
+/// すでに存在する場合は、入力Storeを変更せずに拒否する。
+///
+/// # Errors
+///
+/// Mnemonicが不正な場合は`InvalidMnemonic`、passwordが不正な場合は
+/// `InvalidArgument`、Storeまたは既存Profileが不正な場合は対応するエラーを返す。
 pub fn restore_profile(
     store: &[u8],
     mnemonic_utf8: &[u8],
@@ -296,6 +343,10 @@ pub fn restore_profile(
 }
 
 /// 暗号化payloadを復号せずにProfile一覧を返す。
+///
+/// ProfileのNetwork、ID、Software Key数は平文manifestから取得するため、passwordを
+/// 要求しない。ただしStore構造全体の検証は行うため、不正な子要素を読み飛ばして
+/// 部分結果を返すことはない。結果は暗号化payloadの認証済み情報とは区別する。
 pub fn list_profiles(store: &[u8]) -> WalletResult<ReadResult<Vec<ProfileInfo>>> {
     let (wallet, warnings) = decode_store(store)?;
     Ok(ReadResult {
@@ -306,7 +357,14 @@ pub fn list_profiles(store: &[u8]) -> WalletResult<ReadResult<Vec<ProfileInfo>>>
 
 /// 平文indexからSoftware Key一覧を返す。
 ///
-/// 一覧にはprivate keyやoriginを含めず、Profile passwordも要求しない。
+/// 一覧にはprivate keyやoriginを含めず、Profile passwordも要求しない。返却値は
+/// `key_id`とChainだけを含む未認証manifest由来の情報であり、秘密情報処理の認証結果
+/// として扱ってはならない。
+///
+/// # Errors
+///
+/// Profileが存在しない場合は`ProfileNotFound`、Store構造が不正な場合は
+/// `InvalidStore`を返す。
 pub fn list_software_keys(
     store: &[u8],
     profile_id: Uuid,
@@ -329,6 +387,13 @@ pub fn list_software_keys(
 /// password認証後にProfileのMnemonicを明示的にexportする。
 ///
 /// 通常のProfile情報や一覧にはMnemonicを含めず、この関数の成功結果だけで返す。
+/// 返却されるMnemonicは正規化済みBIP39 English 24 wordsのUTF-8 byte列である。
+/// `ReadResult`をDebug出力へ渡しても、秘密DTOの値はredacted表記になる。
+///
+/// # Errors
+///
+/// passwordまたは暗号認証に失敗した場合は`AuthenticationFailed`、Profileが存在
+/// しない場合は`ProfileNotFound`を返し、Mnemonicは返さない。
 pub fn export_mnemonic(
     store: &[u8],
     profile_id: Uuid,
@@ -349,6 +414,15 @@ pub fn export_mnemonic(
 }
 
 /// password認証後に指定Software Keyのprivate keyを明示的にexportする。
+///
+/// private keyは対象Chainのraw 32 bytesとして返す。hexやその他のtextual encodingへ
+/// 変換しない。返却された値は明示的なexport結果なので、アプリケーション側で保存・
+/// キャッシュ・ログ出力を継続してはならない。
+///
+/// # Errors
+///
+/// passwordまたは暗号認証に失敗した場合は`AuthenticationFailed`、Profileまたは
+/// Software Keyが存在しない場合は対応するエラーを返す。
 pub fn export_private_key(
     store: &[u8],
     profile_id: Uuid,
@@ -377,7 +451,18 @@ pub fn export_private_key(
 
 /// ProfileのMnemonicからChain固有のSoftware Keyを導出して保存する。
 ///
-/// 導出pathはProfile Network、Chain、account indexおよびschema versionから決定する。
+/// 先にProfile passwordで認証してからMnemonicを復号する。導出pathはProfile Network、
+/// Chain、account indexおよびProfile schema versionから決定し、SymbolとNEMではChain
+/// 固有のBIP32 root HMAC keyを使用する。成功時はSoftware Keyを追加したreplacement
+/// Storeを返し、入力Storeは変更しない。
+///
+/// `account_index`はv1で`0..=2_147_483_647`に限定される。
+///
+/// # Errors
+///
+/// password認証に失敗した場合は`AuthenticationFailed`、account indexが範囲外の場合は
+/// `InvalidAccountIndex`、同一Profile・同一Chain・同一private keyが存在する場合は
+/// `DuplicateSoftwareKey`を返す。
 pub fn derive_software_key(
     store: &[u8],
     profile_id: Uuid,
@@ -424,6 +509,15 @@ pub fn derive_software_key(
 }
 
 /// 外部から受け取ったChain固有のprivate keyを検証して保存する。
+///
+/// 入力は対象Chainのraw 32 bytesだけを受け付ける。hex string、`0x` prefixその他の
+/// textual表現はこのAPIでは受け付けない。検証に成功したprivate keyを暗号化payloadへ
+/// 登録し、完全なreplacement Storeを返す。
+///
+/// # Errors
+///
+/// 長さ、値または対象Chainでの鍵としての妥当性に失敗した場合は`InvalidPrivateKey`、
+/// 同一Chainの重複は`DuplicateSoftwareKey`を返す。
 pub fn import_software_key(
     store: &[u8],
     profile_id: Uuid,
@@ -465,6 +559,14 @@ pub fn import_software_key(
 }
 
 /// CSPRNGでChain固有のprivate keyを生成し、検証して保存する。
+///
+/// 予測可能なfallbackやMnemonic由来の値は使用しない。乱数から得た候補を対象Chainの
+/// 鍵処理で検証し、受理できる値だけを暗号化payloadへ登録する。
+///
+/// # Errors
+///
+/// 乱数源を利用できない場合は`RandomSourceFailure`、password認証に失敗した場合は
+/// `AuthenticationFailed`を返す。
 pub fn generate_software_key(
     store: &[u8],
     profile_id: Uuid,
@@ -505,6 +607,14 @@ pub fn generate_software_key(
 }
 
 /// 認証済みSoftware Keyのpublic keyとaddressを返す。
+///
+/// Profile passwordでpayloadを認証・復号し、Software Keyに固定されたChainとProfileの
+/// Networkを使って公開鍵とaddressを計算する。Storeは変更しない。
+///
+/// # Errors
+///
+/// password認証に失敗した場合は`AuthenticationFailed`、対象Software Keyが存在しない
+/// 場合は`SoftwareKeyNotFound`を返す。
 pub fn get_public_account(
     store: &[u8],
     profile_id: Uuid,
@@ -536,6 +646,13 @@ pub fn get_public_account(
 /// 認証済みSoftware Keyで呼び出し側のbyte列に署名する。
 ///
 /// payloadの意味解釈やgeneration hashの追加は行わない。
+/// 渡されたpayload byte列そのものを対象Chainの署名primitiveへ渡し、署名対象へ暗黙の
+/// prefixやTransaction構造を追加しない。Storeは変更しない。
+///
+/// # Errors
+///
+/// password認証に失敗した場合は`AuthenticationFailed`、対象Software Keyが存在しない
+/// 場合は`SoftwareKeyNotFound`を返す。
 pub fn sign(
     store: &[u8],
     profile_id: Uuid,
@@ -564,6 +681,15 @@ pub fn sign(
 }
 
 /// 新しいpasswordとKDF saltでProfile全体を再暗号化する。
+///
+/// current passwordで認証・復号したpayload全体を、新しいArgon2id key、salt、AES-GCM
+/// nonceで再暗号化する。旧暗号payloadを部分的に再利用せず、成功時だけreplacement
+/// Storeを返す。
+///
+/// # Errors
+///
+/// new passwordが空またはUTF-8でない場合は`InvalidArgument`、current password認証に
+/// 失敗した場合は`AuthenticationFailed`を返す。
 pub fn change_profile_password(
     store: &[u8],
     profile_id: Uuid,
@@ -594,6 +720,14 @@ pub fn change_profile_password(
 }
 
 /// 指定Software Keyを削除し、replacement Storeを返す。
+///
+/// Profile passwordで認証した後、指定した`key_id`だけを削除する。対象Profile内の
+/// 他のSoftware Keyや、Store内の他Profileは保持する。成功時だけreplacement Storeを返す。
+///
+/// # Errors
+///
+/// password認証に失敗した場合は`AuthenticationFailed`、Software Keyが存在しない場合は
+/// `SoftwareKeyNotFound`を返す。
 pub fn delete_software_key(
     store: &[u8],
     profile_id: Uuid,
@@ -625,6 +759,14 @@ pub fn delete_software_key(
 }
 
 /// password認証後に指定Profileを削除する。
+///
+/// Profile全体と、そのProfileに属するMnemonicおよびSoftware KeyをStoreから除去する。
+/// Profile passwordによる認証に成功した場合だけreplacement Storeを返す。
+///
+/// # Errors
+///
+/// password認証に失敗した場合は`AuthenticationFailed`、Profileが存在しない場合は
+/// `ProfileNotFound`を返す。
 pub fn delete_profile(
     store: &[u8],
     profile_id: Uuid,
@@ -644,8 +786,10 @@ pub fn delete_profile(
 
 // StoreとProfileの構造不正は、部分的に読み飛ばさずStore全体を拒否する。
 fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)> {
+    // CBOR parserがcanonical表現、map key、深さ、trailing bytesを先に検証する。
     let value = cbor::decode(bytes).map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
     let map = as_map(&value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    // top-levelのmagic/versionを確認してから、v1の各fieldを解釈する。
     let magic = fixed_bytes(map_value(map, 0), 4)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     if magic != MAGIC {
@@ -667,6 +811,8 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
         _ => return Err(WalletError::new(ErrorCode::InvalidStore)),
     };
 
+    // profilesはwire上の狭義昇順を要求する。重複IDや順序違反を子要素のskipで
+    // 解消せず、Store全体を不正として扱う。
     let mut profiles = Vec::with_capacity(profiles_array.len());
     for value in profiles_array {
         let profile = parse_profile(value)?;
@@ -691,6 +837,7 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
 // ProfileEnvelopeの必須field、enum、index順序を検証する。
 fn parse_profile(value: &Value) -> WalletResult<ProfileEnvelope> {
     let map = as_map(value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    // 既知fieldは型・長さ・enumを厳密に読み、未知fieldは意味解釈せず保持する。
     let profile_id = fixed_bytes(map_value(map, 0), 16)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let network = parse_network(map_value(map, 1))
@@ -709,6 +856,7 @@ fn parse_profile(value: &Value) -> WalletResult<ProfileEnvelope> {
     let index_values = map_value(map, 6)
         .and_then(as_array)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    // AADの再現にはlogical indexではなく、受信したwire値のcloneが必要になる。
     let aad_software_key_index = index_values.to_vec();
     let mut software_key_index = Vec::with_capacity(index_values.len());
     for value in index_values {
@@ -789,6 +937,7 @@ fn parse_index_entry(value: &Value) -> WalletResult<IndexEntry> {
 
 // 認証済みciphertextを復号した後にだけ呼び出し、payload内の子Keyを解釈する。
 fn parse_payload(bytes: &[u8]) -> WalletResult<ProfilePayload> {
+    // この関数はAEAD認証が完了したplaintextに対してだけ呼び出す。
     let value = cbor::decode(bytes).map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
     let map = as_map(&value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let mnemonic_entropy = zeroize::Zeroizing::new(
@@ -868,6 +1017,7 @@ fn authenticate_profile(
     _warnings: &mut Vec<DecodeWarning>,
 ) -> WalletResult<ProfilePayload> {
     let profile = find_profile(wallet, profile_id)?;
+    // AADにはStore registry key、Profile識別子、Network、duplicate tag、indexが含まれる。
     let aad = profile_aad(wallet, profile)?;
     let mut key = crypto::derive_encryption_key(password_utf8, &profile.kdf.salt)?;
     let plaintext_result = crypto::decrypt(
@@ -878,6 +1028,7 @@ fn authenticate_profile(
         &profile.cipher.ciphertext,
     );
     key.zeroize();
+    // 認証tagを検証できたplaintextだけをparse_payloadへ渡す。
     let plaintext = zeroize::Zeroizing::new(plaintext_result?);
     let payload = parse_payload(&plaintext)?;
     validate_authenticated_profile(wallet, profile, &payload)?;
@@ -890,6 +1041,7 @@ fn validate_authenticated_profile(
     profile: &ProfileEnvelope,
     payload: &ProfilePayload,
 ) -> WalletResult<()> {
+    // AEAD認証はwire値の完全性を示すが、payloadと意味が一致することまでは保証しない。
     let expected_tag = crypto::duplicate_tag(
         &wallet.registry_key,
         profile.network,
@@ -927,16 +1079,19 @@ fn reencrypt_profile(
     password_utf8: &[u8],
     change_password: bool,
 ) -> WalletResult<()> {
+    // payloadからindexを再構築し、既存indexのunknown fieldを対応するkey_idへ引き継ぐ。
     let registry_key = zeroize::Zeroizing::new(wallet.registry_key);
     let profile = &mut wallet.profiles[profile_index];
     profile.software_key_index = index_from_payload(payload);
     profile.aad_software_key_index =
         index_values_from_payload(payload, &profile.aad_software_key_index);
     if change_password {
+        // password変更時だけKDF saltも更新する。通常のkey追加・削除ではsaltを維持する。
         profile.kdf.salt = crypto::random()?;
     }
     let mut key = crypto::derive_encryption_key(password_utf8, &profile.kdf.salt)?;
     profile.cipher.nonce = crypto::random()?;
+    // indexを含む新しいAADを作成してから、payload全体を新nonceで暗号化する。
     let aad = profile_aad_from_parts(&registry_key, profile)?;
     let payload_bytes = zeroize::Zeroizing::new(encode_payload(payload)?);
     let encryption = crypto::encrypt(&key, &profile.cipher.nonce, &aad, &payload_bytes);
@@ -956,6 +1111,7 @@ fn new_encrypted_profile(
     payload: &ProfilePayload,
     password_utf8: &[u8],
 ) -> WalletResult<ProfileEnvelope> {
+    // 新規Profileでは未知fieldを持たないmanifestを組み立て、初回payloadを暗号化する。
     let mut profile = ProfileEnvelope {
         profile_id,
         network,
@@ -998,6 +1154,7 @@ fn profile_aad_from_parts(
     registry_key: &[u8; 32],
     profile: &ProfileEnvelope,
 ) -> WalletResult<zeroize::Zeroizing<Vec<u8>>> {
+    // この配列の要素順とwire表現はWallet Store v1のAAD契約で固定されている。
     cbor::encode(&Value::Array(vec![
         Value::Bytes(MAGIC.to_vec()),
         Value::UInt(STORE_VERSION),
@@ -1017,6 +1174,7 @@ fn profile_aad_from_parts(
 // 保存時はProfileとpayload内のkeyをbytewise昇順へ正規化する。
 // 既知fieldだけを再構築し、未知fieldは意味解釈せずwire値を保持する。
 fn encode_store(wallet: &WalletStore) -> WalletResult<Vec<u8>> {
+    // cloneはwire値を再構築するためのものであり、秘密payloadを意味解釈するためではない。
     let mut profiles = wallet.profiles.clone();
     profiles.sort_by_key(|profile| profile.profile_id);
     let mut fields = vec![
@@ -1058,6 +1216,7 @@ fn profile_to_value(profile: &ProfileEnvelope) -> Value {
 
 // payloadの保存順序はkey_idのbytewise昇順とし、登録順に意味を持たせない。
 fn encode_payload(payload: &ProfilePayload) -> WalletResult<Vec<u8>> {
+    // KeyRecord本体はcloneせず、参照の並べ替えだけでdeterministicな配列を作る。
     // 秘密鍵を含むKeyRecord自体はcloneせず、参照だけを保存順に並べ替える。
     let mut keys = payload.software_keys.iter().collect::<Vec<_>>();
     keys.sort_unstable_by_key(|key| key.key_id);
@@ -1234,6 +1393,7 @@ fn ensure_not_duplicate(
     chain: Chain,
     private_key: &[u8; 32],
 ) -> WalletResult<()> {
+    // 重複条件はProfile内かつ同一Chainに限定する。異なるChainの同一raw keyは別Key。
     if payload
         .software_keys
         .iter()
@@ -1245,6 +1405,7 @@ fn ensure_not_duplicate(
 }
 
 fn new_profile_id(wallet: &WalletStore) -> WalletResult<[u8; 16]> {
+    // CSPRNGで生成し、Store内の既存IDとの衝突時だけ再試行する。
     loop {
         let id = crypto::random::<16>()?;
         if !wallet
@@ -1258,6 +1419,7 @@ fn new_profile_id(wallet: &WalletStore) -> WalletResult<[u8; 16]> {
 }
 
 fn new_key_id(payload: &ProfilePayload) -> WalletResult<[u8; 16]> {
+    // key_idはprivate key等から導出せず、Profile内の衝突だけを確認する。
     loop {
         let id = crypto::random::<16>()?;
         if !payload.software_keys.iter().any(|key| key.key_id == id) {
@@ -1274,6 +1436,7 @@ fn make_pending(
     entropy: &[u8; 32],
     password_utf8: &[u8],
 ) -> WalletResult<Vec<u8>> {
+    // Pendingは対象Storeのhash、Profile情報、暗号化entropyを固定長envelopeへ格納する。
     let target_store_hash = crypto::sha256(store);
     let salt = crypto::random::<16>()?;
     let nonce = crypto::random::<12>()?;
@@ -1301,6 +1464,7 @@ fn make_pending(
 
 // Pendingは固定長のopaque envelopeとして厳密にparseする。
 fn parse_pending(bytes: &[u8]) -> WalletResult<PendingDecoded> {
+    // PendingはWallet Store CBORではないため、v1では固定長binary envelopeとして読む。
     const SIZE: usize = 8 + 1 + 32 + 16 + 1 + 16 + 12 + 32 + 16;
     if bytes.len() != SIZE || bytes[..8] != PENDING_MAGIC || bytes[8] != PENDING_VERSION {
         return Err(WalletError::new(ErrorCode::PendingProfileInvalid));
@@ -1444,6 +1608,11 @@ fn parse_chain(value: Option<&Value>) -> Option<Chain> {
 
 #[cfg(test)]
 mod tests {
+    //! Storeのfatalな構造検証、AAD、unknown field保持、atomic mutationを検証する。
+    //!
+    //! fixtureはCBORを直接編集して作るが、秘密payloadを扱う補助関数では復号値を
+    //! `Zeroizing`で保持し、テスト失敗時にも秘密値を通常のログへ出さない。
+
     use super::*;
 
     const MNEMONIC: &[u8] = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
@@ -1476,6 +1645,7 @@ mod tests {
     }
 
     fn mutate_algorithm(store: &[u8], field: u64, algorithm: u64) -> Vec<u8> {
+        // ProfileのKDF/Cipher algorithm enumだけを変更し、未知enumの分類を検証する。
         let mut value = cbor::decode(store).unwrap();
         let profile = first_profile_map_mut(&mut value);
         let algorithm_map = match map_value_mut(profile, field) {
@@ -1552,6 +1722,7 @@ mod tests {
     }
 
     fn add_unknown_index_field_with_matching_aad(store: &[u8]) -> Vec<u8> {
+        // indexのunknown fieldをAADにも反映したfixtureを作り、保持と認証の両方を検証する。
         let (wallet, _) = decode_store(store).unwrap();
         let profile = wallet.profiles.first().unwrap();
         let old_aad = profile_aad(&wallet, profile).unwrap();
@@ -1599,6 +1770,7 @@ mod tests {
     }
 
     fn tamper_ciphertext(store: &[u8]) -> Vec<u8> {
+        // AEAD tagと一致しないciphertextを作り、認証失敗がmutationへ伝播しないことを確認する。
         let mut value = cbor::decode(store).unwrap();
         let profile = first_profile_map_mut(&mut value);
         let cipher = match map_value_mut(profile, 5) {
@@ -1613,6 +1785,7 @@ mod tests {
     }
 
     fn add_unknown_manifest_fields(store: &[u8]) -> Vec<u8> {
+        // top-level、Profile、KDF、Cipherの未知fieldを追加し、再エンコード後の保持を検証する。
         let mut value = cbor::decode(store).unwrap();
         let map = match &mut value {
             Value::Map(entries) => entries,
@@ -1635,6 +1808,7 @@ mod tests {
     }
 
     fn add_unknown_payload_fields(store: &[u8]) -> Vec<u8> {
+        // 認証済みpayloadとkey originへ未知fieldを追加して、再暗号化後の保持を検証する。
         let (mut wallet, _) = decode_store(store).unwrap();
         let profile = wallet.profiles.first().unwrap();
         let key = crypto::derive_encryption_key(PASSWORD, &profile.kdf.salt).unwrap();
@@ -1679,6 +1853,7 @@ mod tests {
     }
 
     fn replace_duplicate_tag_with_authenticated_value(store: &[u8]) -> Vec<u8> {
+        // duplicate_tagだけを別値に置き換え、AADを再計算しても意味検証が必要なことを確認する。
         let (mut wallet, _) = decode_store(store).unwrap();
         let profile = wallet.profiles.first().unwrap();
         let key = crypto::derive_encryption_key(PASSWORD, &profile.kdf.salt).unwrap();
@@ -1706,6 +1881,7 @@ mod tests {
 
     #[test]
     fn malformed_profiles_and_unknown_enums_are_fatal_store_errors() {
+        // 不正な子要素や未知enumをskipせず、Store全体をInvalidStoreとして拒否する。
         let store = create_empty_store().unwrap();
         let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
         let profile_id = restored.value.profile_id;
@@ -1758,6 +1934,7 @@ mod tests {
 
     #[test]
     fn decoder_preserves_index_wire_value_for_aad_and_rejects_noncanonical_order() {
+        // AAD用wire値の保持、Profile順序、index順序のcanonical制約を検証する。
         let store = create_empty_store().unwrap();
         let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
         let profile_id = restored.value.profile_id;
@@ -1789,6 +1966,7 @@ mod tests {
 
     #[test]
     fn unknown_wire_fields_survive_non_target_and_target_mutations() {
+        // 対象外Profileと対象Profileのmutationの両方で、unknown fieldが失われないことを確認する。
         let store = create_empty_store().unwrap();
         let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
         let profile_id = restored.value.profile_id;
@@ -1879,6 +2057,7 @@ mod tests {
 
     #[test]
     fn restore_continues_when_existing_plaintext_tag_does_not_match_candidate() {
+        // 既存manifestのtag不整合が、候補Mnemonicの復元処理を誤って中断させないことを検証する。
         let store = create_empty_store().unwrap();
         let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
         let inconsistent = replace_duplicate_tag_with_authenticated_value(&restored.store);
@@ -1888,6 +2067,7 @@ mod tests {
 
     #[test]
     fn payload_order_and_fixed_fields_are_fatal_store_errors() {
+        // payload/key recordの順序、型、長さ、必須field違反をfatal errorとして分類する。
         let unsorted_payload = Value::Map(vec![
             (0, Value::Bytes(vec![0; 32])),
             (
@@ -2004,6 +2184,7 @@ mod tests {
 
     #[test]
     fn store_version_missing_or_wrong_type_is_invalid_store() {
+        // top-level versionの欠落と型違いをInvalidStoreとして拒否する。
         let store = create_empty_store().unwrap();
         let mut value = cbor::decode(&store).unwrap();
         let map = match &mut value {
@@ -2034,6 +2215,7 @@ mod tests {
 
     #[test]
     fn fixed_aad_and_duplicate_tag_fixture_values() {
+        // Wallet Store v1で固定されたAADとduplicate_tagの期待値を照合する。
         let registry_key = [0u8; 32];
         let profile = ProfileEnvelope {
             profile_id: [1; 16],
