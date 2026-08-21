@@ -228,6 +228,13 @@ python3 scripts/check-invisible-characters.py
 cargo test --workspace --all-features --locked
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo audit
+```
+
+`cargo audit` の初回実行前に、RustSec の監査ツールをインストールしてください。
+
+```bash
+cargo install cargo-audit --version 0.22.2 --locked
 ```
 
 ## ライセンス
