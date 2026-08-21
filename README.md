@@ -94,6 +94,101 @@ WASM API は `wasm` feature と `wasm32-unknown-unknown` target で有効にな�
 cargo build --target wasm32-unknown-unknown --features wasm --release
 ```
 
+### TypeScript から利用する
+
+このリポジトリには生成済みの npm パッケージは含まれません。WASM glue code の生成には、別途インストールした `wasm-bindgen` CLIを使用します。
+
+```bash
+wasm-bindgen \
+  target/wasm32-unknown-unknown/release/symbol_nem_wallet_core.wasm \
+  --target web \
+  --out-dir pkg
+```
+
+生成された JavaScript / TypeScript 定義をアプリケーションから import し、最初に default export を `await` してWASMを初期化します。`./pkg/symbol_nem_wallet_core.js` は上記コマンドの生成先例です。
+
+```typescript
+import init, {
+  create_empty_store,
+  derive_software_key,
+  get_public_account,
+  restore_profile,
+} from "./pkg/symbol_nem_wallet_core.js";
+
+type Warning = {
+  code: string;
+  object_type: string;
+  object_id: string | undefined;
+  field: string | undefined;
+};
+
+type MutationResult<T> = {
+  store: Uint8Array;
+  value: T;
+  warnings: Warning[];
+};
+
+type ProfileInfo = {
+  profile_id: string;
+  network: "testnet" | "mainnet";
+  software_key_count: number;
+};
+
+type SoftwareKeyInfo = {
+  key_id: string;
+  chain: "nem" | "symbol";
+  origin: { kind: "derived"; account_index: number } | { kind: "imported" | "generated" };
+};
+
+type PublicAccountInfo = {
+  key_id: string;
+  chain: "nem" | "symbol";
+  network: "testnet" | "mainnet";
+  public_key: Uint8Array;
+  address: string;
+};
+
+export async function deriveSymbolAccount(
+  mnemonicText: string,
+  passwordText: string,
+): Promise<PublicAccountInfo> {
+  await init();
+
+  const encoder = new TextEncoder();
+  const mnemonic = encoder.encode(mnemonicText);
+  const password = encoder.encode(passwordText);
+  let store = create_empty_store();
+
+  const profile = restore_profile(
+    store,
+    mnemonic,
+    password,
+    1, // 1 = mainnet, 0 = testnet
+  ) as unknown as MutationResult<ProfileInfo>;
+  store = profile.store;
+
+  const key = derive_software_key(
+    store,
+    profile.value.profile_id,
+    password,
+    1, // 1 = Symbol, 0 = NEM
+    0,
+  ) as unknown as MutationResult<SoftwareKeyInfo>;
+  store = key.store;
+
+  const account = get_public_account(
+    store,
+    profile.value.profile_id,
+    key.value.key_id,
+    password,
+  ) as unknown as { value: PublicAccountInfo; warnings: Warning[] };
+
+  return account.value;
+}
+```
+
+WASM APIのbyte列は `Uint8Array`、`profile_id` と `key_id` は UUID文字列、`network` は `"testnet"` / `"mainnet"`、`chain` は `"nem"` / `"symbol"` です。Rust APIと同様に、状態変更 API が返す `store` を次の呼び出しへ渡し、保存時は完全な replacement Storeとして扱ってください。エラー時は安定した error code が throw されます。
+
 WASM の binary data は `Uint8Array`、Native の入力は借用 buffer、Native の出力は対応する free API で解放する所有 buffer です。詳細な境界契約は [Binding の設計判断](docs/decisions/binding-implementation.md) とヘッダーを参照してください。
 
 ## セキュリティ上の注意
