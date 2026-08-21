@@ -1,0 +1,17 @@
+[package]
+name = "symbol-nem-wallet-core-native"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "C ABI binding for symbol-nem-wallet-core"
+
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[dependencies]
+symbol-nem-wallet-core = { path = "../.." }
+uuid = { version = "1.18.1", default-features = false }
+zeroize = "1.8.2"
+
+[dev-dependencies]
+hex = "0.4.3"

@@ -8,4 +8,5 @@ node_modules/
 dist
 coverage
 test-*/
+target/
 **/*/doc/reviews

@@ -19,35 +19,32 @@ Wallet Store v1 は **RFC 8949 Core Deterministic Encoding Requirements に従�
 - integer および length は最短表現を使用する。
 - duplicate map key は許可しない。
 - float は使用しない。
-- 未定義 field は decoder が無視する。
-- 未定義 field は再保存時に保持しない。
-- 未知 enum 値は decoder がエラーにせず無視する。
+- 未知 field は decoder が論理モデルへ取り込まず、意味解釈、一覧結果、重複判定または index と payload の写像へ使用しない。
+- mutation で再出力する wire object に未知 field が存在する場合、未知 field の key/value を lossless に保持しなければならない。保持できない場合は mutation 全体を `InvalidStore` として拒否し、replacement Store を返してはならない。
+- `software_key_index` が AAD に含まれる場合、未知 map key を含む受信 wire 値を同じ要素順序・整数 key・空配列表現で AAD に使用する。
+- 未知 enum 値は decoder が意味解釈できないため、対象 Profile または Software Key を skip せず fatal error とする。
 
 同一の論理値について deterministic な CBOR 表現を生成する。
 
 ### 2.1 不正オブジェクトの扱い
 
-Profile / Software Key などの子オブジェクトについて、次のいずれかを検出した場合は、その対象オブジェクト全体をスキップする。
+Profile / Software Key などの子オブジェクトについて、次のいずれかを検出した場合は、対象オブジェクトを skip せず、Store 操作全体を拒否する。
 
 - 必須 field の欠落
 - 既知 field の型不正
 - 固定長 field の長さ不正
 - field 値の許容範囲外
 - 未知 enum 値
+- 配列要素の重複または規定された canonical order 違反
+- index と payload の対応不一致
 
-スキップ時は構造化された `DecodeWarning` を生成する。
+構造不正は `InvalidStore` とする。未対応の `WalletStore.version` は `UnsupportedStoreVersion`、未対応の `ProfileEnvelope.schema_version` は `UnsupportedProfileSchemaVersion` とする。
 
-warning に Mnemonic entropy、private key、ciphertext などの秘密情報を含めてはならない。
+不正オブジェクトを skip して残りの Profile だけで read または mutation を継続してはならない。失敗時は秘密情報、正常な read 結果および replacement Store を返してはならない。
 
-warning code は少なくとも次を定義する。
+`DecodeWarning` はこの不正条件の通知には使用しない。warning を返す結果型を使用する場合も、v1 の不正 Profile を warning 付きで受理してはならない。
 
-```text
-UnknownEnumValue
-MissingRequiredField
-InvalidFieldType
-InvalidFieldLength
-InvalidFieldValue
-```
+warning に Mnemonic entropy、private key、ciphertext などの秘密情報を含めてはならない。v1 は不正オブジェクトの skip warning code を定義しない。未知 field は warning なしで受理するが、mutation 時に再出力する場合の lossless 保持条件は本節および §11 に従う。
 
 Wallet Store top-level 自体の必須 field 欠落、型不正、固定長 field の長さ不正など、Store 全体を解釈できない不正は decode error とする。
 
@@ -78,12 +75,14 @@ ProfileEnvelope.schema_version = 1
 
 ### 3.3 ProfileId / SoftwareKeyId
 
-外部 API では lowercase UUID string を使用できるが、Store 内では raw 16 bytes として保存する。
+外部 API の UUID は、ハイフン区切りの16進表現を持つ UUID string とする。16進文字は大文字・小文字を受け付け、外部へ返す場合は lowercase とする。Store 内では、文字列表現の16進値を左から順に 16 bytes へ変換し、UUID のfield単位の endian 変換、byte reverse またはその他の並べ替えを行わず保存する。
 
 ```text
 ProfileId     = bytes[16]
 SoftwareKeyId = bytes[16]
 ```
+
+UUID string から raw bytes への変換に失敗した外部入力は `InvalidArgument` とする。Store 内の UUID が欠落、型不正または `bytes[16]` 以外の場合は `InvalidStore` とする。raw bytes から外部文字列表現へ戻す場合は同じ左から右の順序を使用する。
 
 `ProfileId` は 1 つの `WalletStoreV1` 内で一意とする。
 
@@ -129,12 +128,12 @@ SoftwareKeyId = bytes[16]
 
 一度割り当てた enum wire 値の意味は変更しない。廃止した値も別用途へ再利用しない。
 
-未知 enum 値は decoder がエラーにせず無視する。ただし、対象オブジェクト内に未知 enum 値が 1 つでも存在する場合、そのオブジェクト全体をスキップする。
+未知 enum 値は `InvalidStore` として Store 操作全体を拒否する。未知 enum を既知値として解釈したり、対象オブジェクトを skip して処理を継続したりしてはならない。
 
 具体例:
 
-- `SoftwareKeyRecordV1.chain` または `SoftwareKeyOriginV1.origin` が未知値の場合、その `SoftwareKeyRecordV1` 全体をスキップする。
-- `ProfileEnvelopeV1.network`、`KdfParamsV1.algorithm` または `CiphertextV1.algorithm` が未知値の場合、その `ProfileEnvelopeV1` 全体をスキップする。
+- `SoftwareKeyRecordV1.chain` または `SoftwareKeyOriginV1.origin` が未知値の場合は `InvalidStore` とする。
+- `ProfileEnvelopeV1.network`、`KdfParamsV1.algorithm` または `CiphertextV1.algorithm` が未知値の場合は `InvalidStore` とする。
 - `WalletStore.version` が未対応の場合はスキップせず `UnsupportedStoreVersion` として Store 全体を拒否する。
 - `ProfileEnvelope.schema_version` が未対応の場合は `UnsupportedProfileSchemaVersion` とする。
 
@@ -180,6 +179,8 @@ WalletStoreV1 {
 `registry_key` は Store 初回作成時に CSPRNG で生成する 32 byte 値とし、秘密鍵暗号化には使用しない。
 
 `profiles` は `profile_id` の raw 16 bytes を bytewise に比較した狭義昇順で保存し、同じ `profile_id` を複数の `ProfileEnvelopeV1` に使用してはならない。
+
+decode 時にも `profiles` が同じ順序で並んでいることを検証し、狭義昇順でない場合は `InvalidStore` とする。
 
 §2.1 の構造検証で受理された `ProfileEnvelopeV1` 間に同じ `profile_id` が存在する場合は、対象を選択またはスキップせず、Store 全体を `InvalidStore` として拒否する。
 
@@ -245,7 +246,9 @@ SoftwareKeyIndexEntryV1 {
 
 `key_id` は raw 16 bytes、`chain` は §4.2 の wire 値を使用する。配列は `key_id` の raw bytes を bytewise に比較した狭義昇順で保存する。同じ Profile 内では `key_id` は Chain にかかわらず一意とし、同じ `key_id` を同一または異なる Chain の複数 entry に使用してはならない。
 
-認証・復号後、`software_key_index` と暗号化 `ProfilePayloadV1.software_keys` は同一の有限写像 `key_id -> chain` を表さなければならない。両者の要素数は等しく、各 `key_id` は双方にちょうど 1 回存在し、対応する `chain` が一致しなければならない。不一致、`key_id` の重複または型・長さ・値の不正は Profile 全体を `InvalidStore` として拒否する。
+index entry 内の未定義 map key は論理的には無視し、`key_id` と `chain` の有限写像、一覧結果および重複検証へ含めない。ただし、再出力する場合は未知 map key の key/value を lossless に保持する。既存 Profile の `software_key_index` は未知 map key を含む受信 wire 値を AAD 入力および保存値として保持する。対象 Profile を保持する mutation（Software Key 登録・削除または password change）でも、既知 field を canonical に再生成しつつ未知 map keyを保持できない場合は `InvalidStore` として mutation 全体を拒否し、replacement Store を返してはならない。Profile delete では対象 envelope を除去する。
+
+decode 時、`software_key_index` は `key_id` の raw bytes を bytewise に比較した狭義昇順でなければならない。順序違反、`key_id` の重複または型・長さ・値の不正は Profile 全体を `InvalidStore` として拒否する。認証・復号後、`software_key_index` と暗号化 `ProfilePayloadV1.software_keys` は同一の有限写像 `key_id -> chain` を表さなければならない。両者の要素数は等しく、各 `key_id` は双方にちょうど 1 回存在し、対応する `chain` が一致しなければならない。不一致も `InvalidStore` とする。
 
 ### 7.2 KdfParamsV1
 
@@ -344,7 +347,7 @@ ProfilePayloadV1 {
 
 `ProfilePayloadV1` 全体を Profile パスワードから導出した鍵で暗号化する。
 
-`software_keys` は `key_id` の raw 16 bytes を bytewise に比較した狭義昇順で保存する。同じ Profile 内では `key_id` は Chain にかかわらず一意とし、重複する場合は対象 Profile を `InvalidStore` として拒否する。
+`software_keys` は `key_id` の raw 16 bytes を bytewise に比較した狭義昇順で保存する。復号後も同じ順序であることを検証し、順序違反は `InvalidStore` とする。同じ Profile 内では `key_id` は Chain にかかわらず一意とし、重複する場合も `InvalidStore` とする。
 
 `software_keys = []` は有効とする。登録順には意味を持たせない。
 
@@ -406,7 +409,7 @@ DerivedV1 {
 0..=2147483647
 ```
 
-範囲外の場合は対象 `SoftwareKeyRecordV1` をスキップし、`InvalidFieldValue` warning を生成する。
+範囲外の場合は `InvalidStore` として Store 操作全体を拒否する。
 
 Imported:
 
@@ -487,7 +490,7 @@ Profile encryption の AAD は次の値を **RFC 8949 Core Deterministic Encodin
 
 `registry_key` は `WalletStoreV1` key `2` の raw `bytes[32]`、`duplicate_tag` は `ProfileEnvelopeV1` key `2` の raw `bytes[32]` とする。これらの値は、StoreまたはProfileのmanifestが改変された場合に、Profile payloadのAEAD認証へ反映される。
 
-`software_key_index` は `ProfileEnvelopeV1` key `6` の実際の配列値を、同じ要素順序・整数 key・空配列表現で AAD の最後の要素として使用する。別の正規化表現、`null` または省略表現へ変換してはならない。
+既存 Profile を decode する場合、`software_key_index` は `ProfileEnvelopeV1` key `6` の受信 wire 値を、未知 map keyを含めて同じ要素順序・整数 key・空配列表現で AAD の最後の要素として使用する。logical modelから既知 fieldだけを再構築してAADを生成してはならない。新規 Profile または対象 Profile を保持する成功 mutationでは、既知 fieldをcanonicalに再生成し、既存の未知 fieldをlosslessに保持した `software_key_index` を使用する。未知 fieldを保持できない場合は mutation を失敗させる。Profile delete では対象 envelope を除去する。いずれの場合も、別の正規化表現、`null` または省略表現へ変換してはならない。
 
 これにより `software_key_index` の `key_id` または `chain` の改変を、`registry_key`、`duplicate_tag` とともに AES-256-GCM の認証によって検知する。認証・復号後は、§7.1 に従って index と暗号化 payload が同一の `key_id -> chain` 写像を表すことを検証し、不一致の場合は `InvalidStore` とする。
 
@@ -511,6 +514,14 @@ AAD 認証の成功は、保存された `duplicate_tag` が改変されてい�
 ```
 
 AAD により暗号文を別 Profile、Network、schema、algorithm または Software Key index context へ移植して正常データとして扱うことを防ぐ。
+
+Mutation における保存規則は次のとおりとする。
+
+- 対象外 Profile は再認証・再暗号化せず、Profile envelope と `software_key_index` の未知 fieldを含む受信 wire 値を lossless に保持して、変更前と同じ AAD を再構成できるようにする。
+- 対象 Profile を保持する成功 mutation（Software Key 登録・削除または password change）は、既知 fieldをcanonicalに再生成し、既存の未知 fieldをlosslessに保持した上で、新しい nonce と AAD で再暗号化する。未知 fieldを保持できない場合は `InvalidStore` として mutation 全体を拒否し、replacement Store を返してはならない。Profile delete では対象 envelope を除去する。
+- 対象外 Profile または対象 Profile の未知 fieldを、意味解釈せずに保存するための wire-preservation は、将来形式として公開するものではない。
+
+これらは、対象 Profile のみを置換する atomicity と、対象外 Profile の ciphertext / tag / AAD を変更しない契約を同時に満たすための v1 規則である。未知 field の一般的な前方互換性または意味解釈を提供するものではない。
 
 ---
 
@@ -592,6 +603,8 @@ v1 の時点では migration API 自体は実装しない。将来新しい Stor
 
 ### 14.1 要確認事項
 
-新規 Profile の作成・復元時は、候補の Mnemonic entropy と Network から計算した `duplicate_tag` を、既存 Profile の平文 `duplicate_tag` と比較する。既存 Profile のパスワードを受け取らないため、この処理では既存全 Profile の `duplicate_tag` と各暗号化 Mnemonic の意味的一致を事前検証できない。
+新規 Profile の作成・復元時は、Store と既存 Profile の構造検証を完了した後、候補の Mnemonic entropy と Network から計算した `duplicate_tag` を、構造上正常な既存 Profile の平文 `duplicate_tag` と比較する。既存 Profile のパスワードを受け取らないため、この処理では既存全 Profile の `duplicate_tag` と各暗号化 Mnemonic の意味的一致を事前検証できない。平文タグが一致する場合は `DuplicateProfile` として拒否し、不一致の場合は意味的一致を検証できないことだけを理由に拒否しない。構造不正、認証失敗または既知の意味的不一致はこの継続規則の対象外とする。
+
+既存 `ProfileEnvelope.schema_version` が未対応の場合、一覧、個別読出し、作成・復元時の重複判定、秘密情報処理およびすべての mutation を含む Store 操作全体を `UnsupportedProfileSchemaVersion` として拒否する。未対応 Profile を skip して残りの Profile で replacement Store を生成してはならない。
 
 Store 全体の事前意味検証には、全 Profile の認証情報、別 API または保存形式上の別方式が必要になる。これらは Wallet Store v1 / Profile schema v1 では未決定であり、本書は新しい検証 API または保存方式を定義しない。

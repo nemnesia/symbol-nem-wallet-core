@@ -238,6 +238,8 @@ TAG          = 16 bytes
 
 対象 Profile の認証・復号後は、保存された `duplicate_tag` と、復号済み Mnemonic entropy および AAD で認証された Profile Network との意味的一致を `wallet-store-format-v1.md` §12 に従って検証する。AAD 認証の成功だけを、この意味的一致の証明としてはならない。
 
+`software_key_index` の論理値には既知の `key_id` と `chain` だけを含める。Decoder は未知 field を論理モデル、一覧結果および意味検証へ取り込まない。既存 Profile の `software_key_index` の受信 wire 値（index entry 内の未知 field を含む）は、AAD の入力および再出力時の保存値として保持する。対象 Profile を保持する mutation（Software Key 登録・削除または password change）では、既知 fieldをcanonicalに再生成しつつ未知 fieldをlosslessに保持して新しい nonce で再暗号化する。対象または対象外 Profileの未知 fieldを保持できない場合は mutation 全体を拒否し、replacement Store を返してはならない。Profile delete では対象 envelope を除去し、再暗号化しない。正確な wire 表現は `wallet-store-format-v1.md` §2、§7.1、§11 を正本とする。
+
 ### 6.4 Profile パスワード認証
 
 独立した password hash は保存しない。
@@ -245,6 +247,8 @@ TAG          = 16 bytes
 AEAD 復号と authentication tag 検証の成功を Profile パスワード認証として扱う。
 
 認証失敗時は「password 不一致」と「暗号文または AAD 改ざん」の差を外部へ公開せず `AuthenticationFailed` とする。
+
+v1 は Profile パスワードの復旧またはリセットを提供しない。パスワードを紛失した場合、正しい Profile パスワードを必要とする秘密情報処理、パスワード変更および削除は成功させず、代替認証による復旧・リセット経路も提供しない。利用者が別途保持する Mnemonic から同一 Network の新しい Profile を作成することは、削除済みまたは利用不能な Profile の復旧・リセットとは扱わない。
 
 ### 6.5 password change
 
@@ -263,15 +267,16 @@ Wallet Store の CBOR schema、整数 key、enum wire 値、並び順、AAD、�
 - `profiles = []` と `software_keys = []` は正常状態として扱う。
 - `software_key_index = []` は正常状態として扱い、index は暗号化 payload と同一の `key_id -> chain` 写像を表さなければならない。
 - 構造上受理された Profile の `profile_id` は Store 内で一意、対象 Profile の `key_id` は Chain にかかわらず Profile 内で一意でなければならない。
-- 子オブジェクトの必須 field 欠落、型・長さ・値不正、未知 enum は保存フォーマット仕様に従って対象オブジェクトをスキップし、構造化 warning を返す。
+- 子オブジェクトの必須 field 欠落、型・長さ・値不正、未知 enum、重複、canonical order 違反および index と payload の対応不一致は、保存フォーマット仕様に従って Store 操作全体を fatal error として拒否する。対象オブジェクトをスキップして処理を継続してはならない。
 - Store top-level を解釈できない不正は `InvalidStore` または version 専用 error とする。
-- 未知 field は読み込み時に無視し、再保存時に保持しない。
+- 未知 field は論理デコード時に無視し、意味解釈、一覧結果、重複判定または写像検証へ使用しない。未知 field を含む wire object を mutation で再出力する場合は、保存フォーマット仕様に従って未知 field を lossless に保持し、保持できない場合は `InvalidStore` として mutation 全体を拒否する。未知 field の存在自体は warning とせず、`UnknownField` warning を追加しない。
+- `software_key_index` が AAD に含まれる場合、AAD は logical model から再構築せず、未知 map key を含む受信 wire 値を同じ要素順序・整数 key・空配列表現で使用する。
 - Store / Profile schema の migration は暗黙に行わない。
 - 将来 migration が必要な場合は `migrate_store_v1_to_v2` のような変換元・変換先 version 固定 API を追加する。
 
 Profile 重複判定と Software Key 重複判定の wire-level 入力形式は保存フォーマット仕様を正本とする。
 
-ID 一意性違反は子オブジェクトの選択またはスキップでは解消せず、保存フォーマット仕様に従い `InvalidStore` とする。対象 Profile の認証・復号後に検証する `duplicate_tag` と復号済み Mnemonic / Network の意味的一致、および `software_key_index` と payload の対応も同様とする。
+ID 一意性違反は子オブジェクトの選択またはスキップでは解消せず、保存フォーマット仕様に従い `InvalidStore` とする。対象 Profile の認証・復号後に検証する `duplicate_tag` と復号済み Mnemonic / Network の意味的一致、および `software_key_index` と payload の対応も同様とする。未対応 Profile schema version は `UnsupportedProfileSchemaVersion` とし、一覧、読出し、重複判定、秘密情報処理および mutation を含む Store 操作全体を拒否する。
 
 ---
 
@@ -306,7 +311,7 @@ Application は `prepare_generated_profile` が返した正確な Mnemonic 全�
 
 ### 8.2 復元 Profile
 
-既存 Mnemonic からの復元では UTF-8 bytes を入力として受け取り、正規化・24 words BIP39 validity と Profile 重複を確認してから登録する。新規生成時の backup confirmation は要求しない。
+既存 Mnemonic からの復元では UTF-8 bytes を入力として受け取り、正規化・24 words BIP39 validity と Store / 既存 Profile の構造妥当性を確認してから登録する。候補 Mnemonic と Network から計算した `duplicate_tag` を、構造上正常な既存 Profile の平文 `duplicate_tag` と比較する。一致する Profile があれば `DuplicateProfile` とし、input Store を変更せず replacement Store を返さない。不一致の場合、既存 Profile のパスワードを受け取らないため意味的一致を検証できないことだけを理由に復元を拒否しない。構造不正、認証失敗または認証済みpayloadとの既知の意味的不一致はこの継続規則の対象外とする。新規生成時の backup confirmation は要求しない。
 
 ### 8.3 表示名
 
@@ -320,6 +325,8 @@ Profile および Software Key の表示名は Core の管理対象外とする�
 
 Mnemonic / Software Key 秘密鍵の返却は、正しい Profile パスワードを要求する明示的な個別エクスポート操作に限る。
 
+Profile パスワードの復旧・リセット API は v1 で提供しない。パスワード紛失時は、正しい Profile パスワードを必要とする秘密情報処理、パスワード変更および削除を成功させない。
+
 ---
 
 ## 9. 公開 API 契約
@@ -328,9 +335,9 @@ Rust public API は implementation language 固有の細部を Binding へ漏ら
 
 秘密情報を表す text は公開 API では byte sequence として扱う。Mnemonic と Profile password は UTF-8 bytes、private key は raw 32 bytes とする。address、UUID のような非秘密 text は通常の text 型を使用できる。
 
-### 9.1 warning を伴う結果
+### 9.1 diagnostics を伴う結果
 
-Store decode 中にスキップが発生した場合、warning をログへ直接出力するのではなく operation result の diagnostics として Binding へ返す。
+operation result の warning はログへ直接出力せず diagnostics として Binding へ返す。v1 の不正 Profile は skip せず fatal error とし、未知 field は warning なしで受理する。
 
 ```text
 DecodeWarning {
@@ -560,7 +567,7 @@ SerializationFailure
 PendingProfileInvalid
 ```
 
-DecodeWarning の code は `wallet-store-format-v1.md` に従い、fatal error と区別する。
+`DecodeWarning` を含む結果型は維持するが、v1 の不正 Profile、未知 enum、canonical order 違反または未知 field のために Profile を skip してはならない。未知 field は正常な forward-compatible wire data として warning なしで扱い、`UnknownField` warning は定義しない。fatal error の code は `wallet-store-format-v1.md` に従う。
 
 error / warning message に Mnemonic、private key、Profile password、derived seed、decrypted payload、secret の hash / hex dump を含めない。
 
@@ -585,7 +592,7 @@ panic / stack trace に秘密値を format しない。
 | Pendingを含むpassword認証または保護データの認証失敗 | `AuthenticationFailed` |
 | 乱数源、暗号または保存bytes生成の失敗 | `RandomSourceFailure` / `CryptoFailure` / `SerializationFailure` |
 
-Store子オブジェクトのスキップ可能な不正は `wallet-store-format-v1.md` の `DecodeWarning` とし、fatal error と混同しない。既存 Profile を対象とする処理では、Store構造と ID 一意性の検証、対象 Profile の一意な解決、認証・復号、`duplicate_tag` および `software_key_index` の意味的一致検証をこの順で行い、その後にだけ重複判定、秘密情報処理または mutation へ進む。パスワードを要求しない一覧処理は認証後の意味的一致を保証しない。
+Store子オブジェクトの必須 field 欠落、型・長さ・値不正、未知 enum、重複、canonical order 違反または index と payload の対応不一致は `InvalidStore` とし、Profileを skip してはならない。未対応schemaは `UnsupportedProfileSchemaVersion` とする。既存 Profile を対象とする処理では、Store構造と ID 一意性の検証、対象 Profile の一意な解決、認証・復号、`duplicate_tag` および `software_key_index` の意味的一致検証をこの順で行い、その後にだけ重複判定、秘密情報処理または mutation へ進む。パスワードを要求しない一覧処理も構造検証に失敗したStore全体を拒否し、認証後の意味的一致だけを保証しない。
 
 ---
 
@@ -602,6 +609,8 @@ Store子オブジェクトのスキップ可能な不正は `wallet-store-format
 - Profile delete
 
 Mutation は要求対象 Profile の envelope だけを置換し、他 Profile の encrypted payload、salt、nonce、ID、duplicate tag を変更しない。Profile delete の場合のみ対象 envelope を除去する。
+
+対象外 Profile は再認証または再暗号化せず、Profile envelope と `software_key_index` の未知 fieldを含む受信 wire 値をlosslessに保持して、変更前と同じ AAD を再構成できるようにする。対象 Profile を保持する成功 mutation（Software Key 登録・削除または password change）では、既知 fieldをcanonicalに再生成し、既存の未知 fieldをlosslessに保持した上で、新しい nonce と AAD で再暗号化する。対象または対象外Profileの未知 fieldを保持できない場合は `InvalidStore` として mutation 全体を拒否し、replacement Store を返してはならない。Profile delete では対象 envelope を除去し、再暗号化しない。
 
 成功時の replacement Store は、Store 内の `profile_id` 一意性と、各 Profile 内の Chain に依存しない `key_id` 一意性を維持しなければならない。
 
@@ -703,6 +712,10 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 - ciphertext / tag / AAD 1 bit 改変で認証失敗
 - `software_key_index` 改変後の認証失敗
 - `software_key_index` と暗号化 payload の不一致を `InvalidStore` として拒否
+- unknown field を含む非対象 Profile と別 Profile の mutationを組み合わせ、非対象 Profile の wire field、ciphertext、tag および AAD 認証が維持されること
+- unknown field を含む対象 Profile の mutationで、既知 fieldをcanonicalに再生成しつつ未知 fieldをlosslessに保持できること。保持できない場合は mutation が `InvalidStore` となり、replacement Store を返さないこと
+- profiles、`software_key_index` および復号済み `software_keys` の狭義昇順違反を `InvalidStore` として拒否すること
+- unknown field を含む `software_key_index` の受信wire値をそのままAADへ使用し、logical modelだけからAADを再構築しないこと
 - 構造上有効な複数 Profile が同じ `profile_id` を持つ Store を `InvalidStore` として拒否し、どの Profile も選択しない
 - `software_key_index` または認証済み payload が、同一または異なる Chain で同じ `key_id` を複数持つ Profile を `InvalidStore` として拒否する
 - 異なる Profile に同じ `key_id` が 1 件ずつ存在する場合は、`profile_id + key_id` で各対象を一意に解決する
@@ -719,13 +732,15 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 - invalid UTF-8 Mnemonic / password byte sequence reject
 - 32 bytes 以外 / all-zero / Chain 上無効な imported private key reject
 - account index 範囲外 reject
-- malformed child object をスキップし DecodeWarning を返す
+- malformed child object、unknown enum、未対応schema、canonical order違反およびindex/payload不一致をfatalとして拒否し、DecodeWarning付きでskipしないこと
+- unknown fieldを含む正常なStoreはwarningなしで受理し、mutation時にlossless保持できない場合だけ拒否すること
 - `list_software_keys` が `SoftwareKeyListItem` を返し、`origin` を含めない
 - Pendingのversion不正、対象Store不一致、password不一致、改ざん、重複を拒否し、失敗時にinput Storeを変更しない
 - Generated Software Key の乱数源失敗、妥当性失敗、保存失敗で Profile を変更しない
 - failed mutation で input Store が変更されない
 - password change 後に旧 password 使用不可
 - delete key / Profile 後に対象操作不可
+- パスワード紛失時に復旧・リセット API、秘密情報処理、パスワード変更および削除が成功しないこと
 - 別 Profile へ mutation が越境しない
 - 正しい password で Mnemonic / Derived / Imported / Generated private key を個別エクスポートできる
 - 誤 password、対象不存在、復号失敗で秘密情報を返さない
@@ -760,7 +775,7 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 次は本仕様を満たす限り実装側で選択可能とする。
 
 - Rust module / crate の具体的な配置
-- C ABI / UniFFI 等 Native Binding generator
+- C ABI / UniFFI 等 Native Binding generator（実装選択であり、仕様上の非規範方式）
 - TypeScript wrapper の package layout
 - 上位 Application の filesystem / IndexedDB 保存 API
 - temporary file の名称
@@ -773,7 +788,9 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 
 ## 17. 要確認事項
 
-- 新規 Profile の作成・復元時は他の既存 Profile を認証・復号しないため、既存全 Profile の `duplicate_tag` と暗号化 Mnemonic / Network の意味的一致を事前検証できない。本更新の意味的一致検証は、当該操作で認証・復号した対象 Profile に限定する。Store 全体の事前検証方式は未決定とする。
+- 新規 Profile の作成・復元時は他の既存 Profile を認証・復号しないため、既存全 Profile の `duplicate_tag` と暗号化 Mnemonic / Network の意味的一致を事前検証できない。本更新の意味的一致検証は、構造上正常な既存Profileの平文タグ比較、および当該操作で認証・復号した対象 Profileに限定する。平文タグが不一致の場合、意味的一致を検証できないことだけを理由に作成・復元を拒否しない。Store 全体の事前検証方式は未決定とする。
+- 既存 Symbol / NEM Wallet 互換性の追加対象は、名称、版または commit、入力および期待値を特定した fixture が指定された場合だけ拡張する。具体的対象が未指定のため、未列挙 Wallet への互換性保証は行わない。
+- Binding generator、package layout および Native / WASM の具体的搬送方式は、共通 Core / Binding 契約を満たす実装選択であり、現時点の規範方式として確定しない。
 
 ---
 
