@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -19,6 +23,7 @@ jobs:
   checks:
     name: Rust checks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -64,6 +69,7 @@ jobs:
   core-coverage:
     name: Core coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -114,6 +120,7 @@ jobs:
   core-branch-coverage:
     name: Core branch coverage (informational)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # cargo-llvm-cov documents --branch as unstable and does not provide a
     # --fail-under-branches option, so this result is reported separately.
     continue-on-error: true
