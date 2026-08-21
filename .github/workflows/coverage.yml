@@ -33,6 +33,11 @@ jobs:
       - name: Check invisible characters in source
         run: python3 scripts/check-invisible-characters.py
 
+      - name: Install wasm-bindgen CLI
+        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
+        with:
+          tool: wasm-bindgen-cli@0.2.127
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -42,8 +47,19 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-features --locked
 
+      - name: Run WASM tests
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: cargo test --target wasm32-unknown-unknown --features wasm --locked --lib
+
       - name: Check WASM target
         run: cargo check --target wasm32-unknown-unknown --features wasm --locked
+
+      - name: Build Native C ABI
+        run: cargo build --package symbol-nem-wallet-core-native --release --locked
+
+      - name: Compile public C ABI header
+        run: cc -std=c11 -Wall -Wextra -Werror -I bindings/native/include -fsyntax-only bindings/native/tests/header_compile.c
 
   core-coverage:
     name: Core coverage

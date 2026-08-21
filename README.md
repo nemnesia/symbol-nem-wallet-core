@@ -228,6 +228,9 @@ python3 scripts/check-invisible-characters.py
 cargo test --workspace --all-features --locked
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --target wasm32-unknown-unknown --features wasm --locked --lib
+cargo build --package symbol-nem-wallet-core-native --release --locked
+cc -std=c11 -Wall -Wextra -Werror -I bindings/native/include -fsyntax-only bindings/native/tests/header_compile.c
 cargo audit
 ```
 
