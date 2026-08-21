@@ -41,6 +41,9 @@ pub(crate) const DUPLICATE_DOMAIN: &[u8] = b"symbol-nem-wallet-core/profile-dupl
 
 // OSまたはWeb Crypto由来のCSPRNGを使用し、予測可能なfallbackは設けない。
 pub(crate) fn random<const N: usize>() -> WalletResult<[u8; N]> {
+    // CodeQLはゼロ初期化された出力先を検出するが、成功時は呼び出し元が観測・利用する前に
+    // getrandom::fillが全バイトを乱数で上書きするため、暗号値のhard-codeではない。
+    // codeql[rust/hard-coded-cryptographic-value]
     let mut bytes = [0u8; N];
     getrandom::fill(&mut bytes).map_err(|_| WalletError::new(ErrorCode::RandomSourceFailure))?;
     Ok(bytes)
