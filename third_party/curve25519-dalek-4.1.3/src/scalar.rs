@@ -146,6 +146,48 @@ use subtle::CtOption;
 #[cfg(feature = "zeroize")]
 use zeroize::{Zeroize, Zeroizing};
 
+#[cfg(feature = "zeroize")]
+type Sensitive<T> = Zeroizing<T>;
+
+#[cfg(not(feature = "zeroize"))]
+type Sensitive<T> = T;
+
+#[cfg(feature = "zeroize")]
+#[inline]
+fn sensitive<T: Zeroize>(value: T) -> Sensitive<T> {
+    Zeroizing::new(value)
+}
+
+#[cfg(not(feature = "zeroize"))]
+#[inline]
+fn sensitive<T>(value: T) -> Sensitive<T> {
+    value
+}
+
+#[cfg(feature = "zeroize")]
+#[inline]
+fn sensitive_ref<T: Zeroize>(value: &Sensitive<T>) -> &T {
+    &**value
+}
+
+#[cfg(not(feature = "zeroize"))]
+#[inline]
+fn sensitive_ref<T>(value: &Sensitive<T>) -> &T {
+    value
+}
+
+#[cfg(feature = "zeroize")]
+#[inline]
+fn sensitive_mut<T: Zeroize>(value: &mut Sensitive<T>) -> &mut T {
+    &mut **value
+}
+
+#[cfg(not(feature = "zeroize"))]
+#[inline]
+fn sensitive_mut<T>(value: &mut Sensitive<T>) -> &mut T {
+    value
+}
+
 use crate::backend;
 use crate::constants;
 
@@ -982,9 +1024,9 @@ impl Scalar {
     /// The largest value that can be decomposed like this is just over \\(2^{255}\\). Thus, in
     /// order to not error, the top bit MUST NOT be set, i.e., `Self` MUST be less than
     /// \\(2^{255}\\).
-    pub(crate) fn as_radix_16(&self) -> [i8; 64] {
+    pub(crate) fn as_radix_16(&self) -> Sensitive<[i8; 64]> {
         debug_assert!(self[31] <= 127);
-        let mut output = [0i8; 64];
+        let mut output = sensitive([0i8; 64]);
 
         // Step 1: change radix.
         // Convert from radix 256 (bytes) to radix 16 (nibbles)
@@ -1006,9 +1048,9 @@ impl Scalar {
 
         // Step 2: recenter coefficients from [0,16) to [-8,8)
         for i in 0..63 {
-            let carry = (output[i] + 8) >> 4;
-            output[i] -= carry << 4;
-            output[i + 1] += carry;
+            let carry = sensitive((output[i] + 8) >> 4);
+            output[i] -= *sensitive_ref(&carry) << 4;
+            output[i + 1] += *sensitive_ref(&carry);
         }
         // Precondition note: output[63] is not recentered.  It
         // increases by carry <= 1.  Thus output[63] <= 8.
@@ -1056,7 +1098,7 @@ impl Scalar {
     /// with \\(-2\^w/2 \leq a_i < 2\^w/2\\) for \\(0 \leq i < (n-1)\\) and \\(-2\^w/2 \leq a_{n-1} \leq 2\^w/2\\).
     ///
     #[cfg(any(feature = "alloc", feature = "precomputed-tables"))]
-    pub(crate) fn as_radix_2w(&self, w: usize) -> [i8; 64] {
+    pub(crate) fn as_radix_2w(&self, w: usize) -> Sensitive<[i8; 64]> {
         debug_assert!(w >= 4);
         debug_assert!(w <= 8);
 
@@ -1065,14 +1107,14 @@ impl Scalar {
         }
 
         // Scalar formatted as four `u64`s with carry bit packed into the highest bit.
-        let mut scalar64x4 = Zeroizing::new([0u64; 4]);
+        let mut scalar64x4 = sensitive([0u64; 4]);
         read_le_u64_into(&self.bytes, &mut scalar64x4[0..4]);
 
         let radix: u64 = 1 << w;
         let window_mask: u64 = radix - 1;
 
-        let mut carry = Zeroizing::new(0u64);
-        let mut digits = Zeroizing::new([0i8; 64]);
+        let mut carry = sensitive(0u64);
+        let mut digits = sensitive([0i8; 64]);
         let digits_count = (256 + w - 1) / w;
         #[allow(clippy::needless_range_loop)]
         for i in 0..digits_count {
@@ -1082,21 +1124,24 @@ impl Scalar {
             let bit_idx = bit_offset % 64;
 
             // Read the bits from the scalar
-            let bit_buf: u64 = if bit_idx < 64 - w || u64_idx == 3 {
+            let bit_buf = sensitive(if bit_idx < 64 - w || u64_idx == 3 {
                 // This window's bits are contained in a single u64,
                 // or it's the last u64 anyway.
                 scalar64x4[u64_idx] >> bit_idx
             } else {
                 // Combine the current u64's bits with the bits from the next u64
                 (scalar64x4[u64_idx] >> bit_idx) | (scalar64x4[1 + u64_idx] << (64 - bit_idx))
-            };
+            });
 
             // Read the actual coefficient value from the window
-            let coef = *carry + (bit_buf & window_mask); // coef = [0, 2^r)
+            let coef = sensitive(
+                *sensitive_ref(&carry) + (*sensitive_ref(&bit_buf) & window_mask),
+            ); // coef = [0, 2^r)
 
             // Recenter coefficients from [0,2^w) to [-2^w/2, 2^w/2)
-            *carry = (coef + (radix / 2)) >> w;
-            digits[i] = ((coef as i64) - (*carry << w) as i64) as i8;
+            *sensitive_mut(&mut carry) = (*sensitive_ref(&coef) + (radix / 2)) >> w;
+            digits[i] = ((*sensitive_ref(&coef) as i64)
+                - (*sensitive_ref(&carry) << w) as i64) as i8;
         }
 
         // When 4 < w < 8, we can fold the final carry onto the last digit d,
@@ -1108,11 +1153,11 @@ impl Scalar {
         // To handle this, we expand the size_hint by 1 when w=8,
         // and accumulate the final carry onto another digit.
         match w {
-            8 => digits[digits_count] += *carry as i8,
-            _ => digits[digits_count - 1] += (*carry << w) as i8,
+            8 => digits[digits_count] += *sensitive_ref(&carry) as i8,
+            _ => digits[digits_count - 1] += (*sensitive_ref(&carry) << w) as i8,
         }
 
-        *digits
+        digits
     }
 
     /// Unpack this `Scalar` to an `UnpackedScalar` for faster arithmetic.

@@ -86,7 +86,7 @@ fn wasm_secret_boundaries_and_core_parity() {
         .unwrap()
         .value
         .private_key;
-    assert_eq!(exported_private_key.to_vec(), core_private_key);
+    assert!(exported_private_key.to_vec() == core_private_key);
     assert_eq!(
         hex::encode_upper(core_private_key),
         "521BF2A56DD3BCA09A43D8378FB6659ABA155A02DE0486A0FEF8026F464AB764"

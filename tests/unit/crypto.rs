@@ -91,11 +91,11 @@ fn hd_derivation_matches_24_word_sdk_vectors() {
     // BIP39 English 24 words、空passphrase、Symbol/NEMのHD導出結果を照合する。
     let mnemonic = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
     let (entropy, normalized) = parse_mnemonic(mnemonic).unwrap();
-    assert_eq!(normalized.as_slice(), mnemonic);
-    assert_eq!(
-            seed_from_entropy(&entropy).unwrap().as_slice(),
-            bytes::<64>("408B285C123836004F4B8842C89324C1F01382450C0D439AF345BA7FC49ACF705489C6FC77DBD4E3DC1DD8CC6BC9F043DB8ADA1E243C4A0EAFB290D399480840")
-        );
+    assert!(normalized.as_slice() == mnemonic);
+    assert!(
+        seed_from_entropy(&entropy).unwrap().as_slice()
+            == bytes::<64>("408B285C123836004F4B8842C89324C1F01382450C0D439AF345BA7FC49ACF705489C6FC77DBD4E3DC1DD8CC6BC9F043DB8ADA1E243C4A0EAFB290D399480840")
+    );
 
     let symbol_private = derive_private_key(&entropy, Chain::Symbol, Network::Mainnet, 0).unwrap();
     assert_eq!(
@@ -120,7 +120,7 @@ fn hd_derivation_covers_all_v1_networks_chains_and_account_boundaries() {
             for account_index in [0, 1, 2_147_483_647] {
                 let private_key =
                     derive_private_key(&entropy, chain, network, account_index).unwrap();
-                assert_ne!(private_key, [0; 32]);
+                assert!(private_key != [0; 32]);
                 assert!(public_key(chain, &private_key).is_ok());
                 derived.push((chain, network, account_index, private_key));
             }
@@ -143,7 +143,7 @@ fn generated_private_key_retries_invalid_candidates_and_propagates_random_failur
         Ok(candidates.next().expect("candidate fixture exhausted"))
     })
     .unwrap();
-    assert_eq!(generated, valid);
+    assert!(generated == valid);
 
     let error = generate_private_key_with(Chain::Symbol, || {
         Err(WalletError::new(ErrorCode::RandomSourceFailure))
@@ -189,10 +189,7 @@ fn hd_derivation_matches_fixed_sdk_fixture_for_all_v1_networks() {
     ] {
         let private_key = bytes::<32>(private_key);
         let expected_public_key = bytes::<32>(expected_public_key);
-        assert_eq!(
-            derive_private_key(&entropy, chain, network, 0).unwrap(),
-            private_key
-        );
+        assert!(derive_private_key(&entropy, chain, network, 0).unwrap() == private_key);
         let derived_public_key = public_key(chain, &private_key).unwrap();
         assert_eq!(derived_public_key, expected_public_key);
         assert_eq!(
@@ -207,13 +204,13 @@ fn bip32_root_and_child_nodes_match_symbol_sdk_vectors() {
     // root HMACとhardened child pathの中間値を固定fixtureと照合する。
     let seed = bytes::<16>("000102030405060708090A0B0C0D0E0F");
     let mut root = hmac_sha512(b"ed25519 seed", &seed).unwrap();
-    assert_eq!(
-        &root[..32],
-        &bytes::<32>("2B4BE7F19EE27BBF30C667B642D5F4AA69FD169872F8FC3059C08EBAE2EB19E7")
+    assert!(
+        root[..32]
+            == bytes::<32>("2B4BE7F19EE27BBF30C667B642D5F4AA69FD169872F8FC3059C08EBAE2EB19E7")
     );
-    assert_eq!(
-        &root[32..],
-        &bytes::<32>("90046A93DE5380A72B5E45010748567D5EA02BBF6522F979E05C0D8D8CA9FFFB")
+    assert!(
+        root[32..]
+            == bytes::<32>("90046A93DE5380A72B5E45010748567D5EA02BBF6522F979E05C0D8D8CA9FFFB")
     );
 
     for identifier in [44u32, 4_343, 0, 0, 0] {
@@ -225,24 +222,24 @@ fn bip32_root_and_child_nodes_match_symbol_sdk_vectors() {
         root.zeroize();
         root = next;
     }
-    assert_eq!(
-        &root[..32],
-        &bytes::<32>("BB2724A538CFD64E4366FEB36BB982B954D58EA78F7163451B3B514EDD692159")
+    assert!(
+        root[..32]
+            == bytes::<32>("BB2724A538CFD64E4366FEB36BB982B954D58EA78F7163451B3B514EDD692159")
     );
-    assert_eq!(
-        &root[32..],
-        &bytes::<32>("B8E16D407C8837B46A9445C6417310F3C7A4DCD9B8FF2679C383E6DEF721AC11")
+    assert!(
+        root[32..]
+            == bytes::<32>("B8E16D407C8837B46A9445C6417310F3C7A4DCD9B8FF2679C383E6DEF721AC11")
     );
     root.zeroize();
 
     let mut nem_root = hmac_sha512(b"ed25519-keccak seed", &seed).unwrap();
-    assert_eq!(
-        &nem_root[..32],
-        &bytes::<32>("A3D76D92ACF784D68F4EA2F6DE5507A3520385237A80277132B6C8F3685601B2")
+    assert!(
+        nem_root[..32]
+            == bytes::<32>("A3D76D92ACF784D68F4EA2F6DE5507A3520385237A80277132B6C8F3685601B2")
     );
-    assert_eq!(
-        &nem_root[32..],
-        &bytes::<32>("9CFCA256458AAC0A0550A30DC7639D87364E4323BA61ED41454818E3317BAED0")
+    assert!(
+        nem_root[32..]
+            == bytes::<32>("9CFCA256458AAC0A0550A30DC7639D87364E4323BA61ED41454818E3317BAED0")
     );
     nem_root.zeroize();
 }
@@ -283,7 +280,7 @@ fn bip32_intermediate_nodes_match_fixed_symbol_sdk_fixture() {
 
     for (root_key, path, expected) in vectors {
         let mut node = hmac_sha512(root_key, &seed).unwrap();
-        assert_eq!(node, bytes::<64>(expected[0]));
+        assert!(node == bytes::<64>(expected[0]));
         for (identifier, expected_node) in path.into_iter().zip(expected.into_iter().skip(1)) {
             let mut child_data = [0u8; 37];
             child_data[1..33].copy_from_slice(&node[..32]);
@@ -292,7 +289,7 @@ fn bip32_intermediate_nodes_match_fixed_symbol_sdk_fixture() {
             child_data.zeroize();
             node.zeroize();
             node = next;
-            assert_eq!(node, bytes::<64>(expected_node));
+            assert!(node == bytes::<64>(expected_node));
         }
         node.zeroize();
     }
@@ -308,9 +305,9 @@ fn fixed_encryption_fixture_values() {
     let aad = b"symbol-nem-wallet-core/aad/v1";
     let plaintext = b"fixture payload";
     let (ciphertext, tag) = encrypt(&key, &nonce, aad, plaintext).unwrap();
-    assert_eq!(
-        key.as_slice(),
-        &bytes::<32>("F4F7B6DD88FE4A26ED534D0B14EE0E5E3102AF15579ECDF91ED19795623FE621")
+    assert!(
+        key.as_slice()
+            == bytes::<32>("F4F7B6DD88FE4A26ED534D0B14EE0E5E3102AF15579ECDF91ED19795623FE621")
     );
     assert_eq!(
         ciphertext.as_slice(),

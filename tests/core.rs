@@ -155,7 +155,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         .is_empty());
 
     let exported = export_mnemonic(&created.store, profile_id, PASSWORD).unwrap();
-    assert_eq!(exported.value.mnemonic_utf8, MNEMONIC);
+    assert!(exported.value.mnemonic_utf8 == MNEMONIC);
     assert_eq!(
         format!("{:?}", exported.value),
         r#"MnemonicExport { mnemonic_utf8: "[redacted]" }"#
@@ -291,7 +291,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     );
     let after_password =
         export_mnemonic(&password_changed.store, profile_id, NEW_PASSWORD).unwrap();
-    assert_eq!(after_password.value.mnemonic_utf8, MNEMONIC);
+    assert!(after_password.value.mnemonic_utf8 == MNEMONIC);
 
     let deleted_key = delete_software_key(
         &password_changed.store,

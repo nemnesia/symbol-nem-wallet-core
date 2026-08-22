@@ -366,7 +366,7 @@ fn public_store_paths_are_exercised_in_unit_build() {
     );
 
     let exported_mnemonic = export_mnemonic(&imported.store, profile_id, PASSWORD).unwrap();
-    assert_eq!(exported_mnemonic.value.mnemonic_utf8, MNEMONIC);
+    assert!(exported_mnemonic.value.mnemonic_utf8 == MNEMONIC);
     let exported_private =
         export_private_key(&imported.store, profile_id, derived.value.key_id, PASSWORD).unwrap();
     assert_eq!(exported_private.value.private_key.len(), 32);

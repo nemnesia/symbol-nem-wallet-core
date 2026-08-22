@@ -47,9 +47,10 @@ fn set(object: &Object, key: &str, value: JsValue) -> Result<(), JsValue> {
         .map_err(|_| conversion_error())
 }
 
-fn bytes(value: &Uint8Array) -> Vec<u8> {
-    // JS管理下の入力をCoreへ渡す一時Vec。Core処理終了後にBinding側の所有を終える。
-    value.to_vec()
+fn bytes(value: &Uint8Array) -> Zeroizing<Vec<u8>> {
+    // JS管理下の入力をCoreへ渡す一時Vec。Storeにもregistry_keyが含まれるため、
+    // Core処理終了後はBinding側のコピーもzeroizeしてから所有を終える。
+    Zeroizing::new(value.to_vec())
 }
 
 fn uint8_array(value: &[u8]) -> JsValue {
@@ -168,10 +169,14 @@ fn read_result(value: JsValue, warnings: Vec<DecodeWarning>) -> Result<JsValue, 
 
 fn mutation_result<T>(result: MutationResult<T>, value: JsValue) -> Result<JsValue, JsValue> {
     // 成功時だけ完全なreplacement StoreをUint8Arrayで返す共通経路。
+    let MutationResult {
+        store, warnings, ..
+    } = result;
+    let store = Zeroizing::new(store);
     let object = Object::new();
-    set(&object, "store", uint8_array(&result.store))?;
+    set(&object, "store", uint8_array(&store))?;
     set(&object, "value", value)?;
-    set(&object, "warnings", warning_array(&result.warnings)?)?;
+    set(&object, "warnings", warning_array(&warnings)?)?;
     Ok(object.into())
 }
 
@@ -275,9 +280,9 @@ fn prepared_profile(value: PreparedProfile) -> Result<JsValue, JsValue> {
 /// Coreの状態変更結果へ置き換える。
 #[wasm_bindgen(js_name = create_empty_store)]
 pub fn create_empty_store() -> Result<Uint8Array, JsValue> {
-    core_create_empty_store()
-        .map(|value| Uint8Array::from(value.as_slice()))
-        .map_err(binding_error)
+    let value = core_create_empty_store().map_err(binding_error)?;
+    let value = Zeroizing::new(value);
+    Ok(Uint8Array::from(value.as_slice()))
 }
 
 /// Mnemonic生成の初回段階を実行し、Storeを変更せずにPending Profileを返す。
@@ -292,7 +297,7 @@ pub fn prepare_generated_profile(
 ) -> Result<JsValue, JsValue> {
     let network = parse_network(network).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let password = Zeroizing::new(bytes(password_utf8));
+    let password = bytes(password_utf8);
     let result =
         core_prepare_generated_profile(&store_bytes, &password, network).map_err(binding_error)?;
     read_result(prepared_profile(result.value)?, result.warnings)
@@ -308,8 +313,8 @@ pub fn finalize_generated_profile(
     password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
     let store_bytes = bytes(store);
-    let pending_bytes = Zeroizing::new(bytes(pending_profile));
-    let password = Zeroizing::new(bytes(password_utf8));
+    let pending_bytes = bytes(pending_profile);
+    let password = bytes(password_utf8);
     let result = core_finalize_generated_profile(&store_bytes, &pending_bytes, &password)
         .map_err(binding_error)?;
     let value = profile_info(&result.value)?;
@@ -329,8 +334,8 @@ pub fn restore_profile(
 ) -> Result<JsValue, JsValue> {
     let network = parse_network(network).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let mnemonic = Zeroizing::new(bytes(mnemonic_utf8));
-    let password = Zeroizing::new(bytes(password_utf8));
+    let mnemonic = bytes(mnemonic_utf8);
+    let password = bytes(password_utf8);
     let result =
         core_restore_profile(&store_bytes, &mnemonic, &password, network).map_err(binding_error)?;
     let value = profile_info(&result.value)?;
@@ -349,7 +354,7 @@ pub fn export_mnemonic(
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let password = Zeroizing::new(bytes(password_utf8));
+    let password = bytes(password_utf8);
     let result =
         core_export_mnemonic(&store_bytes, profile_id, &password).map_err(binding_error)?;
     read_result(mnemonic_export(result.value)?, result.warnings)
@@ -369,7 +374,7 @@ pub fn export_private_key(
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let key_id = parse_uuid(key_id).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let password = Zeroizing::new(bytes(password_utf8));
+    let password = bytes(password_utf8);
     let result = core_export_private_key(&store_bytes, profile_id, key_id, &password)
         .map_err(binding_error)?;
     read_result(private_key_export(result.value)?, result.warnings)
@@ -423,7 +428,7 @@ pub fn derive_software_key(
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let chain = parse_chain(chain).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let password = Zeroizing::new(bytes(password_utf8));
+    let password = bytes(password_utf8);
     let result =
         core_derive_software_key(&store_bytes, profile_id, &password, chain, account_index)
             .map_err(binding_error)?;
@@ -445,8 +450,8 @@ pub fn import_software_key(
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let chain = parse_chain(chain).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let password = Zeroizing::new(bytes(password_utf8));
-    let private_key = Zeroizing::new(bytes(private_key));
+    let password = bytes(password_utf8);
+    let private_key = bytes(private_key);
     let result = core_import_software_key(&store_bytes, profile_id, &password, chain, &private_key)
         .map_err(binding_error)?;
     let value = software_key_info(&result.value)?;
@@ -467,7 +472,7 @@ pub fn generate_software_key(
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let chain = parse_chain(chain).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let password = Zeroizing::new(bytes(password_utf8));
+    let password = bytes(password_utf8);
     let result = core_generate_software_key(&store_bytes, profile_id, &password, chain)
         .map_err(binding_error)?;
     let value = software_key_info(&result.value)?;
@@ -488,7 +493,7 @@ pub fn get_public_account(
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let key_id = parse_uuid(key_id).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let password = Zeroizing::new(bytes(password_utf8));
+    let password = bytes(password_utf8);
     let result = core_get_public_account(&store_bytes, profile_id, key_id, &password)
         .map_err(binding_error)?;
     read_result(public_account(&result.value)?, result.warnings)
@@ -509,8 +514,8 @@ pub fn sign(
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let key_id = parse_uuid(key_id).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let password = Zeroizing::new(bytes(password_utf8));
-    let payload = Zeroizing::new(bytes(payload));
+    let password = bytes(password_utf8);
+    let payload = bytes(payload);
     let result =
         core_sign(&store_bytes, profile_id, key_id, &password, &payload).map_err(binding_error)?;
     read_result(signature(&result.value)?, result.warnings)
@@ -529,8 +534,8 @@ pub fn change_profile_password(
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let current_password = Zeroizing::new(bytes(current_password_utf8));
-    let new_password = Zeroizing::new(bytes(new_password_utf8));
+    let current_password = bytes(current_password_utf8);
+    let new_password = bytes(new_password_utf8);
     let result =
         core_change_profile_password(&store_bytes, profile_id, &current_password, &new_password)
             .map_err(binding_error)?;
@@ -551,7 +556,7 @@ pub fn delete_software_key(
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let key_id = parse_uuid(key_id).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let password = Zeroizing::new(bytes(password_utf8));
+    let password = bytes(password_utf8);
     let result = core_delete_software_key(&store_bytes, profile_id, key_id, &password)
         .map_err(binding_error)?;
     mutation_result(result, JsValue::NULL)
@@ -569,7 +574,7 @@ pub fn delete_profile(
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let store_bytes = bytes(store);
-    let password = Zeroizing::new(bytes(password_utf8));
+    let password = bytes(password_utf8);
     let result = core_delete_profile(&store_bytes, profile_id, &password).map_err(binding_error)?;
     mutation_result(result, JsValue::NULL)
 }

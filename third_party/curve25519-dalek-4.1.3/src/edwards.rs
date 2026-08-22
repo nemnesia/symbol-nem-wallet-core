@@ -121,7 +121,7 @@ use subtle::ConditionallySelectable;
 use subtle::ConstantTimeEq;
 
 #[cfg(feature = "zeroize")]
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroize;
 
 use crate::constants;
 
@@ -1012,9 +1012,9 @@ macro_rules! impl_basepoint_table {
             ///
             /// The above algorithm is trivially generalised to other powers-of-2 radices.
             fn mul_base(&self, scalar: &Scalar) -> $point {
-                // The signed radix representation contains the secret scalar. Keep it in a
-                // zeroizing owner so normal returns and unwinding paths cannot leave it behind.
-                let a = Zeroizing::new(scalar.as_radix_2w($radix));
+                // The signed radix representation contains the secret scalar and owns its
+                // zeroizing storage when the feature is enabled.
+                let a = scalar.as_radix_2w($radix);
 
                 let tables = &self.0;
                 let mut P = <$point>::identity();
