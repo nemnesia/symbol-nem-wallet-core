@@ -11,12 +11,16 @@
 `third_party/curve25519-dalek-4.1.3` を `[patch.crates-io]` で使用する。
 
 ローカル修正版では、秘密 Scalar から生成される一時値を `Zeroizing` で管理する。
-upstream 4.1.3 との差分は次の2ファイルに限定する。
+upstream 4.1.3 との差分は次の4ファイルに限定する。
 
 - `src/scalar.rs`: `as_radix_16` / `as_radix_2w` の radix 配列、carry、bit window、
   coefficient および Scalar の limb buffer を、zeroize feature 有効時に `Zeroizing`
   で保持する。
 - `src/edwards.rs`: `mul_base` 内の signed-radix 表現を `Zeroizing` で保持する。
+- `src/backend/serial/u64/scalar.rs`: 52-bit backendのunpack words、wide reductionの
+  lo/hi、積算用`[u128; 9]`およびmontgomery conversionのlimb bufferを保持する。
+- `src/backend/serial/u32/scalar.rs`: 29-bit backendのunpack words、wide reductionの
+  lo/hi、積算用`[u64; 17]`およびmontgomery conversionのlimb bufferを保持する。
 
 この修正版は、Core の通常の公開鍵生成および署名処理で使用する。具体的には、
 `src/crypto.rs` の公開鍵生成と署名 nonce の計算が `EdwardsPoint::mul_base` を利用する。
@@ -35,10 +39,15 @@ format を変更しない。変更対象は秘密値を含み得る一時メモ�
 
 - Package: `curve25519-dalek 4.1.3`
 - Original registry source commit: `5312a0311ec40df95be953eacfa8a11b9a34bc54`
+- crates.io archive SHA-256: `97fb8b7c4503de7d6ae7b42ab72a5a59857b4c937ec27a3d4539dba95b5ab2be`
 - Override: `Cargo.toml` の `[patch.crates-io]`
 - Local source: `third_party/curve25519-dalek-4.1.3`
 
-ローカル修正版を更新する場合は、対象バージョンの upstream source と比較し、上記2箇所の
+upstream archiveとlocal sourceの比較、および変更対象ファイルの期待hash確認は
+`bash scripts/check-curve25519-dalek-patch.sh`で機械的に実行する。CIでは固定したarchive
+checksumを検証し、許可対象以外の差分を失敗させる。
+
+ローカル修正版を更新する場合は、対象バージョンの upstream source と比較し、上記4ファイルの
 修正が維持されているかを確認する。upstream に同等の修正が取り込まれた場合も、互換性と
 zeroize の適用範囲を確認したうえで、この override の撤去を別途判断する。
 
@@ -53,7 +62,8 @@ zeroize の適用範囲を確認したうえで、この override の撤去を�
 
 依存更新または patch 撤去を検討する際は、少なくとも次を確認する。
 
-- upstream source との差分が意図した zeroize 修正だけであること
+- `bash scripts/check-curve25519-dalek-patch.sh` が成功し、upstream source との差分が
+  意図した zeroize 修正だけであること
 - 公開鍵生成・Symbol / NEM 署名の既存 fixture とテスト結果が変わらないこと
 - `cargo test --workspace --all-features` および対象環境の build / check が成功すること
 - patch を撤去しても仕様書 §12.1 の signing temporary 要件を満たすこと

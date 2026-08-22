@@ -38,6 +38,9 @@ jobs:
       - name: Check invisible characters in source
         run: python3 scripts/check-invisible-characters.py
 
+      - name: Verify local curve25519-dalek patch
+        run: bash scripts/check-curve25519-dalek-patch.sh
+
       - name: Install wasm-bindgen CLI
         uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
         with:
@@ -65,6 +68,14 @@ jobs:
 
       - name: Compile public C ABI header
         run: cc -std=c11 -Wall -Wextra -Werror -I bindings/native/include -fsyntax-only bindings/native/tests/header_compile.c
+
+      - name: Run Native C ABI runtime test
+        run: ./bindings/native/tests/run_c_abi_runtime.sh
+
+      - name: Run Native C ABI runtime test with sanitizers
+        env:
+          SNWC_C_ABI_SANITIZERS: "1"
+        run: ./bindings/native/tests/run_c_abi_runtime.sh
 
   core-coverage:
     name: Core coverage

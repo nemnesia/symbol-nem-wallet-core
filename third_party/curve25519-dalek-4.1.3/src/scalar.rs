@@ -278,7 +278,7 @@ impl Scalar {
     /// modulo the group order \\( \ell \\).
     pub fn from_bytes_mod_order(bytes: [u8; 32]) -> Scalar {
         // Temporarily allow s_unreduced.bytes > 2^255 ...
-        let s_unreduced = Scalar { bytes };
+        let s_unreduced = sensitive(Scalar { bytes });
 
         // Then reduce mod the group order and return the reduced representative.
         let s = s_unreduced.reduce();
@@ -1168,9 +1168,9 @@ impl Scalar {
     /// Reduce this `Scalar` modulo \\(\ell\\).
     #[allow(non_snake_case)]
     fn reduce(&self) -> Scalar {
-        let x = self.unpack();
+        let x = sensitive(self.unpack());
         let xR = UnpackedScalar::mul_internal(&x, &constants::R);
-        let x_mod_l = UnpackedScalar::montgomery_reduce(&xR);
+        let x_mod_l = sensitive(UnpackedScalar::montgomery_reduce(&xR));
         x_mod_l.pack()
     }
 

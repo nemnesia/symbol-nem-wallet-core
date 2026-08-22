@@ -14,7 +14,23 @@ use core::fmt::Debug;
 use core::ops::{Index, IndexMut};
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
+
+#[cfg(feature = "zeroize")]
+type Sensitive<T> = Zeroizing<T>;
+
+#[cfg(not(feature = "zeroize"))]
+type Sensitive<T> = T;
+
+#[cfg(feature = "zeroize")]
+fn sensitive<T: Zeroize>(value: T) -> Sensitive<T> {
+    Zeroizing::new(value)
+}
+
+#[cfg(not(feature = "zeroize"))]
+fn sensitive<T>(value: T) -> Sensitive<T> {
+    value
+}
 
 use crate::constants;
 
@@ -62,7 +78,7 @@ impl Scalar29 {
     /// Unpack a 32 byte / 256 bit scalar into 9 29-bit limbs.
     #[rustfmt::skip] // keep alignment of s[*] calculations
     pub fn from_bytes(bytes: &[u8; 32]) -> Scalar29 {
-        let mut words = [0u32; 8];
+        let mut words = sensitive([0u32; 8]);
         for i in 0..8 {
             for j in 0..4 {
                 words[i] |= (bytes[(i * 4) + j] as u32) << (j * 8);
@@ -89,7 +105,7 @@ impl Scalar29 {
     /// Reduce a 64 byte / 512 bit scalar mod l.
     #[rustfmt::skip] // keep alignment of lo[*] calculations
     pub fn from_bytes_wide(bytes: &[u8; 64]) -> Scalar29 {
-        let mut words = [0u32; 16];
+        let mut words = sensitive([0u32; 16]);
         for i in 0..16 {
             for j in 0..4 {
                 words[i] |= (bytes[(i * 4) + j] as u32) << (j * 8);
@@ -97,8 +113,8 @@ impl Scalar29 {
         }
 
         let mask = (1u32 << 29) - 1;
-        let mut lo = Scalar29::ZERO;
-        let mut hi = Scalar29::ZERO;
+        let mut lo = sensitive(Scalar29::ZERO);
+        let mut hi = sensitive(Scalar29::ZERO);
 
         lo[0] =   words[ 0]                             & mask;
         lo[1] = ((words[ 0] >> 29) | (words[ 1] <<  3)) & mask;
@@ -119,8 +135,8 @@ impl Scalar29 {
         hi[7] = ((words[14] >> 16) | (words[15] << 16)) & mask;
         hi[8] =   words[15] >> 13                             ;
 
-        lo = Scalar29::montgomery_mul(&lo, &constants::R);  // (lo * R) / R = lo
-        hi = Scalar29::montgomery_mul(&hi, &constants::RR); // (hi * R^2) / R = hi * R
+        *lo = Scalar29::montgomery_mul(&lo, &constants::R); // (lo * R) / R = lo
+        *hi = Scalar29::montgomery_mul(&hi, &constants::RR); // (hi * R^2) / R = hi * R
 
         Scalar29::add(&hi, &lo) // (hi * R) + lo
     }
@@ -219,8 +235,8 @@ impl Scalar29 {
     /// This is implemented with a one-level refined Karatsuba decomposition
     #[inline(always)]
     #[rustfmt::skip] // keep alignment of z[*] calculations
-    pub (crate) fn mul_internal(a: &Scalar29, b: &Scalar29) -> [u64; 17] {
-        let mut z = [0u64; 17];
+    pub (crate) fn mul_internal(a: &Scalar29, b: &Scalar29) -> Sensitive<[u64; 17]> {
+        let mut z = sensitive([0u64; 17]);
 
         z[0] = m(a[0], b[0]);                                                                 // c00
         z[1] = m(a[0], b[1]) + m(a[1], b[0]);                                                 // c01
@@ -277,8 +293,8 @@ impl Scalar29 {
     /// Compute `a^2`.
     #[inline(always)]
     #[rustfmt::skip] // keep alignment of calculations
-    fn square_internal(a: &Scalar29) -> [u64; 17] {
-        let aa = [
+    fn square_internal(a: &Scalar29) -> Sensitive<[u64; 17]> {
+        let aa = sensitive([
             a[0] * 2,
             a[1] * 2,
             a[2] * 2,
@@ -287,9 +303,9 @@ impl Scalar29 {
             a[5] * 2,
             a[6] * 2,
             a[7] * 2
-        ];
+        ]);
 
-        [
+        sensitive([
             m( a[0], a[0]),
             m(aa[0], a[1]),
             m(aa[0], a[2]) + m( a[1], a[1]),
@@ -307,7 +323,7 @@ impl Scalar29 {
                                                                                                                   m(aa[6], a[8]) + m( a[7], a[7]),
                                                                                                                                    m(aa[7], a[8]),
                                                                                                                                                     m( a[8], a[8]),
-        ]
+        ])
     }
 
     /// Compute `limbs/R` (mod l), where R is the Montgomery modulus 2^261
@@ -359,7 +375,7 @@ impl Scalar29 {
     /// Compute `a * b` (mod l).
     #[inline(never)]
     pub fn mul(a: &Scalar29, b: &Scalar29) -> Scalar29 {
-        let ab = Scalar29::montgomery_reduce(&Scalar29::mul_internal(a, b));
+        let ab = sensitive(Scalar29::montgomery_reduce(&Scalar29::mul_internal(a, b)));
         Scalar29::montgomery_reduce(&Scalar29::mul_internal(&ab, &constants::RR))
     }
 
@@ -367,7 +383,7 @@ impl Scalar29 {
     #[inline(never)]
     #[allow(dead_code)] // XXX we don't expose square() via the Scalar API
     pub fn square(&self) -> Scalar29 {
-        let aa = Scalar29::montgomery_reduce(&Scalar29::square_internal(self));
+        let aa = sensitive(Scalar29::montgomery_reduce(&Scalar29::square_internal(self)));
         Scalar29::montgomery_reduce(&Scalar29::mul_internal(&aa, &constants::RR))
     }
 
@@ -392,7 +408,7 @@ impl Scalar29 {
     /// Takes a Scalar29 out of Montgomery form, i.e. computes `a/R (mod l)`
     #[allow(clippy::wrong_self_convention)]
     pub fn from_montgomery(&self) -> Scalar29 {
-        let mut limbs = [0u64; 17];
+        let mut limbs = sensitive([0u64; 17]);
         for i in 0..9 {
             limbs[i] = self[i] as u64;
         }

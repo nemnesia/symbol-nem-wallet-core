@@ -33,6 +33,19 @@ int main(void) {
     snwc_free_warnings(restore_warnings);
     snwc_free_bytes(empty);
 
+    SnwcProfileInfo *profiles = NULL;
+    size_t profile_len = 0;
+    SnwcWarnings list_profile_warnings = {NULL, 0};
+    assert(snwc_list_profiles(
+               borrowed(restored.ptr, restored.len),
+               &profiles,
+               &profile_len,
+               &list_profile_warnings) == NULL);
+    assert(profile_len == 1);
+    assert(memcmp(profiles[0].profile_id, profile.profile_id, sizeof(profile.profile_id)) == 0);
+    snwc_free_profiles(profiles, profile_len);
+    snwc_free_warnings(list_profile_warnings);
+
     SnwcUuid profile_id;
     memcpy(profile_id.bytes, profile.profile_id, sizeof(profile_id.bytes));
     SnwcOwnedBytes derived = {NULL, 0};
@@ -52,6 +65,47 @@ int main(void) {
 
     SnwcUuid key_id;
     memcpy(key_id.bytes, key.key_id, sizeof(key_id.bytes));
+
+    SnwcSoftwareKeyListItem *keys = NULL;
+    size_t key_len = 0;
+    SnwcWarnings list_key_warnings = {NULL, 0};
+    assert(snwc_list_software_keys(
+               borrowed(derived.ptr, derived.len),
+               profile_id,
+               &keys,
+               &key_len,
+               &list_key_warnings) == NULL);
+    assert(key_len == 1);
+    assert(memcmp(keys[0].key_id, key.key_id, sizeof(key.key_id)) == 0);
+    snwc_free_software_key_list(keys, key_len);
+    snwc_free_warnings(list_key_warnings);
+
+    SnwcPublicAccountInfo account = {{0}, 0, 0, {0}, {NULL, 0}};
+    SnwcWarnings account_warnings = {NULL, 0};
+    assert(snwc_get_public_account(
+               borrowed(derived.ptr, derived.len),
+               profile_id,
+               key_id,
+               borrowed(password, sizeof(password) - 1),
+               &account,
+               &account_warnings) == NULL);
+    assert(account.address.ptr != NULL && account.address.len > 0);
+    snwc_free_bytes(account.address);
+    snwc_free_warnings(account_warnings);
+
+    SnwcOwnedBytes private_key = {NULL, 0};
+    SnwcWarnings private_key_warnings = {NULL, 0};
+    assert(snwc_export_private_key(
+               borrowed(derived.ptr, derived.len),
+               profile_id,
+               key_id,
+               borrowed(password, sizeof(password) - 1),
+               &private_key,
+               &private_key_warnings) == NULL);
+    assert(private_key.ptr != NULL && private_key.len == 32);
+    snwc_free_bytes(private_key);
+    snwc_free_warnings(private_key_warnings);
+
     SnwcOwnedBytes signature = {NULL, 0};
     SnwcWarnings sign_warnings = {NULL, 0};
     assert(snwc_sign(

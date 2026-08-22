@@ -234,11 +234,19 @@ TAG          = 16 bytes
 
 `software_key_index` は一覧取得に必要な `key_id` と `chain` だけを持つ平文 manifest とし、`registry_key` および `duplicate_tag` とともに AES-256-GCM の AAD へ含める。AAD の正確な構成と deterministic CBOR 表現は `wallet-store-format-v1.md` を正本とする。
 
+`registry_key` はStore blobの平文fieldであり、Store blobを取得できる攻撃者から秘匿される
+秘密ではない。Store固有のdomain separationおよびintegrity contextに使用し、機密性を前提に
+した機能追加を行ってはならない。
+
 パスワードなしの一覧 API は平文 `software_key_index` を返せるが、その時点では AEAD 認証を実行できない。Application は一覧結果を未認証の保存情報として扱い、暗号学的に認証済みとはみなさない。当該操作で対象 Profile を認証・復号した後は、index と暗号化 payload が同一の `key_id -> chain` 写像を表すことを検証する。
 
 対象 Profile の認証・復号後は、保存された `duplicate_tag` と、復号済み Mnemonic entropy および AAD で認証された Profile Network との意味的一致を `wallet-store-format-v1.md` §12 に従って検証する。AAD 認証の成功だけを、この意味的一致の証明としてはならない。
 
 `software_key_index` の論理値には既知の `key_id` と `chain` だけを含める。Decoder は未知 field を論理モデル、一覧結果および意味検証へ取り込まない。既存 Profile の `software_key_index` の受信 wire 値（index entry 内の未知 field を含む）は、AAD の入力および再出力時の保存値として保持する。対象 Profile を保持する mutation（Software Key 登録・削除または password change）では、既知 fieldをcanonicalに再生成しつつ未知 fieldをlosslessに保持して新しい nonce で再暗号化する。対象または対象外 Profileの未知 fieldを保持できない場合は mutation 全体を拒否し、replacement Store を返してはならない。Profile delete では対象 envelope を除去し、再暗号化しない。正確な wire 表現は `wallet-store-format-v1.md` §2、§7.1、§11 を正本とする。
+
+過去versionでAADの認証対象外だったunknown fieldに、同じschema versionのままsecurity上の
+意味を与えてはならない。新しいfieldへsecurity上の意味を持たせる場合は、schema version、
+AAD contractおよびmigrationを更新し、backward compatibilityを判断する。
 
 ### 6.4 Profile パスワード認証
 
@@ -260,7 +268,7 @@ password change は current password で認証・復号した後、新 salt / ne
 
 ## 7. Wallet Store 契約
 
-Wallet Store の CBOR schema、整数 key、enum wire 値、並び順、AAD、重複タグ、unknown field / enum、DecodeWarning、version / migration の正確な規則は `docs/specifications/wallet-store-format-v1.md` に従う。
+Wallet Store の CBOR schema、整数 key、enum wire 値、並び順、AAD、重複タグ、unknown field / enum、DecodeWarning、version / migrationおよびresource limitの正確な規則は `docs/specifications/wallet-store-format-v1.md` に従う。
 
 本書では次の動作だけを API 契約として固定する。
 

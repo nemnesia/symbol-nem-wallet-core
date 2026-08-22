@@ -40,12 +40,22 @@ pub(crate) const DUPLICATE_DOMAIN: &[u8] = b"symbol-nem-wallet-core/profile-dupl
 
 // OSまたはWeb Crypto由来のCSPRNGを使用し、予測可能なfallbackは設けない。
 pub(crate) fn random<const N: usize>() -> WalletResult<[u8; N]> {
-    // CodeQLはゼロ初期化された出力先を検出するが、成功時は呼び出し元が観測・利用する前に
-    // getrandom::fillが全バイトを乱数で上書きするため、暗号値のhard-codeではない。
-    // codeql[rust/hard-coded-cryptographic-value]
-    let mut bytes = [0u8; N];
-    getrandom::fill(&mut bytes).map_err(|_| WalletError::new(ErrorCode::RandomSourceFailure))?;
-    Ok(bytes)
+    random_with(|bytes| {
+        // CodeQLはゼロ初期化された出力先を検出するが、成功時は呼び出し元が観測・利用する前に
+        // getrandom::fillが全バイトを乱数で上書きするため、暗号値のhard-codeではない。
+        // codeql[rust/hard-coded-cryptographic-value]
+        getrandom::fill(bytes).map_err(|_| WalletError::new(ErrorCode::RandomSourceFailure))
+    })
+}
+
+fn random_with<const N: usize, F>(fill: F) -> WalletResult<[u8; N]>
+where
+    F: FnOnce(&mut [u8]) -> WalletResult<()>,
+{
+    // 乱数源が部分書込み後に失敗しても、出力bufferをzeroizeしてから破棄する。
+    let mut bytes = Zeroizing::new([0u8; N]);
+    fill(&mut bytes[..])?;
+    Ok(*bytes)
 }
 
 pub(crate) fn validate_password(password: &[u8]) -> WalletResult<()> {
@@ -442,8 +452,9 @@ pub(crate) fn duplicate_tag(
     network: Network,
     entropy: &[u8; 32],
 ) -> [u8; 32] {
-    // registry keyをStore単位の秘密として、Mnemonic+Networkの重複判定tagを作る。
-    // tagは暗号化payloadの代替ではなく、認証後の意味的一致検証に使う。
+    // registry keyはStore blobにも保存されるdomain-separation / integrity-context値であり、
+    // Store blobから秘匿される秘密ではない。tagは暗号化payloadの代替ではなく、認証後の
+    // Mnemonic+Networkの意味的一致検証に使う。
     let mut input = Vec::with_capacity(DUPLICATE_DOMAIN.len() + 33);
     input.extend_from_slice(DUPLICATE_DOMAIN);
     input.push(network.wire() as u8);

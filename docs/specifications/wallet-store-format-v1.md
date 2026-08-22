@@ -48,6 +48,27 @@ warning に Mnemonic entropy、private key、ciphertext などの秘密情報を
 
 Wallet Store top-level 自体の必須 field 欠落、型不正、固定長 field の長さ不正など、Store 全体を解釈できない不正は decode error とする。
 
+### 2.2 Resource limits
+
+入力由来のallocation DoSを防ぐため、v1 decoderは次の固定上限を適用する。
+
+| 対象 | 上限 |
+| --- | ---: |
+| Wallet Store raw bytes | 16 MiB |
+| Profile数 | 128 |
+| ProfileあたりSoftware Key数 | 256 |
+| CBOR Bytes / Textのbyte長 | 1 MiB |
+| Profile ciphertextのbyte長 | 1 MiB |
+| CBOR array / mapの要素数 | 256 |
+| CBOR nesting depth | 32 |
+
+上限値はlengthを読み取った後の`Vec`、`String`またはciphertext cloneの開始前に検査する。
+Pending ProfileはWallet Store v1のCBORではなく、既存の固定長opaque envelopeとして扱う。
+
+入力StoreまたはProfile payloadが上限を超えた場合は、子要素をskipせず`InvalidStore`とする。
+上限は有効なv1 wire表現のencodingを変更するものではないが、上限を超える入力をv1 decoderが
+受理する互換性は提供しない。
+
 ---
 
 ## 3. 固定値と ID 表現
@@ -177,6 +198,8 @@ WalletStoreV1 {
 ```
 
 `registry_key` は Store 初回作成時に CSPRNG で生成する 32 byte 値とし、秘密鍵暗号化には使用しない。
+Store blobの平文fieldとして保存されるため、Store blobを取得できる攻撃者から秘匿される値とは
+扱わない。Store固有のdomain separationおよびProfile payloadのintegrity contextに使用する。
 
 `profiles` は `profile_id` の raw 16 bytes を bytewise に比較した狭義昇順で保存し、同じ `profile_id` を複数の `ProfileEnvelopeV1` に使用してはならない。
 
@@ -522,6 +545,10 @@ Mutation における保存規則は次のとおりとする。
 - 対象外 Profile または対象 Profile の未知 fieldを、意味解釈せずに保存するための wire-preservation は、将来形式として公開するものではない。
 
 これらは、対象 Profile のみを置換する atomicity と、対象外 Profile の ciphertext / tag / AAD を変更しない契約を同時に満たすための v1 規則である。未知 field の一般的な前方互換性または意味解釈を提供するものではない。
+
+過去のv1 decoderでAADの認証対象外だったunknown fieldに、同じschema versionのままsecurity上
+意味のある解釈を追加してはならない。新しいfieldへsecurity上の意味を持たせる場合は、schema
+versionの更新、AAD contractの更新、migrationおよびbackward compatibility判断を必要とする。
 
 ---
 

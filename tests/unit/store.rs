@@ -12,6 +12,158 @@ fn bytes<const N: usize>(hex: &str) -> [u8; N] {
     hex::decode(hex).unwrap().try_into().unwrap()
 }
 
+fn minimal_profile(id: [u8; 16], software_key_index: Vec<Value>) -> Value {
+    Value::Map(vec![
+        (0, Value::Bytes(id.to_vec())),
+        (1, Value::UInt(Network::Mainnet.wire())),
+        (2, Value::Bytes([0x22; 32].to_vec())),
+        (3, Value::UInt(PROFILE_SCHEMA_VERSION)),
+        (
+            4,
+            Value::Map(vec![
+                (0, Value::UInt(KDF_ALGORITHM)),
+                (1, Value::UInt(crypto::KDF_VERSION as u64)),
+                (2, Value::UInt(crypto::KDF_MEMORY_KIB as u64)),
+                (3, Value::UInt(crypto::KDF_ITERATIONS as u64)),
+                (4, Value::UInt(crypto::KDF_PARALLELISM as u64)),
+                (5, Value::Bytes([0x33; 16].to_vec())),
+            ]),
+        ),
+        (
+            5,
+            Value::Map(vec![
+                (0, Value::UInt(CIPHER_ALGORITHM)),
+                (1, Value::Bytes([0x44; 12].to_vec())),
+                (2, Value::Bytes(Vec::new())),
+                (3, Value::Bytes([0x55; 16].to_vec())),
+            ]),
+        ),
+        (6, Value::Array(software_key_index)),
+    ])
+}
+
+fn minimal_store(profile_count: usize, software_key_count: usize) -> Vec<u8> {
+    let profiles = (0..profile_count)
+        .map(|profile_index| {
+            let mut profile_id = [0u8; 16];
+            profile_id[..8].copy_from_slice(&(profile_index as u64).to_be_bytes());
+            let index = (0..software_key_count)
+                .map(|key_index| {
+                    let mut key_id = [0u8; 16];
+                    key_id[..8].copy_from_slice(&(key_index as u64).to_be_bytes());
+                    Value::Map(vec![
+                        (0, Value::Bytes(key_id.to_vec())),
+                        (1, Value::UInt(Chain::Symbol.wire())),
+                    ])
+                })
+                .collect();
+            minimal_profile(profile_id, index)
+        })
+        .collect();
+    cbor::encode(&Value::Map(vec![
+        (0, Value::Bytes(MAGIC.to_vec())),
+        (1, Value::UInt(STORE_VERSION)),
+        (2, Value::Bytes([0x11; 32].to_vec())),
+        (3, Value::Array(profiles)),
+    ]))
+    .unwrap()
+}
+
+fn store_with_unknown_padding(last_padding_len: usize) -> Vec<u8> {
+    let mut fields = vec![
+        (0, Value::Bytes(MAGIC.to_vec())),
+        (1, Value::UInt(STORE_VERSION)),
+        (2, Value::Bytes([0x11; 32].to_vec())),
+        (3, Value::Array(Vec::new())),
+    ];
+    for key in 4..19 {
+        fields.push((key, Value::Bytes(vec![0xA5; MAX_PROFILE_CIPHERTEXT_BYTES])));
+    }
+    fields.push((19, Value::Bytes(vec![0xA5; last_padding_len])));
+    cbor::encode(&Value::Map(fields)).unwrap()
+}
+
+fn max_sized_store() -> Vec<u8> {
+    let mut low = 0;
+    let mut high = MAX_PROFILE_CIPHERTEXT_BYTES;
+    let mut best = Vec::new();
+    let mut best_padding = 0;
+    while low <= high {
+        let middle = low + (high - low) / 2;
+        let candidate = store_with_unknown_padding(middle);
+        if candidate.len() <= MAX_WALLET_STORE_BYTES {
+            best = candidate;
+            best_padding = middle;
+            low = middle + 1;
+        } else {
+            high = middle.saturating_sub(1);
+        }
+    }
+    let extra = MAX_WALLET_STORE_BYTES - best.len();
+    let final_length = best_padding + extra;
+    let candidate = store_with_unknown_padding(final_length);
+    assert_eq!(candidate.len(), MAX_WALLET_STORE_BYTES);
+    candidate
+}
+
+#[test]
+fn wallet_store_accepts_maximum_size_and_rejects_one_byte_over() {
+    let store = max_sized_store();
+    assert_eq!(store.len(), MAX_WALLET_STORE_BYTES);
+    assert_eq!(list_profiles(&store).unwrap().value.len(), 0);
+
+    let mut oversized = store;
+    oversized.push(0);
+    assert_eq!(
+        list_profiles(&oversized).unwrap_err().code,
+        ErrorCode::InvalidStore
+    );
+}
+
+#[test]
+fn wallet_store_enforces_profile_and_software_key_limits() {
+    let profiles = minimal_store(MAX_PROFILES, 0);
+    assert_eq!(list_profiles(&profiles).unwrap().value.len(), MAX_PROFILES);
+
+    let too_many_profiles = minimal_store(MAX_PROFILES + 1, 0);
+    assert_eq!(
+        list_profiles(&too_many_profiles).unwrap_err().code,
+        ErrorCode::InvalidStore
+    );
+
+    let key_id = Uuid::from_bytes([0; 16]);
+    let valid_key_store = minimal_store(1, MAX_SOFTWARE_KEYS_PER_PROFILE);
+    assert_eq!(
+        list_software_keys(&valid_key_store, key_id)
+            .unwrap()
+            .value
+            .len(),
+        MAX_SOFTWARE_KEYS_PER_PROFILE
+    );
+
+    let too_many_keys = minimal_store(1, MAX_SOFTWARE_KEYS_PER_PROFILE + 1);
+    assert_eq!(
+        list_profiles(&too_many_keys).unwrap_err().code,
+        ErrorCode::InvalidStore
+    );
+}
+
+#[test]
+fn wallet_store_rejects_oversized_ciphertext_without_panicking() {
+    let mut store = minimal_store(1, 0);
+    let mut value = cbor::decode(&store).unwrap();
+    let profile = first_profile_map_mut(&mut value);
+    let cipher = match map_value_mut(profile, 5) {
+        Value::Map(entries) => entries,
+        _ => unreachable!(),
+    };
+    *map_value_mut(cipher, 2) = Value::Bytes(vec![0xA5; MAX_PROFILE_CIPHERTEXT_BYTES + 1]);
+    store = cbor::encode(&value).unwrap();
+    let result = std::panic::catch_unwind(|| list_profiles(&store));
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().unwrap_err().code, ErrorCode::InvalidStore);
+}
+
 fn map_value_mut(map: &mut [(u64, Value)], key: u64) -> &mut Value {
     map.iter_mut()
         .find(|(candidate, _)| *candidate == key)
@@ -440,6 +592,37 @@ fn public_store_paths_are_exercised_in_unit_build() {
 }
 
 #[test]
+fn generated_software_key_failure_paths_are_atomic() {
+    let (store, profile_id) = wallet_with_one_profile();
+    let before = store.clone();
+    let random_error = generate_software_key_with(
+        &store,
+        profile_id,
+        PASSWORD,
+        Chain::Symbol,
+        |_chain| Err(WalletError::new(ErrorCode::RandomSourceFailure)),
+        encode_store,
+    )
+    .unwrap_err();
+    assert_eq!(random_error.code, ErrorCode::RandomSourceFailure);
+    assert_eq!(store, before);
+
+    let private_key =
+        bytes::<32>("575DBB3062267EFF57C970A336EBBC8FBCFE12C5BD3ED7BC11EB0481D7704CED");
+    let save_error = generate_software_key_with(
+        &store,
+        profile_id,
+        PASSWORD,
+        Chain::Symbol,
+        |_chain| Ok(private_key),
+        |_wallet| Err(WalletError::new(ErrorCode::SerializationFailure)),
+    )
+    .unwrap_err();
+    assert_eq!(save_error.code, ErrorCode::SerializationFailure);
+    assert_eq!(store, before);
+}
+
+#[test]
 fn error_code_strings_and_display_are_stable() {
     let cases = [
         (ErrorCode::InvalidArgument, "InvalidArgument"),
@@ -558,6 +741,24 @@ fn authenticated_semantic_mismatch_and_aad_tamper_are_atomic() {
     let registry_tampered = cbor::encode(&registry_tampered).unwrap();
     let error = export_mnemonic(&registry_tampered, profile_id, PASSWORD).unwrap_err();
     assert_eq!(error.code, ErrorCode::AuthenticationFailed);
+
+    let mut tag_tampered = cbor::decode(&restored_store).unwrap();
+    let profile = first_profile_map_mut(&mut tag_tampered);
+    let cipher = match map_value_mut(profile, 5) {
+        Value::Map(entries) => entries,
+        _ => unreachable!(),
+    };
+    match map_value_mut(cipher, 3) {
+        Value::Bytes(bytes) => bytes[0] ^= 1,
+        _ => unreachable!(),
+    }
+    let tag_tampered = cbor::encode(&tag_tampered).unwrap();
+    assert_eq!(
+        export_mnemonic(&tag_tampered, profile_id, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::AuthenticationFailed
+    );
 }
 
 #[test]

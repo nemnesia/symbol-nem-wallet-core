@@ -209,14 +209,11 @@ type PublicAccountInfo = {
 };
 
 export async function deriveSymbolAccount(
-  mnemonicText: string,
-  passwordText: string,
+  mnemonic: Uint8Array,
+  password: Uint8Array,
 ): Promise<PublicAccountInfo> {
   await init();
 
-  const encoder = new TextEncoder();
-  const mnemonic = encoder.encode(mnemonicText);
-  const password = encoder.encode(passwordText);
   let store = create_empty_store();
 
   const profile = restore_profile(
@@ -255,6 +252,12 @@ WASM の binary data は `Uint8Array`、Native の入力は借用 buffer、Nativ
 
 - Mnemonic、private key、Profile password をログ、例外、debug 出力へ出力しないでください。
 - `export_mnemonic` と `export_private_key` の結果は明示的な export 結果です。アプリケーション側で継続保存・キャッシュしないでください。
+- WASMはJavaScriptと同じexecution contextで動作し、JavaScriptから秘密情報を隔離するsecurity boundaryではありません。Rust側でzeroizeしても、呼び出し側のJavaScript `Uint8Array` のコピーは自動的には消去されません。
+- XSSや悪意あるBrowser Extensionが同じJavaScript execution contextを取得した場合、WASM APIも呼び出され得ます。WebページのJavaScriptへWallet Coreを直接公開する設計は推奨しません。
+- Browser Extensionでは、可能な限りpage contextから分離されたbackground / extension contextでCoreを管理してください。
+- `sign()` はTransactionを解釈しないraw byte列への署名primitiveです。Transaction parsing、human-readable確認、署名承認UIおよび権限管理は呼び出し側の責務です。
+- `export_mnemonic` と `export_private_key` は明示的な秘密情報exportであり、通常の署名処理では使用しないでください。
+- 秘密情報をJavaScript `string`へ変換すると、明示的なzeroizeが困難になります。秘密入力は可能な限り`Uint8Array`で扱い、不要になったコピーを速やかに破棄してください。
 - Profile は Mainnet / Testnet に固定され、Software Key は Symbol / NEM のいずれかに固定されます。両者を暗黙に混在させないでください。
 - Wallet Store の保存・置換は、利用する環境側で atomic に行ってください。
 - Profile password を失った場合の recovery / reset API はありません。

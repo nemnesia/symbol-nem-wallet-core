@@ -8,12 +8,21 @@
  * Symbol/NEM Wallet Core Native BindingのC ABI。
  *
  * 入力のSnwcBytesは呼び出し側が所有する借用bufferであり、関数は所有権を取得しない。
+ * len == 0の場合はptr == NULLを許容する。len != 0の場合、ptrは呼び出し中に有効で
+ * 読み取り可能なbufferを指さなければならない。任意の不正pointerやlengthを渡した場合の
+ * 安全性は保証しない。
  * 出力のSnwcOwnedBytesと配列は、対応するfree関数で解放する。free関数はbufferの内容を
  * 可能な範囲でzeroizeしてから解放するため、秘密情報を含む出力にも使用できる。
  *
+ * output pointerはNULLであってはならず、呼び出し側は出力構造体を初期化し、既存のowned
+ * bufferをfreeしてから再利用する。エラー時は既存の出力を上書きせず、途中生成した所有
+ * bufferをBinding側で解放する。
+ *
  * 戻り値はNULLが成功、NULL以外がNUL終端された安定error code文字列である。error文字列は
  * Bindingが所有する静的文字列なので、呼び出し側は解放しない。errorやwarningに秘密情報は
- * 含まれない。
+ * 含まれない。panicはC ABIを越えず、error codeへ変換される。
+ * free APIへ任意のpointerや不整合なlengthを渡すことは未定義であり、free APIはこのBinding
+ * が返した未解放bufferに対してだけ使用する。
  */
 
 typedef struct {

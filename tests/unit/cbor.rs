@@ -17,6 +17,40 @@ fn parser_rejects_resource_exhaustion_inputs_before_allocation_or_deep_recursion
 }
 
 #[test]
+fn parser_enforces_input_bytes_and_byte_text_boundaries() {
+    let too_large_input = vec![0u8; MAX_WALLET_STORE_INPUT + 1];
+    assert!(decode(&too_large_input).is_err());
+
+    for major in [2u8, 3u8] {
+        let mut value = vec![major << 5 | 26];
+        value.extend_from_slice(&((MAX_BYTE_OR_TEXT_LENGTH + 1) as u32).to_be_bytes());
+        // length超過はpayload本体を用意する前に拒否される。
+        assert!(decode(&value).is_err());
+    }
+
+    let mut bytes = vec![0x5a];
+    bytes.extend_from_slice(&(MAX_BYTE_OR_TEXT_LENGTH as u32).to_be_bytes());
+    bytes.extend(std::iter::repeat_n(0xA5, MAX_BYTE_OR_TEXT_LENGTH));
+    assert!(decode(&bytes).is_ok());
+
+    let mut text = vec![0x7a];
+    text.extend_from_slice(&(MAX_BYTE_OR_TEXT_LENGTH as u32).to_be_bytes());
+    text.extend(std::iter::repeat_n(b'a', MAX_BYTE_OR_TEXT_LENGTH));
+    assert!(decode(&text).is_ok());
+}
+
+#[test]
+fn parser_rejects_collection_limit_before_capacity_allocation() {
+    let mut array = vec![0x9b];
+    array.extend_from_slice(&((MAX_COLLECTION_ELEMENTS + 1) as u64).to_be_bytes());
+    assert!(decode(&array).is_err());
+
+    let mut nested = vec![0x81; MAX_NESTING_DEPTH];
+    nested.extend_from_slice(&[0x5a, 0xff, 0xff, 0xff, 0xff]);
+    assert!(decode(&nested).is_err());
+}
+
+#[test]
 fn parser_rejects_noncanonical_map_order_and_trailing_bytes() {
     // {1: 0, 0: 0} はmap key順序がdeterministic CBORに反する。
     assert!(decode(&[0xa2, 0x01, 0x00, 0x00, 0x00]).is_err());

@@ -15,7 +15,23 @@ use core::fmt::Debug;
 use core::ops::{Index, IndexMut};
 
 #[cfg(feature = "zeroize")]
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
+
+#[cfg(feature = "zeroize")]
+type Sensitive<T> = Zeroizing<T>;
+
+#[cfg(not(feature = "zeroize"))]
+type Sensitive<T> = T;
+
+#[cfg(feature = "zeroize")]
+fn sensitive<T: Zeroize>(value: T) -> Sensitive<T> {
+    Zeroizing::new(value)
+}
+
+#[cfg(not(feature = "zeroize"))]
+fn sensitive<T>(value: T) -> Sensitive<T> {
+    value
+}
 
 use crate::constants;
 
@@ -63,7 +79,7 @@ impl Scalar52 {
     /// Unpack a 32 byte / 256 bit scalar into 5 52-bit limbs.
     #[rustfmt::skip] // keep alignment of s[*] calculations
     pub fn from_bytes(bytes: &[u8; 32]) -> Scalar52 {
-        let mut words = [0u64; 4];
+        let mut words = sensitive([0u64; 4]);
         for i in 0..4 {
             for j in 0..8 {
                 words[i] |= (bytes[(i * 8) + j] as u64) << (j * 8);
@@ -86,7 +102,7 @@ impl Scalar52 {
     /// Reduce a 64 byte / 512 bit scalar mod l
     #[rustfmt::skip] // keep alignment of lo[*] and hi[*] calculations
     pub fn from_bytes_wide(bytes: &[u8; 64]) -> Scalar52 {
-        let mut words = [0u64; 8];
+        let mut words = sensitive([0u64; 8]);
         for i in 0..8 {
             for j in 0..8 {
                 words[i] |= (bytes[(i * 8) + j] as u64) << (j * 8);
@@ -94,8 +110,8 @@ impl Scalar52 {
         }
 
         let mask = (1u64 << 52) - 1;
-        let mut lo = Scalar52::ZERO;
-        let mut hi = Scalar52::ZERO;
+        let mut lo = sensitive(Scalar52::ZERO);
+        let mut hi = sensitive(Scalar52::ZERO);
 
         lo[0] =   words[0]                             & mask;
         lo[1] = ((words[0] >> 52) | (words[ 1] << 12)) & mask;
@@ -108,8 +124,8 @@ impl Scalar52 {
         hi[3] = ((words[6] >> 32) | (words[ 7] << 32)) & mask;
         hi[4] =   words[7] >> 20                             ;
 
-        lo = Scalar52::montgomery_mul(&lo, &constants::R);  // (lo * R) / R = lo
-        hi = Scalar52::montgomery_mul(&hi, &constants::RR); // (hi * R^2) / R = hi * R
+        *lo = Scalar52::montgomery_mul(&lo, &constants::R); // (lo * R) / R = lo
+        *hi = Scalar52::montgomery_mul(&hi, &constants::RR); // (hi * R^2) / R = hi * R
 
         Scalar52::add(&hi, &lo)
     }
@@ -208,8 +224,8 @@ impl Scalar52 {
     /// Compute `a * b`
     #[inline(always)]
     #[rustfmt::skip] // keep alignment of z[*] calculations
-    pub (crate) fn mul_internal(a: &Scalar52, b: &Scalar52) -> [u128; 9] {
-        let mut z = [0u128; 9];
+    pub (crate) fn mul_internal(a: &Scalar52, b: &Scalar52) -> Sensitive<[u128; 9]> {
+        let mut z = sensitive([0u128; 9]);
 
         z[0] = m(a[0], b[0]);
         z[1] = m(a[0], b[1]) + m(a[1], b[0]);
@@ -227,15 +243,15 @@ impl Scalar52 {
     /// Compute `a^2`
     #[inline(always)]
     #[rustfmt::skip] // keep alignment of return calculations
-    fn square_internal(a: &Scalar52) -> [u128; 9] {
-        let aa = [
+    fn square_internal(a: &Scalar52) -> Sensitive<[u128; 9]> {
+        let aa = sensitive([
             a[0] * 2,
             a[1] * 2,
             a[2] * 2,
             a[3] * 2,
-        ];
+        ]);
 
-        [
+        sensitive([
             m( a[0], a[0]),
             m(aa[0], a[1]),
             m(aa[0], a[2]) + m( a[1], a[1]),
@@ -245,7 +261,7 @@ impl Scalar52 {
                                               m(aa[2], a[4]) + m( a[3], a[3]),
                                                                m(aa[3], a[4]),
                                                                                 m(a[4], a[4])
-        ]
+        ])
     }
 
     /// Compute `limbs/R` (mod l), where R is the Montgomery modulus 2^260
@@ -289,7 +305,7 @@ impl Scalar52 {
     /// Compute `a * b` (mod l)
     #[inline(never)]
     pub fn mul(a: &Scalar52, b: &Scalar52) -> Scalar52 {
-        let ab = Scalar52::montgomery_reduce(&Scalar52::mul_internal(a, b));
+        let ab = sensitive(Scalar52::montgomery_reduce(&Scalar52::mul_internal(a, b)));
         Scalar52::montgomery_reduce(&Scalar52::mul_internal(&ab, &constants::RR))
     }
 
@@ -297,7 +313,7 @@ impl Scalar52 {
     #[inline(never)]
     #[allow(dead_code)] // XXX we don't expose square() via the Scalar API
     pub fn square(&self) -> Scalar52 {
-        let aa = Scalar52::montgomery_reduce(&Scalar52::square_internal(self));
+        let aa = sensitive(Scalar52::montgomery_reduce(&Scalar52::square_internal(self)));
         Scalar52::montgomery_reduce(&Scalar52::mul_internal(&aa, &constants::RR))
     }
 
@@ -323,7 +339,7 @@ impl Scalar52 {
     #[allow(clippy::wrong_self_convention)]
     #[inline(never)]
     pub fn from_montgomery(&self) -> Scalar52 {
-        let mut limbs = [0u128; 9];
+        let mut limbs = sensitive([0u128; 9]);
         for i in 0..5 {
             limbs[i] = self[i] as u128;
         }

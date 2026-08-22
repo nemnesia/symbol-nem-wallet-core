@@ -22,3 +22,34 @@ Mnemonic validation、HD derivation、signing、duplicate detectionをBindingへ
 - Coreの安定error codeだけを返し、秘密情報をerrorまたはwarningへ含めない。
 - WASMの一時入力とNativeの出力解放では、秘密byte列が長く残らないようzeroize対応を行う。
 - Nativeの入力は借用、出力は明示的に解放する。WASMの戻り値はJavaScript側が所有するコピーである。
+
+## WASM / Browser security contract
+
+WASMはJavaScriptと同じexecution context内で動作するため、JavaScriptから秘密情報を隔離する
+security boundaryではない。Rust側の`zeroize`はCoreが所有する一時bufferに適用されるが、
+呼び出し側のJavaScript `Uint8Array`、WASM glue codeまたはruntimeが保持するコピーを自動的に
+消去するものではない。
+
+同じJavaScript execution contextがXSSまたは悪意あるextensionに奪われた場合、攻撃者はWASM
+APIを呼び出せる。WebページのJavaScriptへWallet Coreを直接公開する設計は推奨せず、Browser
+Extensionでは可能な限りpage contextから分離されたbackground / extension contextでCoreを
+管理する。
+
+`sign()`はTransaction内容を解釈しないraw byte列への署名primitiveである。Transaction parsing、
+human-readable確認、署名承認UIおよび権限管理は呼び出し側の責務であり、Coreはこれらを提供しない。
+`export_mnemonic`と`export_private_key`は明示的な秘密情報exportであり、通常の署名処理では
+使用しない。秘密情報をJavaScript `string`へ変換すると明示的zeroizeが困難になるため、入力は
+可能な限り`Uint8Array`で扱う。
+
+## Native C ABI safety contract
+
+- `SnwcBytes`は呼び出し側が所有するborrowed inputであり、`len == 0`なら`ptr == NULL`を許容する。
+  `len != 0`では、呼び出し中に有効で読み取り可能なbufferを渡さなければならない。
+- output pointerはNULLを許容せず、NULLなら`InvalidArgument`を返す。呼び出し側はoutput構造体を
+  初期化し、既存のowned bufferをfreeしてから再利用する。
+- エラー時は既存のcaller-owned outputを上書きせず、途中生成したowned bufferはBinding側で
+  解放する。panicはC ABIを越えず、安定したerror codeへ変換する。
+- 成功した`SnwcOwnedBytes`、warning配列、Profile一覧、Software Key一覧は、対応する
+  `snwc_free_*`を一度だけ呼び出して解放する。`snwc_free_bytes`は内容をzeroizeしてから解放する。
+- free APIへ任意のpointerや不整合なlengthを渡すことは未定義であり、BindingはC callerの完全に
+  不正なpointerを安全化するAPIではない。

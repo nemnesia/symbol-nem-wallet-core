@@ -153,6 +153,17 @@ fn generated_private_key_retries_invalid_candidates_and_propagates_random_failur
 }
 
 #[test]
+fn random_source_failure_uses_zeroizing_output_owner() {
+    // 乱数源が部分書込み後に失敗しても、random_withの所有bufferがzeroize対象になる。
+    let error = random_with::<32, _>(|bytes| {
+        bytes.fill(0xA5);
+        Err(WalletError::new(ErrorCode::RandomSourceFailure))
+    })
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::RandomSourceFailure);
+}
+
+#[test]
 fn hd_derivation_matches_fixed_sdk_fixture_for_all_v1_networks() {
     let mnemonic = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
     let (entropy, _) = parse_mnemonic(mnemonic).unwrap();

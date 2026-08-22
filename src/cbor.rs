@@ -14,8 +14,33 @@ use zeroize::Zeroize;
 
 // Wallet Store v1の固定schemaに必要な深さ・要素数を十分に上回る、parserの資源上限。
 // 入力長を超える配列・mapは個数だけでのcapacity確保を行わず、先に拒否する。
-const MAX_NESTING_DEPTH: usize = 32;
-const MAX_COLLECTION_ELEMENTS: usize = 65_536;
+pub(crate) const MAX_NESTING_DEPTH: usize = 32;
+pub(crate) const MAX_COLLECTION_ELEMENTS: usize = 256;
+pub(crate) const MAX_BYTE_OR_TEXT_LENGTH: usize = 1024 * 1024;
+pub(crate) const MAX_WALLET_STORE_INPUT: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_PROFILE_PAYLOAD_INPUT: usize = 1024 * 1024;
+
+#[derive(Clone, Copy)]
+pub(crate) struct DecodeLimits {
+    pub(crate) max_input_bytes: usize,
+    pub(crate) max_byte_or_text_length: usize,
+    pub(crate) max_collection_elements: usize,
+    pub(crate) max_nesting_depth: usize,
+}
+
+pub(crate) const WALLET_STORE_LIMITS: DecodeLimits = DecodeLimits {
+    max_input_bytes: MAX_WALLET_STORE_INPUT,
+    max_byte_or_text_length: MAX_BYTE_OR_TEXT_LENGTH,
+    max_collection_elements: MAX_COLLECTION_ELEMENTS,
+    max_nesting_depth: MAX_NESTING_DEPTH,
+};
+
+pub(crate) const PROFILE_PAYLOAD_LIMITS: DecodeLimits = DecodeLimits {
+    max_input_bytes: MAX_PROFILE_PAYLOAD_INPUT,
+    max_byte_or_text_length: MAX_BYTE_OR_TEXT_LENGTH,
+    max_collection_elements: MAX_COLLECTION_ELEMENTS,
+    max_nesting_depth: MAX_NESTING_DEPTH,
+};
 
 /// deterministic CBORの内部表現。
 ///
@@ -65,13 +90,22 @@ impl fmt::Display for CborError {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn decode(input: &[u8]) -> Result<Value, CborError> {
+    decode_with_limits(input, WALLET_STORE_LIMITS)
+}
+
+pub(crate) fn decode_with_limits(input: &[u8], limits: DecodeLimits) -> Result<Value, CborError> {
+    if input.len() > limits.max_input_bytes {
+        return Err(CborError);
+    }
     // ルートを1つだけ読み、後続byteがあれば不正なtrailing dataとして拒否する。
     // Parser内で深さ、collection長、map順序、integer最短表現も検証する。
     let mut parser = Parser {
         input,
         offset: 0,
         depth: 0,
+        limits,
     };
     let value = parser.value()?;
     if parser.offset != input.len() {
@@ -187,6 +221,7 @@ struct Parser<'a> {
     input: &'a [u8],
     offset: usize,
     depth: usize,
+    limits: DecodeLimits,
 }
 
 impl<'a> Parser<'a> {
@@ -200,7 +235,7 @@ impl<'a> Parser<'a> {
 
     fn value(&mut self) -> Result<Value, CborError> {
         // ネスト上限を先に確認し、悪意ある入力による再帰・stack消費を抑える。
-        if self.depth >= MAX_NESTING_DEPTH {
+        if self.depth >= self.limits.max_nesting_depth {
             return Err(CborError);
         }
         self.depth += 1;
@@ -220,10 +255,16 @@ impl<'a> Parser<'a> {
             1 => Ok(Value::Negative(self.argument(additional)?)),
             2 => {
                 let length = self.length(additional)?;
+                if length > self.limits.max_byte_or_text_length {
+                    return Err(CborError);
+                }
                 Ok(Value::Bytes(self.take(length)?.to_vec()))
             }
             3 => {
                 let length = self.length(additional)?;
+                if length > self.limits.max_byte_or_text_length {
+                    return Err(CborError);
+                }
                 let text = core::str::from_utf8(self.take(length)?).map_err(|_| CborError)?;
                 Ok(Value::Text(text.to_owned()))
             }
@@ -317,7 +358,7 @@ impl<'a> Parser<'a> {
         } else {
             self.input.len().saturating_sub(self.offset)
         };
-        if length > MAX_COLLECTION_ELEMENTS || length > remaining_item_capacity {
+        if length > self.limits.max_collection_elements || length > remaining_item_capacity {
             return Err(CborError);
         }
         Ok(length)

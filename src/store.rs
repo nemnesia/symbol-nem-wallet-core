@@ -27,13 +27,18 @@ const STORE_VERSION: u64 = 1;
 const PROFILE_SCHEMA_VERSION: u64 = 1;
 const KDF_ALGORITHM: u64 = 0;
 const CIPHER_ALGORITHM: u64 = 0;
+pub(crate) const MAX_WALLET_STORE_BYTES: usize = cbor::MAX_WALLET_STORE_INPUT;
+pub(crate) const MAX_PROFILES: usize = 128;
+pub(crate) const MAX_SOFTWARE_KEYS_PER_PROFILE: usize = 256;
+pub(crate) const MAX_PROFILE_CIPHERTEXT_BYTES: usize = cbor::MAX_BYTE_OR_TEXT_LENGTH;
 // Pending ProfileはWallet Storeのwire formatではないため、専用のmagic/versionを持つ。
 const PENDING_MAGIC: [u8; 8] = *b"SNWCPND1";
 const PENDING_VERSION: u8 = 1;
 
 #[derive(Clone)]
 struct WalletStore {
-    // Store単位の秘密。Profile重複tagのdomain separationに使用する。
+    // Store blobから秘匿される秘密ではなく、Profile重複tagのdomain separationと
+    // integrity contextに使うStore固有値。平文manifestの一部として保存する。
     registry_key: [u8; 32],
     // 一覧処理とProfile単位のmutationが対象にする順序付きenvelope。
     profiles: Vec<ProfileEnvelope>,
@@ -576,6 +581,28 @@ pub fn generate_software_key(
     password_utf8: &[u8],
     chain: Chain,
 ) -> WalletResult<MutationResult<SoftwareKeyInfo>> {
+    generate_software_key_with(
+        store,
+        profile_id,
+        password_utf8,
+        chain,
+        crypto::generate_private_key,
+        encode_store,
+    )
+}
+
+fn generate_software_key_with<F, G>(
+    store: &[u8],
+    profile_id: Uuid,
+    password_utf8: &[u8],
+    chain: Chain,
+    mut generate_private_key: F,
+    save_store: G,
+) -> WalletResult<MutationResult<SoftwareKeyInfo>>
+where
+    F: FnMut(Chain) -> WalletResult<[u8; 32]>,
+    G: Fn(&WalletStore) -> WalletResult<Vec<u8>>,
+{
     let (mut wallet, mut warnings) = decode_store(store)?;
     let profile_index = profile_index(&wallet, &profile_id.into_bytes())?;
     let payload = authenticate_profile(
@@ -584,7 +611,7 @@ pub fn generate_software_key(
         password_utf8,
         &mut warnings,
     )?;
-    let private_key = zeroize::Zeroizing::new(crypto::generate_private_key(chain)?);
+    let private_key = zeroize::Zeroizing::new(generate_private_key(chain)?);
     ensure_not_duplicate(&payload, chain, &private_key)?;
     let key_id = new_key_id(&payload)?;
     let mut updated = payload;
@@ -603,7 +630,7 @@ pub fn generate_software_key(
     };
     reencrypt_profile(&mut wallet, profile_index, &updated, password_utf8, false)?;
     Ok(MutationResult {
-        store: encode_store(&wallet)?,
+        store: save_store(&wallet)?,
         value: info,
         warnings,
     })
@@ -789,8 +816,13 @@ pub fn delete_profile(
 
 // StoreとProfileの構造不正は、部分的に読み飛ばさずStore全体を拒否する。
 fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)> {
+    // parserがCBOR Valueを作る前にStore全体の入力上限を確認する。
+    if bytes.len() > MAX_WALLET_STORE_BYTES {
+        return Err(WalletError::new(ErrorCode::InvalidStore));
+    }
     // CBOR parserがcanonical表現、map key、深さ、trailing bytesを先に検証する。
-    let value = cbor::decode(bytes).map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
+    let value = cbor::decode_with_limits(bytes, cbor::WALLET_STORE_LIMITS)
+        .map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
     let map = as_map(&value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     // top-levelのmagic/versionを確認してから、v1の各fieldを解釈する。
     let magic = fixed_bytes(map_value(map, 0), 4)
@@ -813,6 +845,9 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
         Value::Array(values) => values,
         _ => return Err(WalletError::new(ErrorCode::InvalidStore)),
     };
+    if profiles_array.len() > MAX_PROFILES {
+        return Err(WalletError::new(ErrorCode::InvalidStore));
+    }
 
     // profilesはwire上の狭義昇順を要求する。重複IDや順序違反を子要素のskipで
     // 解消せず、Store全体を不正として扱う。
@@ -859,6 +894,9 @@ fn parse_profile(value: &Value) -> WalletResult<ProfileEnvelope> {
     let index_values = map_value(map, 6)
         .and_then(as_array)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    if index_values.len() > MAX_SOFTWARE_KEYS_PER_PROFILE {
+        return Err(WalletError::new(ErrorCode::InvalidStore));
+    }
     // AADの再現にはlogical indexではなく、受信したwire値のcloneが必要になる。
     let aad_software_key_index = index_values.to_vec();
     let mut software_key_index = Vec::with_capacity(index_values.len());
@@ -915,7 +953,7 @@ fn parse_cipher(value: Option<&Value>) -> WalletResult<Ciphertext> {
     let nonce = fixed_bytes(map_value(map, 1), 12)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let ciphertext = match map_value(map, 2) {
-        Some(Value::Bytes(value)) => value.clone(),
+        Some(Value::Bytes(value)) if value.len() <= MAX_PROFILE_CIPHERTEXT_BYTES => value.clone(),
         _ => return Err(WalletError::new(ErrorCode::InvalidStore)),
     };
     let tag = fixed_bytes(map_value(map, 3), 16)
@@ -941,7 +979,8 @@ fn parse_index_entry(value: &Value) -> WalletResult<IndexEntry> {
 // 認証済みciphertextを復号した後にだけ呼び出し、payload内の子Keyを解釈する。
 fn parse_payload(bytes: &[u8]) -> WalletResult<ProfilePayload> {
     // この関数はAEAD認証が完了したplaintextに対してだけ呼び出す。
-    let value = cbor::decode(bytes).map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
+    let value = cbor::decode_with_limits(bytes, cbor::PROFILE_PAYLOAD_LIMITS)
+        .map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
     let map = as_map(&value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let mnemonic_entropy = zeroize::Zeroizing::new(
         fixed_bytes(map_value(map, 0), 32)
@@ -950,6 +989,9 @@ fn parse_payload(bytes: &[u8]) -> WalletResult<ProfilePayload> {
     let values = map_value(map, 1)
         .and_then(as_array)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    if values.len() > MAX_SOFTWARE_KEYS_PER_PROFILE {
+        return Err(WalletError::new(ErrorCode::InvalidStore));
+    }
     let mut software_keys = Vec::with_capacity(values.len());
     for value in values {
         let record = parse_key_record(value)?;
@@ -1177,6 +1219,9 @@ fn profile_aad_from_parts(
 // 保存時はProfileとpayload内のkeyをbytewise昇順へ正規化する。
 // 既知fieldだけを再構築し、未知fieldは意味解釈せずwire値を保持する。
 fn encode_store(wallet: &WalletStore) -> WalletResult<Vec<u8>> {
+    if wallet.profiles.len() > MAX_PROFILES {
+        return Err(WalletError::new(ErrorCode::SerializationFailure));
+    }
     // cloneはwire値を再構築するためのものであり、秘密payloadを意味解釈するためではない。
     let mut profiles = wallet.profiles.clone();
     profiles.sort_by_key(|profile| profile.profile_id);
@@ -1195,7 +1240,12 @@ fn encode_store(wallet: &WalletStore) -> WalletResult<Vec<u8>> {
             .iter()
             .map(|(key, value)| (*key, value.clone())),
     );
-    cbor::encode(&Value::Map(fields)).map_err(|_| WalletError::new(ErrorCode::SerializationFailure))
+    let encoded = cbor::encode(&Value::Map(fields))
+        .map_err(|_| WalletError::new(ErrorCode::SerializationFailure))?;
+    if encoded.len() > MAX_WALLET_STORE_BYTES {
+        return Err(WalletError::new(ErrorCode::SerializationFailure));
+    }
+    Ok(encoded)
 }
 
 fn profile_to_value(profile: &ProfileEnvelope) -> Value {
@@ -1219,6 +1269,9 @@ fn profile_to_value(profile: &ProfileEnvelope) -> Value {
 
 // payloadの保存順序はkey_idのbytewise昇順とし、登録順に意味を持たせない。
 fn encode_payload(payload: &ProfilePayload) -> WalletResult<Vec<u8>> {
+    if payload.software_keys.len() > MAX_SOFTWARE_KEYS_PER_PROFILE {
+        return Err(WalletError::new(ErrorCode::SerializationFailure));
+    }
     // KeyRecord本体はcloneせず、参照の並べ替えだけでdeterministicな配列を作る。
     // 秘密鍵を含むKeyRecord自体はcloneせず、参照だけを保存順に並べ替える。
     let mut keys = payload.software_keys.iter().collect::<Vec<_>>();
