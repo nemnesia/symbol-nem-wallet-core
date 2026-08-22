@@ -47,6 +47,37 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         assert!(snwc_create_empty_store(&mut empty).is_null());
         let store = take_bytes(empty);
 
+        // 失敗時は既存のowned出力を上書きせず、callerがそのまま解放できる。
+        let mut sentinel_store = SnwcOwnedBytes {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(snwc_create_empty_store(&mut sentinel_store).is_null());
+        let sentinel_ptr = sentinel_store.ptr;
+        let sentinel_len = sentinel_store.len;
+        let mut sentinel_profile = SnwcProfileInfo::default();
+        let mut sentinel_warnings = SnwcWarnings {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        let error = snwc_restore_profile(
+            borrowed(&store),
+            borrowed(b"not a mnemonic"),
+            borrowed(PASSWORD),
+            1,
+            &mut sentinel_store,
+            &mut sentinel_profile,
+            &mut sentinel_warnings,
+        );
+        assert_eq!(
+            std::ffi::CStr::from_ptr(error).to_str().unwrap(),
+            "InvalidMnemonic"
+        );
+        assert_eq!(sentinel_store.ptr, sentinel_ptr);
+        assert_eq!(sentinel_store.len, sentinel_len);
+        snwc_free_bytes(sentinel_store);
+        snwc_free_warnings(sentinel_warnings);
+
         let mut invalid_store = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
             len: 0,
@@ -160,6 +191,78 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         snwc_free_warnings(derive_warnings);
         let store = take_bytes(derived_store);
         let key_id = SnwcUuid { bytes: key.key_id };
+
+        // NEMのChain依存導出・署名も同じCore fixtureと一致する。
+        let mut nem_derived_store = SnwcOwnedBytes {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        let mut nem_key = SnwcSoftwareKeyInfo::default();
+        let mut nem_warnings = SnwcWarnings {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(snwc_derive_software_key(
+            borrowed(&store),
+            profile_id,
+            borrowed(PASSWORD),
+            0,
+            0,
+            &mut nem_derived_store,
+            &mut nem_key,
+            &mut nem_warnings,
+        )
+        .is_null());
+        snwc_free_warnings(nem_warnings);
+        let nem_store = take_bytes(nem_derived_store);
+        let nem_key_id = SnwcUuid {
+            bytes: nem_key.key_id,
+        };
+        assert_eq!(nem_key.chain, 0);
+        assert_eq!(nem_key.origin, 0);
+        let core_nem = symbol_nem_wallet_core::derive_software_key(
+            &store,
+            uuid::Uuid::from_bytes(profile_id.bytes),
+            PASSWORD,
+            symbol_nem_wallet_core::Chain::Nem,
+            0,
+        )
+        .unwrap();
+        assert_eq!(nem_key.origin, 0);
+        assert_eq!(core_nem.value.chain, symbol_nem_wallet_core::Chain::Nem);
+
+        let mut nem_signature = SnwcOwnedBytes {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        let mut nem_sign_warnings = SnwcWarnings {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(snwc_sign(
+            borrowed(&nem_store),
+            profile_id,
+            nem_key_id,
+            borrowed(PASSWORD),
+            borrowed(b"payload"),
+            &mut nem_signature,
+            &mut nem_sign_warnings,
+        )
+        .is_null());
+        assert_eq!(
+            take_bytes(nem_signature),
+            symbol_nem_wallet_core::sign(
+                &nem_store,
+                uuid::Uuid::from_bytes(profile_id.bytes),
+                uuid::Uuid::from_bytes(nem_key_id.bytes),
+                PASSWORD,
+                b"payload",
+            )
+            .unwrap()
+            .value
+            .signature
+        );
+        snwc_free_warnings(nem_sign_warnings);
 
         let mut listed_keys: *mut SnwcSoftwareKeyListItem = ptr::null_mut();
         let mut key_len = 0;

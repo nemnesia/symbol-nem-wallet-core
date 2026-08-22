@@ -184,11 +184,11 @@ pub fn prepare_generated_profile(
     password_utf8: &[u8],
     network: Network,
 ) -> WalletResult<ReadResult<PreparedProfile>> {
-    let (_, warnings) = decode_store(store)?;
+    let (wallet, warnings) = decode_store(store)?;
     crypto::validate_password(password_utf8)?;
     let entropy = zeroize::Zeroizing::new(crypto::random::<32>()?);
     let mnemonic_utf8 = zeroize::Zeroizing::new(crypto::mnemonic_from_entropy(&entropy)?);
-    let profile_id = crypto::random_uuid()?.into_bytes();
+    let profile_id = new_profile_id(&wallet)?;
     let pending_profile = make_pending(store, &profile_id, network, &entropy, password_utf8)?;
     Ok(ReadResult {
         value: PreparedProfile {
@@ -1405,9 +1405,16 @@ fn ensure_not_duplicate(
 }
 
 fn new_profile_id(wallet: &WalletStore) -> WalletResult<[u8; 16]> {
+    new_profile_id_with(wallet, crypto::random::<16>)
+}
+
+fn new_profile_id_with<F>(wallet: &WalletStore, mut random_id: F) -> WalletResult<[u8; 16]>
+where
+    F: FnMut() -> WalletResult<[u8; 16]>,
+{
     // CSPRNGで生成し、Store内の既存IDとの衝突時だけ再試行する。
     loop {
-        let id = crypto::random::<16>()?;
+        let id = random_id()?;
         if !wallet
             .profiles
             .iter()

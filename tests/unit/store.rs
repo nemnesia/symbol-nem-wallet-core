@@ -269,6 +269,49 @@ fn replace_duplicate_tag_with_authenticated_value(store: &[u8]) -> Vec<u8> {
     encode_store(&wallet).unwrap()
 }
 
+fn replace_index_chain_with_authenticated_value(store: &[u8]) -> Vec<u8> {
+    // indexのchainだけをpayloadと異なる値へ変更し、AADも再計算して
+    // 認証後の意味検証が必要な状態を作る。
+    let (mut wallet, _) = decode_store(store).unwrap();
+    let profile = wallet.profiles.first().unwrap();
+    let key = crypto::derive_encryption_key(PASSWORD, &profile.kdf.salt).unwrap();
+    let aad = profile_aad(&wallet, profile).unwrap();
+    let plaintext = zeroize::Zeroizing::new(
+        crypto::decrypt(
+            &key,
+            &profile.cipher.nonce,
+            &profile.cipher.tag,
+            &aad,
+            &profile.cipher.ciphertext,
+        )
+        .unwrap(),
+    );
+
+    let profile = wallet.profiles.first_mut().unwrap();
+    assert_eq!(profile.software_key_index.len(), 1);
+    profile.software_key_index[0].chain = Chain::Nem;
+    match profile.aad_software_key_index.first_mut().unwrap() {
+        Value::Map(entries) => {
+            *map_value_mut(entries, 1) = Value::UInt(Chain::Nem.wire());
+        }
+        _ => panic!("テストfixtureのindex entryがmapではありません"),
+    }
+    let profile = wallet.profiles.first().unwrap();
+    let new_aad = profile_aad(&wallet, profile).unwrap();
+    let (ciphertext, tag) =
+        crypto::encrypt(&key, &profile.cipher.nonce, &new_aad, &plaintext).unwrap();
+    let profile = wallet.profiles.first_mut().unwrap();
+    profile.cipher.ciphertext = ciphertext;
+    profile.cipher.tag = tag;
+    encode_store(&wallet).unwrap()
+}
+
+fn wallet_with_one_profile() -> (Vec<u8>, Uuid) {
+    let store = create_empty_store().unwrap();
+    let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
+    (restored.store, restored.value.profile_id)
+}
+
 #[test]
 fn malformed_profiles_and_unknown_enums_are_fatal_store_errors() {
     // 不正な子要素や未知enumをskipせず、Store全体をInvalidStoreとして拒否する。
@@ -320,6 +363,55 @@ fn malformed_profiles_and_unknown_enums_are_fatal_store_errors() {
         ErrorCode::AuthenticationFailed
     );
     assert_eq!(restored.store, before);
+}
+
+#[test]
+fn authenticated_semantic_mismatch_and_aad_tamper_are_atomic() {
+    let (restored_store, profile_id) = wallet_with_one_profile();
+    let before = restored_store.clone();
+
+    let duplicate_tag_mismatch = replace_duplicate_tag_with_authenticated_value(&restored_store);
+    let before_duplicate_tag_mismatch = duplicate_tag_mismatch.clone();
+    let error = export_mnemonic(&duplicate_tag_mismatch, profile_id, PASSWORD).unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidStore);
+    assert_eq!(duplicate_tag_mismatch, before_duplicate_tag_mismatch);
+    assert_eq!(restored_store, before);
+
+    let derived =
+        derive_software_key(&restored_store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
+    let mismatch = replace_index_chain_with_authenticated_value(&derived.store);
+    let before_mismatch = mismatch.clone();
+    let error =
+        export_private_key(&mismatch, profile_id, derived.value.key_id, PASSWORD).unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidStore);
+    assert_eq!(mismatch, before_mismatch);
+
+    let mut registry_tampered = cbor::decode(&restored_store).unwrap();
+    let map = match &mut registry_tampered {
+        Value::Map(entries) => entries,
+        _ => unreachable!(),
+    };
+    match map_value_mut(map, 2) {
+        Value::Bytes(bytes) => bytes[0] ^= 1,
+        _ => unreachable!(),
+    }
+    let registry_tampered = cbor::encode(&registry_tampered).unwrap();
+    let error = export_mnemonic(&registry_tampered, profile_id, PASSWORD).unwrap_err();
+    assert_eq!(error.code, ErrorCode::AuthenticationFailed);
+}
+
+#[test]
+fn generated_profile_id_retries_after_store_collision() {
+    let (store, existing_id) = wallet_with_one_profile();
+    let (wallet, _) = decode_store(&store).unwrap();
+    let mut candidates = [existing_id.into_bytes(), [0xA5; 16]].into_iter();
+    let selected = new_profile_id_with(&wallet, || {
+        Ok(candidates
+            .next()
+            .expect("test candidate sequence exhausted"))
+    })
+    .unwrap();
+    assert_eq!(selected, [0xA5; 16]);
 }
 
 #[test]
@@ -633,5 +725,44 @@ fn fixed_aad_and_duplicate_tag_fixture_values() {
     assert_eq!(
         duplicate,
         bytes::<32>("9F23CC1A769817319576D8889072BB9AC635A1F1A1CC5EB086DF720CCF5D002A")
+    );
+}
+
+#[test]
+fn deterministic_manifest_with_multiple_keys_has_fixed_aad_bytes() {
+    // 空indexだけでなく、複数keyのmanifestもwire順序に依存せず固定化する。
+    let registry_key = [0u8; 32];
+    let mut profile = ProfileEnvelope {
+        profile_id: [1; 16],
+        network: Network::Mainnet,
+        duplicate_tag: [2; 32],
+        kdf: KdfParams {
+            salt: [3; 16],
+            unknown_fields: Vec::new(),
+        },
+        cipher: Ciphertext {
+            nonce: [4; 12],
+            ciphertext: vec![5, 6, 7],
+            tag: [8; 16],
+            unknown_fields: Vec::new(),
+        },
+        software_key_index: vec![
+            IndexEntry {
+                key_id: [1; 16],
+                chain: Chain::Nem,
+            },
+            IndexEntry {
+                key_id: [2; 16],
+                chain: Chain::Symbol,
+            },
+        ],
+        aad_software_key_index: Vec::new(),
+        unknown_fields: Vec::new(),
+    };
+    profile.aad_software_key_index = index_to_values(&profile.software_key_index);
+    let aad = profile_aad_from_parts(&registry_key, &profile).unwrap();
+    assert_eq!(
+        hex::encode(aad.as_slice()),
+        "8a44534e574301582000000000000000000000000000000000000000000000000000000000000000005001010101010101010101010101010101015820020202020202020202020202020202020202020202020202020202020202020201000082a20050010101010101010101010101010101010100a20050020202020202020202020202020202020101"
     );
 }

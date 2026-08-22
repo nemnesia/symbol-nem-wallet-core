@@ -15,13 +15,12 @@ use aes_gcm::{
 };
 use argon2::{Algorithm, Argon2, Params, Version};
 use bip39::{Language, Mnemonic};
-use curve25519_dalek::{constants::ED25519_BASEPOINT_POINT, scalar::Scalar};
+use curve25519_dalek::{edwards::EdwardsPoint, scalar::Scalar};
 use hmac::{Hmac, Mac};
 use ripemd::Ripemd160;
 use sha2::{Digest as Sha2Digest, Sha256, Sha512};
 use sha3::{Keccak256, Keccak512, Sha3_256};
 use unicode_normalization::UnicodeNormalization;
-use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
@@ -47,11 +46,6 @@ pub(crate) fn random<const N: usize>() -> WalletResult<[u8; N]> {
     let mut bytes = [0u8; N];
     getrandom::fill(&mut bytes).map_err(|_| WalletError::new(ErrorCode::RandomSourceFailure))?;
     Ok(bytes)
-}
-
-pub(crate) fn random_uuid() -> WalletResult<Uuid> {
-    // UUIDは秘密値や公開情報から導出せず、Store内の識別子として独立生成する。
-    Ok(Uuid::from_bytes(random()?))
 }
 
 pub(crate) fn validate_password(password: &[u8]) -> WalletResult<()> {
@@ -207,7 +201,8 @@ pub(crate) fn sign(chain: Chain, private_key: &[u8; 32], message: &[u8]) -> Wall
     prefix.zeroize();
     let mut nonce = Scalar::from_bytes_mod_order_wide(&nonce_hash);
     nonce_hash.zeroize();
-    let encoded_r = (ED25519_BASEPOINT_POINT * nonce).compress().to_bytes();
+    // 参照を受け取る固定basepoint APIを使い、Copy型のScalarをowned引数へ渡さない。
+    let encoded_r = EdwardsPoint::mul_base(&nonce).compress().to_bytes();
 
     let mut challenge_data = Vec::with_capacity(32 + 32 + message.len());
     challenge_data.extend_from_slice(&encoded_r);
@@ -314,7 +309,8 @@ fn key_material(chain: Chain, private_key: &[u8; 32]) -> WalletResult<([u8; 32],
     prefix.copy_from_slice(&digest[32..]);
     digest.zeroize();
     seed.zeroize();
-    let public_key = (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes();
+    // 参照を受け取る固定basepoint APIを使い、secret Scalarのby-valueコピーを作らない。
+    let public_key = EdwardsPoint::mul_base(&scalar).compress().to_bytes();
     scalar.zeroize();
     Ok((public_key, prefix))
 }
