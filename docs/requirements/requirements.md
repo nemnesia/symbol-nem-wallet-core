@@ -23,7 +23,7 @@ Web には Web Application および Browser Extension を含む。Desktop / Mob
 
 ### 1.3 本書で決定しない事項
 
-API、型、保存レコード構造、暗号方式、KDF、salt / nonce、具体的な HD 導出パス値、FFI / WASM 実装、メモリ配置、zeroize 方法、対象 OS / Browser バージョン等は仕様設計またはリリース要件で決定する。
+API、型、保存レコード構造、暗号方式、KDF、salt / nonce、具体的な HD 導出パス値、FFI / WASM 実装、メモリ配置、zeroize 方法、対象 OS / Browser バージョン等は本要件書では詳細を定めず、仕様設計またはリリース要件で決定する。v1 の Native / WASM Binding 方式は対応する decision と仕様書で固定する。
 
 ---
 
@@ -48,7 +48,7 @@ Profile
 - Imported Software Key は外部秘密鍵を既存 Profile へ取り込む。
 - Generated Software Key は Core が独立生成し既存 Profile へ追加する。
 - Imported / Generated Software Key だけで Profile を作成できない。
-- 同一 Mnemonic + 同一 Network の Profile 重複登録を拒否する。同一 Mnemonic + 異なる Network は別 Profile として許可する。
+- Core が生成・維持する、本要件・仕様に適合した整合した Store では、同一 Mnemonic + 同一 Network の Profile 重複登録を拒否する。同一 Mnemonic + 異なる Network は別 Profile として許可する。
 - 同一 Profile 内かつ同一 Chain で、同一秘密鍵に対応する Software Key を由来をまたいで重複登録しない。異なる Chain では同一秘密鍵に対応する Software Key を別 Software Key として許可する。
 
 ### 2.2 Binding と Core
@@ -119,7 +119,7 @@ v1 の Symbol / NEM における秘密鍵・公開鍵の対応、アドレス生
 
 HD Wallet は v1 対象とするが、具体的な Mnemonic 方式、seed 生成方式、導出パス、index 表現は本要件書で固定しない。
 
-`symbol-sdk` 3.3.2 は Symbol / NEM の鍵・アドレス・署名結果の互換性検証基準として使用する。HD 導出パスそのものを `symbol-sdk` が規定しているとは扱わず、既存 Symbol / NEM Wallet との復元互換性を損なわない具体方式を仕様設計で固定する。
+`symbol-sdk` 3.3.2 は Symbol / NEM の鍵・アドレス・署名結果の互換性検証基準として使用する。HD 導出パスそのものを `symbol-sdk` が規定しているとは扱わず、v1 の HD 復元互換性は仕様で固定した導出規則および deterministic fixture との一致を受入基準とする。特定の既存 Symbol / NEM Wallet 製品との包括的互換性は保証せず、名称、version または commit、入力、期待値および fixture を明示した場合に限り、その fixture の範囲で保証対象とする。
 
 ---
 
@@ -191,7 +191,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | FR-014 | MUST | Mnemonic 生成、秘密鍵導出、暗号化を含む Profile / Software Key 管理を Symbol / NEM で共通管理方針として扱うこと。 |
 | FR-015 | MUST | Profile 作成時に Mainnet / Testnet を必須指定し保存すること。 |
 | FR-016 | MUST | Profile の Network を作成後変更できないこと。 |
-| FR-017 | MUST | 同一 Mnemonic + 同一 Network の Profile 重複登録を拒否し、異なる Network なら別 Profile を許可すること。 |
+| FR-017 | MUST | Core が生成・維持する、本要件・仕様に適合した整合した Store を対象として、同一 Mnemonic + 同一 Network の Profile 重複登録を拒否し、異なる Network なら別 Profile を許可すること。 |
 | FR-018 | MUST | 同一 Profile 内かつ同一 Chain で同一秘密鍵に対応する Software Key の重複登録を由来をまたいで拒否すること。異なる Chain では同一秘密鍵に対応する Software Key を別 Software Key として許可すること。 |
 | FR-019 | MUST | Native / WASM Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除、Mnemonic の個別エクスポート、Software Key 秘密鍵の個別エクスポートを利用できること。新規Profile作成は初回バックアップ受渡しの完了を条件とし、Profile 全体の一括バックアップ・復旧は含めないこと。 |
 | FR-020 | MUST | Profile 作成・パスワード変更で未指定・空・Core 内部既定値の Profile パスワードを拒否すること。パスワード品質条件は上位 Application / Package の責任とし、Core は独自に要求しないこと。 |
@@ -253,7 +253,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | DR-005 | MUST | Profile は固定 Network を持ち Chain には固定されず、各 Software Key の指定 Chain / Network に対応する公開情報・署名結果を扱うこと。 |
 | DR-006 | MUST | Profile 重複は Mnemonic + Network の組み合わせで判定すること。 |
 | DR-007 | MUST | 同一 Profile 内かつ同一 Chain では同一秘密鍵を重複管理しないこと。異なる Chain では同一秘密鍵を別 Software Key として管理できること。 |
-| DR-008 | MUST | Symbol / NEM の秘密鍵・公開鍵、アドレス、署名および Network 処理結果は `symbol-sdk` 3.3.2 と互換であること。HD Wallet の具体的導出方式は既存 Wallet の復元互換性を維持する形で仕様設計に固定すること。 |
+| DR-008 | MUST | Symbol / NEM の秘密鍵・公開鍵、アドレス、署名および Network 処理結果は `symbol-sdk` 3.3.2 と互換であること。HD Wallet の復元互換性は、本仕様で固定した導出規則および deterministic fixture との一致を受入基準とすること。特定の既存 Wallet 製品との包括的互換性は v1 の保証対象とせず、名称、version または commit、入力、期待値および fixture を明示した場合に限り、その fixture の範囲で保証すること。 |
 
 ---
 
@@ -278,7 +278,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | AC-015 | NFR-001, NFR-002 | Desktop / Mobile / Web から Binding 経由で共通 Core を利用でき、Core と Application の責任を区別できる。 |
 | AC-016 | NFR-003 | Core、Binding、Application、上位 Package の秘密情報・パスワード責任を第三者が説明できる。 |
 | AC-017 | SEC-004 | 破損・認証失敗データで秘密情報処理が成功しない。 |
-| AC-018 | FR-001, FR-017, DR-006 | 存在するProfileについては同一 Mnemonic + 同一 Network を重複作成せず、異なる Network は別 Profile として作成できる。Profile削除後に利用者が保持する同一Mnemonic + 同一Networkから新しいProfileを作成することは、削除済みCoreデータの再利用ではないため許可する。 |
+| AC-018 | FR-001, FR-017, DR-006 | Core が生成・維持する、本要件・仕様に適合した整合した Store では、候補 Mnemonic + Network から算出した `duplicate_tag` により同一 Mnemonic + 同一 Network の重複作成を拒否し、異なる Network は別 Profile として作成できる。新規作成・復元時は既存 Profile を password なしで復号して意味的一致を事前検証せず、既存の平文 `duplicate_tag` が一致しないことだけを理由に拒否しない。認証・復号後に意味的不一致を検出した場合は `InvalidStore` とする。Profile削除後に利用者が保持する同一Mnemonic + 同一Networkから新しいProfileを作成することは、削除済みCoreデータの再利用ではないため許可する。 |
 | AC-019 | FR-016, DR-005 | Profile Network を作成後変更できない。 |
 | AC-020 | FR-018, DR-007 | 同一 Profile・同一 Chain では同一秘密鍵を別由来または再導出で重複登録しない。異なる Chain では同一秘密鍵を異なる Software Key として登録できる。 |
 | AC-021 | FR-019, NFR-001 | Desktop Native Binding から v1 主要機能を利用できる。 |
@@ -293,7 +293,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | AC-030 | SEC-013 | パスワード紛失時に復旧・リセット、秘密情報処理、パスワード変更、削除が成功しない。 |
 | AC-031 | SEC-014 | Binding / Application の要求だけでは認可できず、Core が正しい Profile パスワードを認可する。 |
 | AC-032 | SEC-015 | 初回 Mnemonic バックアップおよび明示的な個別エクスポートの成功結果を除き、外部出力・診断へ秘密情報または復元可能表現を含めない。エクスポートの失敗結果・診断出力には含めない。 |
-| AC-033 | DR-008 | Symbol / NEM の鍵・公開鍵・アドレス・署名・Network の互換性を `symbol-sdk` 3.3.2 と比較して判定できる。HD 導出方式は仕様で固定した互換ベクタにより判定する。 |
+| AC-033 | DR-008 | Symbol / NEM の鍵・公開鍵・アドレス・署名・Network の互換性を `symbol-sdk` 3.3.2 と比較して判定できる。HD 復元互換性は仕様で固定した導出規則および deterministic fixture により判定する。特定の既存 Wallet 製品との互換性は、名称、version または commit、入力、期待値および fixture を明示した範囲に限り判定する。 |
 | AC-034 | FR-001, FR-019, SEC-010, SEC-017 | 新規 Mnemonic 生成時は、初回バックアップ用の一時受渡しが完了した場合だけProfile作成が成功する。受渡し失敗・中断時は新規Profileを正常状態として残さず、受渡し後の保管・紛失防止は利用者および上位Application / Packageの責任とする。保存済み Mnemonic の通常取得には使用しない。 |
 | AC-035 | FR-004, FR-005, FR-021 | `OPEN-VALIDITY-001`で承認された妥当性・安全性基準を満たした Mnemonic / 秘密鍵だけを登録し、生成・検証・保存失敗時に不完全状態や既存 Profile 変更を残さない。 |
 | AC-037 | SEC-017 | 一時的に扱った秘密情報を成功・失敗・中断後に継続利用可能状態または診断出力として残さない。 |
@@ -344,7 +344,7 @@ Mnemonic / Software Key 秘密鍵の個別エクスポートは状態変更操�
 - `symbol-sdk` 3.3.2 と互換な秘密鍵・公開鍵、アドレス、署名、Network 処理
 - Mnemonic の具体方式、seed 生成、HD 導出パス、index、Chain / Network 対応
 - `OPEN-VALIDITY-001`で承認された妥当性・安全性基準に基づく、Mnemonicおよび秘密鍵の生成・復元・取込みの具体的な検証方式
-- 既存 Symbol / NEM Wallet と復元互換性を確認する固定テストベクタ
+- 仕様で固定した HD 導出規則と deterministic fixture による復元互換性の検証。特定の既存 Symbol / NEM Wallet 製品を追加対象とする場合は、名称、version または commit、入力、期待値および fixture を明示する。
 
 ### 12.2 秘密情報保護
 
@@ -358,8 +358,7 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 
 ### 12.3 Binding
 
-- Native Binding / WASM Binding の具体方式
-- FFI、言語間型変換、エラー表現
+- Native Binding は `bindings/native` の C ABI、WASM Binding は `wasm-bindgen` を使用し、FFI、言語間型変換およびエラー表現をこの方式に適合させる。
 - WASM / JavaScript 境界の秘密情報受渡し・コピー・消去
 - Browser 固有 Storage と Application の責任分界
 - 対象 OS / Browser / バージョン、ビルド・配布方式

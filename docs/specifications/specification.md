@@ -141,7 +141,7 @@ Profile schema version 1 の導出パスは次で固定する。
 
 schema version 1 の導出規則は後から変更しない。将来導出規則を変更する場合は新しい Profile schema version を割り当てる。
 
-既存 Symbol / NEM Wallet との復元互換性は、`symbol-sdk` 3.3.2 の上記 HD 導出結果を v1 の基準とする。追加で特定の既存 Wallet との互換性を主張する場合は、リポジトリ内で対象 Wallet の名称、版または commit、入力および期待値を特定できる fixture の範囲に限定する。`symbol-sdk` 3.3.2 は HD 導出、導出後の鍵、公開情報、署名および Network 処理の v1 互換性基準とする。
+v1 の HD 復元互換性は、本項で固定した導出規則および §14.1 の deterministic fixture との一致によって判定する。特定の既存 Wallet 製品との包括的互換性は v1 の保証対象としない。特定 Wallet との互換性を追加する場合は、名称、version または commit、入力および期待値を fixture として固定した範囲に限り保証する。`symbol-sdk` 3.3.2 は HD 導出、導出後の鍵、公開情報、署名および Network 処理の v1 互換性基準とする。
 
 Symbol / NEM Testnet は同じ path を使用するが、root HMAC key が Chain ごとに異なるため、同一 Mnemonic / `account_index` から同一 BIP32 tree を共有しない。異なる Chain の Software Key がインポート等により同一 private key を持つ場合は、§5.3 のとおり別 Software Key として扱う。
 
@@ -313,13 +313,13 @@ Application は `prepare_generated_profile` が返した正確な Mnemonic 全�
 
 `PendingProfileBlob` は Core 内部の versioned opaque blob とし、Wallet Store の wire-level 互換契約には含めない。外部契約として、format version を識別でき、`prepare_generated_profile` に渡した対象 Store と結び付き、Profile password で保護され、改ざん・破損を検知できることだけを要求する。具体的な CBOR key、内部 envelope schema、nonce構造、期限および再利用回数は公開契約に含めない。
 
-`finalize_generated_profile` は同じ Profile password を受け取り、Pending、対象 Store、password、Profile schema および既存 Profile との整合性を検証する。対象 Storeとの結合が一致しない、Pendingのversionが未対応、Pendingが改ざん・破損している、またはProfile作成条件を満たさない場合は `PendingProfileInvalid` とする。Pendingのpassword認証または保護データの認証に失敗した場合は、§6.4 に従い `AuthenticationFailed` とする。既存Profileと同一 Mnemonic + Network になる場合は `DuplicateProfile` とする。
+`finalize_generated_profile` は同じ Profile password を受け取り、Pending、対象 Store、password、Profile schema および既存 Profile との整合性を検証する。対象 Storeとの結合が一致しない、Pendingのversionが未対応、Pendingが改ざん・破損している、またはProfile作成条件を満たさない場合は `PendingProfileInvalid` とする。Pendingのpassword認証または保護データの認証に失敗した場合は、§6.4 に従い `AuthenticationFailed` とする。仕様の整合性を満たす対象 Storeで既存Profileと同一 Mnemonic + Network になる場合は `DuplicateProfile` とする。
 
 中断時は pending blob を破棄する。
 
 ### 8.2 復元 Profile
 
-既存 Mnemonic からの復元では UTF-8 bytes を入力として受け取り、正規化・24 words BIP39 validity と Store / 既存 Profile の構造妥当性を確認してから登録する。候補 Mnemonic と Network から計算した `duplicate_tag` を、構造上正常な既存 Profile の平文 `duplicate_tag` と比較する。一致する Profile があれば `DuplicateProfile` とし、input Store を変更せず replacement Store を返さない。不一致の場合、既存 Profile のパスワードを受け取らないため意味的一致を検証できないことだけを理由に復元を拒否しない。構造不正、認証失敗または認証済みpayloadとの既知の意味的不一致はこの継続規則の対象外とする。新規生成時の backup confirmation は要求しない。
+既存 Mnemonic からの復元では UTF-8 bytes を入力として受け取り、正規化・24 words BIP39 validity と Store / 既存 Profile の構造妥当性を確認してから登録する。この重複拒否保証は、Core が生成・維持する、本仕様の整合性を満たした Store を対象とする。候補 Mnemonic と Network から `wallet-store-format-v1.md` §12 の規則で計算した `duplicate_tag` を、構造上正常な既存 Profile の平文 `duplicate_tag` と比較する。一致する Profile があれば `DuplicateProfile` とし、input Store を変更せず replacement Store を返さない。不一致の場合、既存 Profile のパスワードを受け取らないため意味的一致を検証できないことだけを理由に復元を拒否しない。後続の操作で対象 Profile を認証・復号した時点に `duplicate_tag` と復号済み Mnemonic / Network の意味的不一致を検出した場合は `InvalidStore` とし、秘密情報、正常な処理結果または replacement Store を返さない。構造不正、認証失敗または認証済みpayloadとの既知の意味的不一致はこの継続規則の対象外とする。新規生成時の backup confirmation は要求しない。
 
 ### 8.3 表示名
 
@@ -644,8 +644,9 @@ Core および Binding が明示的に所有または生成する秘密情報の
 - decrypted ProfilePayload buffer
 - Core 自身が明示的に確保した、secret を含む signing temporary buffer
 
-第三者暗号ライブラリ内部の算術 temporary、コンパイラが生成する暗黙の copy、register、
-stack spill、runtime、allocator または OS 内部の copy について、完全な消去は保証しない。
+第三者暗号ライブラリ内部の算術 temporary、コンパイラまたは optimizer が生成する暗黙の
+copy、register、stack spill、runtime、allocator または OS 内部の copy について、完全な消去は
+保証しない。
 これらを `zeroize` するためだけに依存ライブラリを fork することは、v1 の必須要件としない。
 
 Core は不要な secret copy を作成せず、利用する型または依存ライブラリが `zeroize` 機構を
@@ -689,7 +690,7 @@ Binding は型変換、byte buffer transfer、error / warning mapping、lifecycl
 
 Binding に暗号化、password authentication、Mnemonic validation、key derivation、signing、duplicate detection を再実装しない。
 
-Native Binding は C ABI / UniFFI 等の具体方式を実装側で選択できるが、秘密情報処理ロジックを Core と重複させない。
+v1 Native Binding は `bindings/native` の C ABI (`cdylib` / `staticlib`) を使用し、v1 WASM Binding は `wasm-bindgen` を使用する。Binding方式を変更する場合は、本仕様と対応する決定記録を更新する。秘密情報処理ロジックを Core と重複させない。
 
 WASM public API は `Uint8Array` を binary data の基本型とする。Wallet Store blob、PendingProfileBlob、署名 payload、signature、public key、Mnemonic UTF-8 bytes、Profile password UTF-8 bytes、import / export private key は `Uint8Array` 相当とする。
 
@@ -792,7 +793,6 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 次は本仕様を満たす限り実装側で選択可能とする。
 
 - Rust module / crate の具体的な配置
-- C ABI / UniFFI 等 Native Binding generator（実装選択であり、仕様上の非規範方式）
 - TypeScript wrapper の package layout
 - 上位 Application の filesystem / IndexedDB 保存 API
 - temporary file の名称
@@ -803,11 +803,9 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 
 ---
 
-## 17. 要確認事項
+## 17. 適用上の確定事項
 
-- 新規 Profile の作成・復元時は他の既存 Profile を認証・復号しないため、既存全 Profile の `duplicate_tag` と暗号化 Mnemonic / Network の意味的一致を事前検証できない。本更新の意味的一致検証は、構造上正常な既存Profileの平文タグ比較、および当該操作で認証・復号した対象 Profileに限定する。平文タグが不一致の場合、意味的一致を検証できないことだけを理由に作成・復元を拒否しない。Store 全体の事前検証方式は未決定とする。
-- 既存 Symbol / NEM Wallet 互換性の追加対象は、名称、版または commit、入力および期待値を特定した fixture が指定された場合だけ拡張する。具体的対象が未指定のため、未列挙 Wallet への互換性保証は行わない。
-- Binding generator、package layout および Native / WASM の具体的搬送方式は、共通 Core / Binding 契約を満たす実装選択であり、現時点の規範方式として確定しない。
+- v1 では、新規 Profile の作成・復元時に既存 Profile を password なしで復号して意味的一致を事前検証しない。構造上正常な既存 Profile の平文 `duplicate_tag` が候補値と一致した場合は `DuplicateProfile` とし、不一致であることだけを理由に拒否しない。Store 全体の事前意味検証は v1 では実施しない。対象 Profile を認証・復号した時点で意味的不一致が判明した場合は `InvalidStore` とする。
 
 ---
 

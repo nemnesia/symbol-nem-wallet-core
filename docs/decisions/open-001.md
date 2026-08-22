@@ -22,7 +22,7 @@ v1のSymbol / NEMにおける秘密鍵・公開鍵の対応、アドレス生成
 
 HD WalletおよびMnemonicによる復元はv1対象とするが、具体的なMnemonic方式、seed生成方式、導出パス、index表現を `symbol-sdk` 3.3.2 が規定しているとは扱わない。
 
-HD Walletの具体方式は、既存Symbol / NEM Walletとの復元互換性を損なわないことを前提として仕様設計で固定し、固定テストベクタにより互換性を検証する。
+HD Walletの復元互換性は、本仕様で固定した導出規則および deterministic fixture との一致によって判定する。特定の既存 Symbol / NEM Wallet 製品との包括的互換性は v1 の保証対象としない。特定 Wallet との互換性を追加する場合は、名称、version または commit、入力および期待値を fixture として固定した範囲に限り保証する。
 
 ## Compatibility policy
 
@@ -33,7 +33,7 @@ HD Walletの具体方式は、既存Symbol / NEM Walletとの復元互換性を�
 本決定により `OPEN-001` は解消済みとする。
 
 - 鍵・公開鍵、アドレス、署名、Chain / Network処理: `symbol-sdk` 3.3.2との互換性を基準とする。
-- HD Wallet / Mnemonic復元: 具体方式は仕様設計で固定し、既存Walletとの復元互換性を検証する。
+- HD Wallet / Mnemonic復元: 本仕様で固定した導出規則および deterministic fixture との一致を受入基準とする。特定 Wallet との互換性は明示した fixture の範囲に限り保証する。
 
 `OPEN-001` を未決定事項として記載した過去文書は、その時点の履歴記録として扱う。
 

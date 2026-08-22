@@ -18,7 +18,7 @@ symbol-nem-wallet-core v1 では、Mnemonic および秘密鍵について、生
 
 妥当性・安全性の判定責任は Wallet Core に置く。Binding / Application は Core の判定を代替または回避しない。
 
-要件レベルでは、採用する Mnemonic 標準、seed 生成方式、HD 導出方式、秘密鍵の具体的な検証アルゴリズム、入力表現、乱数生成方式等は固定しない。これらは既存 Symbol / NEM Wallet との復元互換性および `symbol-sdk` 3.3.2 との互換性要件を満たすよう仕様設計で決定する。
+要件レベルでは、採用する Mnemonic 標準、seed 生成方式、HD 導出方式、秘密鍵の具体的な検証アルゴリズム、入力表現、乱数生成方式等は固定しない。これらは仕様設計で決定し、Symbol / NEM の鍵・公開情報・署名・Network 処理は `symbol-sdk` 3.3.2 と、HD 復元互換性は仕様で固定した導出規則および deterministic fixture と一致させる。特定の既存 Wallet 製品との互換性は、名称、version または commit、入力、期待値および fixture を明示した範囲に限り保証する。
 
 ## Rationale
 

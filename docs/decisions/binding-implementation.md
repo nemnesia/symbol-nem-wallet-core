@@ -6,6 +6,8 @@
 - Native は独立crate `bindings/native` の C ABI (`cdylib` / `staticlib`) と公開ヘッダーを使う。
 - Bindingは入力buffer、固定長ID、DTO、error code、warningおよび所有権の変換だけを担当する。
 
+本決定は v1 の Binding 方式を固定する。外部可視のBinding契約は仕様書 §13 に定め、本方式を変更する場合は本決定と仕様書 §13 を更新する。
+
 ## 選択理由
 
 `wasm-bindgen` は、仕様で定められた `Uint8Array` とJavaScript側の構造化結果を直接表現でき、

@@ -622,16 +622,16 @@ v1 の時点では migration API 自体は実装しない。将来新しい Stor
 
 ---
 
-## 14. 現時点で未確定の詳細
+## 14. 適用上の補足
 
 保存フォーマット v1 の主要な wire-level schema は確定済みである。
 
 今後追加仕様が必要になった場合も、本書で確定済みの wire 値、整数 key、version の意味を変更してはならない。
 
-### 14.1 要確認事項
+### 14.1 Profile 重複判定の適用範囲
 
 新規 Profile の作成・復元時は、Store と既存 Profile の構造検証を完了した後、候補の Mnemonic entropy と Network から計算した `duplicate_tag` を、構造上正常な既存 Profile の平文 `duplicate_tag` と比較する。既存 Profile のパスワードを受け取らないため、この処理では既存全 Profile の `duplicate_tag` と各暗号化 Mnemonic の意味的一致を事前検証できない。平文タグが一致する場合は `DuplicateProfile` として拒否し、不一致の場合は意味的一致を検証できないことだけを理由に拒否しない。構造不正、認証失敗または既知の意味的不一致はこの継続規則の対象外とする。
 
 既存 `ProfileEnvelope.schema_version` が未対応の場合、一覧、個別読出し、作成・復元時の重複判定、秘密情報処理およびすべての mutation を含む Store 操作全体を `UnsupportedProfileSchemaVersion` として拒否する。未対応 Profile を skip して残りの Profile で replacement Store を生成してはならない。
 
-Store 全体の事前意味検証には、全 Profile の認証情報、別 API または保存形式上の別方式が必要になる。これらは Wallet Store v1 / Profile schema v1 では未決定であり、本書は新しい検証 API または保存方式を定義しない。
+Store 全体を password なしで完全に意味検証する処理は v1 では実施しない。本書はそのための新しい検証 API または保存方式を定義しない。
