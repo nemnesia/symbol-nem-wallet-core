@@ -65,22 +65,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 新しい Mnemonic を生成する場合は、`prepare_generated_profile` で Mnemonic と `PendingProfileBlob` を取得し、利用者へのバックアップ受渡しを明示的に確認した後に `finalize_generated_profile` を呼び出します。`prepare_generated_profile` は Store を変更しません。
 
-## API の戻り値
+## API の呼び出しモデル
 
-- 読み取り API は `ReadResult<T>`（`value` と `warnings`）を返します。
-- 状態変更 API は `MutationResult<T>`（完全な replacement `store`、`value`、`warnings`）を返します。
-- 状態変更に成功した場合だけ新しい Store が返るため、成功後はアプリケーション側で保存対象を `result.store` に置き換えてください。入力 Store は変更されません。
-- 失敗時は `WalletError.code` の安定した `ErrorCode` を確認します。エラーや warning に秘密情報は含まれません。
+| APIの種類 | 成功時の結果 | Storeの扱い |
+| --- | --- | --- |
+| 読み取り | `ReadResult<T>`（`value`、`warnings`） | 入力 Store は変更されない |
+| 状態変更 | `MutationResult<T>`（`store`、`value`、`warnings`） | `result.store` を完全な replacement Store として保存する |
 
-主な公開 API は次のとおりです。
+入力 Store はどのAPIでも直接変更されません。状態変更を続けて呼び出す場合は、成功時に返された `result.store` を次の呼び出しへ渡してください。失敗時は `WalletError.code` の安定した `ErrorCode` を確認します。エラーや warning に秘密情報は含まれません。
 
-- Profile: `create_empty_store`, `prepare_generated_profile`, `finalize_generated_profile`, `restore_profile`, `list_profiles`, `change_profile_password`, `delete_profile`
-- Software Key: `derive_software_key`, `import_software_key`, `generate_software_key`, `list_software_keys`, `export_private_key`, `delete_software_key`
-- 公開情報・署名: `get_public_account`, `sign`, `export_mnemonic`
+`list_profiles` と `list_software_keys` は password なしで公開 index を読み取ります。これらの結果は未認証の保存情報として扱い、秘密情報が認証済みであることの証明には使用しないでください。
+
+## 公開API一覧
+
+Rust Coreの公開関数一覧です。Native C ABIは `snwc_` prefix、WASM APIは同じsnake_case名で、同じ操作をBinding向けの型へ変換して公開します。
+
+### Store / Profile
+
+| 関数 | 入力 | 説明 | 成功時の戻り値 |
+| --- | --- | --- | --- |
+| `create_empty_store()` | なし | 空のWallet Storeを作成する | `WalletStoreBlob` |
+| `prepare_generated_profile(store, password_utf8, network)` | Store、password、Network | BIP39 English 24 words Mnemonicと、確定前のopaqueなPending Profileを生成する。Storeは変更しない | `ReadResult<PreparedProfile>` |
+| `finalize_generated_profile(store, pending_profile, password_utf8)` | Store、Pending Profile、password | Pending Profileを検証し、生成したProfileをStoreへ追加する | `MutationResult<ProfileInfo>` |
+| `restore_profile(store, mnemonic_utf8, password_utf8, network)` | Store、Mnemonic、password、Network | 既存MnemonicからProfileを復元・登録する | `MutationResult<ProfileInfo>` |
+| `list_profiles(store)` | Store | passwordなしでProfileの公開情報を一覧取得する。結果は未認証のmanifest由来 | `ReadResult<Vec<ProfileInfo>>` |
+| `export_mnemonic(store, profile_id, password_utf8)` | Store、Profile ID、password | Mnemonicを明示的にexportする | `ReadResult<MnemonicExport>` |
+| `change_profile_password(store, profile_id, current_password_utf8, new_password_utf8)` | Store、Profile ID、現在のpassword、新しいpassword | Profile passwordを変更する | `MutationResult<()>` |
+| `delete_profile(store, profile_id, password_utf8)` | Store、Profile ID、password | Profileと配下のSoftware Keyを削除する | `MutationResult<()>` |
+
+### Software Key
+
+| 関数 | 入力 | 説明 | 成功時の戻り値 |
+| --- | --- | --- | --- |
+| `list_software_keys(store, profile_id)` | Store、Profile ID | passwordなしでKey IDとChainを一覧取得する。private keyとoriginは含まない | `ReadResult<Vec<SoftwareKeyListItem>>` |
+| `derive_software_key(store, profile_id, password_utf8, chain, account_index)` | Store、Profile ID、password、Chain、account index | ProfileのMnemonicからSoftware Keyを導出して登録する | `MutationResult<SoftwareKeyInfo>` |
+| `import_software_key(store, profile_id, password_utf8, chain, private_key)` | Store、Profile ID、password、Chain、raw private key | raw 32 bytesのprivate keyを検証して登録する | `MutationResult<SoftwareKeyInfo>` |
+| `generate_software_key(store, profile_id, password_utf8, chain)` | Store、Profile ID、password、Chain | 暗号学的乱数からSoftware Keyを生成して登録する | `MutationResult<SoftwareKeyInfo>` |
+| `export_private_key(store, profile_id, key_id, password_utf8)` | Store、Profile ID、Key ID、password | private keyを明示的にexportする | `ReadResult<PrivateKeyExport>` |
+| `delete_software_key(store, profile_id, key_id, password_utf8)` | Store、Profile ID、Key ID、password | 指定したSoftware Keyを削除する | `MutationResult<()>` |
+
+### 公開情報 / 署名
+
+| 関数 | 入力 | 説明 | 成功時の戻り値 |
+| --- | --- | --- | --- |
+| `get_public_account(store, profile_id, key_id, password_utf8)` | Store、Profile ID、Key ID、password | Software Keyのpublic keyとChain / Networkに対応するaddressを取得する | `ReadResult<PublicAccountInfo>` |
+| `sign(store, profile_id, key_id, password_utf8, payload_bytes)` | Store、Profile ID、Key ID、password、raw payload | payloadを解釈・加工せず、そのraw byte列に署名する | `ReadResult<Signature>` |
+
+`password_utf8` と `mnemonic_utf8` はUTF-8 byte列、`private_key` と `payload_bytes` はraw byte列です。状態変更APIの成功時は、戻り値の `store` を次の操作と永続化に使用してください。
+
+Coreが公開する主な型は、識別子の `ProfileId` / `SoftwareKeyId`、列挙型の `Network` / `Chain` / `SoftwareKeyOrigin`、結果型の `ReadResult<T>` / `MutationResult<T>`、公開情報の `ProfileInfo` / `SoftwareKeyInfo` / `SoftwareKeyListItem` / `PublicAccountInfo`、明示的export結果の `MnemonicExport` / `PrivateKeyExport`、opaque byte列の `WalletStoreBlob` / `PendingProfileBlob` です。
 
 `WalletStoreBlob` と `PendingProfileBlob` は opaque byte 列として扱い、アプリケーション側で内容を解釈・編集しないでください。`sign` は payload を Transaction として解釈せず、渡された raw byte 列に対して署名します。
 
 ## Binding のビルド
+
+### Native C ABI
 
 Native C ABI は `bindings/native` の `symbol-nem-wallet-core-native` パッケージと、[公開ヘッダー](bindings/native/include/symbol_nem_wallet_core.h)で提供します。
 
@@ -88,9 +127,21 @@ Native C ABI は `bindings/native` の `symbol-nem-wallet-core-native` パッケ
 cargo build -p symbol-nem-wallet-core-native --release
 ```
 
+入力の `SnwcBytes` は呼び出し側が所有する借用 buffer です。出力の `SnwcOwnedBytes` と配列は、ヘッダーに定義された対応する `snwc_free_*` 関数で解放してください。
+
+Native Bindingの解放APIは次のとおりです。
+
+- `snwc_free_bytes`: `SnwcOwnedBytes` を解放する
+- `snwc_free_warnings`: warning配列を解放する
+- `snwc_free_profiles`: Profile一覧を解放する
+- `snwc_free_software_key_list`: Software Key一覧を解放する
+
+### WASM
+
 WASM API は `wasm` feature と `wasm32-unknown-unknown` target で有効になります。
 
 ```bash
+rustup target add wasm32-unknown-unknown
 cargo build --target wasm32-unknown-unknown --features wasm --release
 ```
 
@@ -98,7 +149,7 @@ cargo build --target wasm32-unknown-unknown --features wasm --release
 
 このリポジトリには生成済みの npm パッケージは含まれません。別途 `wasm-bindgen` CLIをインストールしたうえで、次のスクリプトを実行すると、WASM glue code と TypeScript 定義を `pkg/` に生成できます。
 
-`Cargo.lock` に合わせて `wasm-bindgen-cli` は `0.2.127` を使用します。
+`Cargo.lock` と CI の `wasm-bindgen` に合わせ、`wasm-bindgen-cli` は `0.2.127` を使用します。
 
 ```bash
 cargo install wasm-bindgen-cli --version 0.2.127
@@ -229,6 +280,7 @@ cargo test --workspace --all-features --locked
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --target wasm32-unknown-unknown --features wasm --locked --lib
+cargo check --target wasm32-unknown-unknown --features wasm --locked
 cargo build --package symbol-nem-wallet-core-native --release --locked
 cc -std=c11 -Wall -Wextra -Werror -I bindings/native/include -fsyntax-only bindings/native/tests/header_compile.c
 cargo audit
