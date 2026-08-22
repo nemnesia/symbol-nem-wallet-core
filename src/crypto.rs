@@ -6,8 +6,8 @@
 //!
 //! Profile payloadの保護にはArgon2idとAES-256-GCMを使用する。password、Mnemonic、
 //! private key、seedおよび主要なbyte中間値は、所有期間を限定し、明示的にzeroize
-//! できる型や終了経路で管理する。エラーへ秘密値を含めない。署名primitive内部で
-//! 依存ライブラリが生成する一時値のzeroize保証は、このモジュールの管理範囲外である。
+//! できる型や終了経路で管理する。エラーへ秘密値を含めない。署名応答の秘密Scalar算術は
+//! 固定長の内部byte演算で行い、依存ライブラリのScalar演算子を使用しない。
 
 use aes_gcm::{
     aead::{AeadInPlace, KeyInit},
@@ -228,19 +228,78 @@ pub(crate) fn sign(chain: Chain, private_key: &[u8; 32], message: &[u8]) -> Wall
             return Err(error);
         }
     };
-    let mut private_term = challenge;
-    private_term *= private_scalar;
-    let mut response = nonce;
-    response += private_term;
-    let mut response_bytes = response.to_bytes();
-    signature[32..].copy_from_slice(&response_bytes);
-    response_bytes.zeroize();
-    private_term.zeroize();
-    response.zeroize();
+    // ScalarのMulAssign/AddAssignはCopy型の内部temporaryを生成するため、署名応答の
+    // secret arithmeticは依存ライブラリの演算子を使わず、固定長byte列で行う。
+    let nonce_bytes = Zeroizing::new(nonce.to_bytes());
+    let challenge_bytes = Zeroizing::new(challenge.to_bytes());
+    let private_scalar_bytes = Zeroizing::new(private_scalar.to_bytes());
+    let private_term = scalar_mul_mod_order(&challenge_bytes, &private_scalar_bytes);
+    let response_bytes = scalar_add_mod_order(&nonce_bytes, &private_term);
+    signature[32..].copy_from_slice(&response_bytes[..]);
     private_scalar.zeroize();
     nonce.zeroize();
     challenge.zeroize();
     Ok(signature)
+}
+
+// Ed25519 scalar group order, encoded as a little-endian 32-byte integer.
+const ED25519_SCALAR_ORDER: [u8; 32] = [
+    0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+];
+
+// Inputs and outputs of these helpers are canonical scalar values (< l). The fixed iteration
+// count and mask-based selection keep the secret multiplier independent of control flow.
+fn scalar_add_mod_order(left: &[u8; 32], right: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    let mut sum = Zeroizing::new([0u8; 32]);
+    let mut carry = 0u8;
+    for index in 0..32 {
+        let (value, first_borrow) = left[index].overflowing_add(right[index]);
+        let (value, second_borrow) = value.overflowing_add(carry);
+        sum[index] = value;
+        carry = (first_borrow as u8) | (second_borrow as u8);
+    }
+
+    // l is below 2^252, so adding two canonical values cannot overflow 2^256.
+    let mut difference = Zeroizing::new([0u8; 32]);
+    let mut borrow = 0u8;
+    for index in 0..32 {
+        let (value, first_borrow) = sum[index].overflowing_sub(ED25519_SCALAR_ORDER[index]);
+        let (value, second_borrow) = value.overflowing_sub(borrow);
+        difference[index] = value;
+        borrow = (first_borrow as u8) | (second_borrow as u8);
+    }
+
+    // Select sum when sum < l, otherwise select sum - l without branching on secret data.
+    let mut mask = 0u8.wrapping_sub(1u8 ^ borrow);
+    for index in 0..32 {
+        sum[index] = (difference[index] & mask) | (sum[index] & !mask);
+    }
+    mask.zeroize();
+    carry.zeroize();
+    borrow.zeroize();
+    sum
+}
+
+fn scalar_mul_mod_order(left: &[u8; 32], right: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    let mut result = Zeroizing::new([0u8; 32]);
+    let mut addend = Zeroizing::new(*left);
+
+    // Fixed 256 iterations avoid a secret-dependent loop bound. The result remains canonical
+    // because scalar_add_mod_order reduces after every addition.
+    for bit_index in 0..256 {
+        let mut bit = (right[bit_index / 8] >> (bit_index % 8)) & 1;
+        let sum = scalar_add_mod_order(&result, &addend);
+        let mut mask = 0u8.wrapping_sub(bit);
+        for index in 0..32 {
+            result[index] = (sum[index] & mask) | (result[index] & !mask);
+        }
+        mask.zeroize();
+        bit.zeroize();
+        addend = scalar_add_mod_order(&addend, &addend);
+    }
+
+    result
 }
 
 fn key_material(chain: Chain, private_key: &[u8; 32]) -> WalletResult<([u8; 32], [u8; 32])> {
@@ -493,6 +552,30 @@ mod tests {
         assert_eq!(
             sign(Chain::Nem, &bytes::<32>("ABF4CF55A2B3F742D7543D9CC17F50447B969E6E06F5EA9195D428AB12B7318D"), &message).unwrap(),
             bytes::<64>("D9CEC0CC0E3465FAB229F8E1D6DB68AB9CC99A18CB0435F70DEB6100948576CD5C0AA1FEB550BDD8693EF81EB10A556A622DB1F9301986827B96716A7134230C")
+        );
+    }
+
+    #[test]
+    fn secret_scalar_response_arithmetic_matches_dalek() {
+        // 署名応答用の固定長byte演算がcurve25519-dalekの参照演算と一致することを確認する。
+        let left = Scalar::from_bytes_mod_order(bytes::<32>(
+            "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D0E0F",
+        ));
+        let right = Scalar::from_bytes_mod_order(bytes::<32>(
+            "0F0E0D0C0B0A090807060504030201001F1E1D1C1B1A1918171615141312110E",
+        ));
+        let left_bytes = left.to_bytes();
+        let right_bytes = right.to_bytes();
+        let expected_sum = (left + right).to_bytes();
+        let expected_product = (left * right).to_bytes();
+
+        assert_eq!(
+            scalar_add_mod_order(&left_bytes, &right_bytes).as_ref(),
+            &expected_sum,
+        );
+        assert_eq!(
+            scalar_mul_mod_order(&left_bytes, &right_bytes).as_ref(),
+            &expected_product,
         );
     }
 
