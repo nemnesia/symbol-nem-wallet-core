@@ -13,15 +13,15 @@ Review Board Chair は、対象パッケージの `docs/reviews/requirements/` �
 
 ## Execution Audit
 
-- 実行モード: `multi_agent_v1__spawn_agent` で起動した3つの独立した Reviewer サブエージェント
-- Reviewer A agent_id: <実行時に返された ID>
-- Reviewer B agent_id: <実行時に返された ID>
-- Reviewer C agent_id: <実行時に返された ID>
-- Phase 1: <完了。`multi_agent_v1__wait_agent` で確認>
-- Phase 2: <完了。`multi_agent_v1__wait_agent` で確認>
+- 実行モード: `spawn_agent` で起動した3つの独立した Reviewer サブエージェント
+- Reviewer A 識別子: <実行時に返された ID または canonical task name>
+- Reviewer B 識別子: <実行時に返された ID または canonical task name>
+- Reviewer C 識別子: <実行時に返された ID または canonical task name>
+- Phase 1: <完了。`wait_agent` で確認>
+- Phase 2: <完了。`followup_task` 後に `wait_agent` で確認>
 - Chair 統合: <完了>
 
-3つの `agent_id` は相互に異なる値を記載する。起動・完了を確認できない場合は、このファイル自体を生成しない。プロンプト、個人の意見、討議、投票、却下理由、思考過程は記載しない。
+3つの識別子は相互に異なる値を記載する。起動・完了を確認できない場合は、このファイル自体を生成しない。プロンプト、個人の意見、討議、投票、却下理由、思考過程は記載しない。
 
 ## Evidence Used
 
@@ -104,14 +104,14 @@ Review Board Chair は、対象パッケージの `docs/reviews/requirements/` �
 
 | Gate | 結果 | 根拠 |
 | --- | --- | --- |
-| 目的と課題 | <合格 | 不合格> | <参照箇所または RR ID> |
-| 利用者と関係者 | <合格 | 不合格> | <参照箇所または RR ID> |
-| 対象範囲 | <合格 | 不合格> | <参照箇所または RR ID> |
-| 要件と制約 | <合格 | 不合格> | <参照箇所または RR ID> |
-| 受け入れ条件 | <合格 | 不合格> | <参照箇所または RR ID> |
-| 内部整合性 | <合格 | 不合格> | <参照箇所または RR ID> |
-| 不可欠な前提の現実性と安全性 | <合格 | 不合格> | <参照箇所または RR ID> |
-| コンセプト整合性と前段品質判定 | <合格 | 不合格> | <コンセプト本文・コンセプトレビュー結果の参照箇所、未確認、または RR ID> |
+| 目的と課題 | <合格 \| 不合格> | <参照箇所または RR ID> |
+| 利用者と関係者 | <合格 \| 不合格> | <参照箇所または RR ID> |
+| 対象範囲 | <合格 \| 不合格> | <参照箇所または RR ID> |
+| 要件と制約 | <合格 \| 不合格> | <参照箇所または RR ID> |
+| 受け入れ条件 | <合格 \| 不合格> | <参照箇所または RR ID> |
+| 内部整合性 | <合格 \| 不合格> | <参照箇所または RR ID> |
+| 不可欠な前提の現実性と安全性 | <合格 \| 不合格> | <参照箇所または RR ID> |
+| コンセプト整合性と前段品質判定 | <合格 \| 不合格> | <コンセプト本文・コンセプトレビュー結果の参照箇所、未確認、または RR ID> |
 
 ## Final Decision
 

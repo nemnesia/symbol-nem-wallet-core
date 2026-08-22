@@ -13,15 +13,15 @@ Review Board Chair は、対象パッケージの `docs/reviews/specifications/`
 
 ## Execution Audit
 
-- 実行モード: `multi_agent_v1__spawn_agent` で起動した3つの独立した Reviewer サブエージェント
-- Reviewer A agent_id: <返却された agent_id>
-- Reviewer B agent_id: <返却された agent_id>
-- Reviewer C agent_id: <返却された agent_id>
-- Phase 1: <完了。各 Reviewer の `multi_agent_v1__wait_agent` で確認>
-- Phase 2: <完了。各 Reviewer の `multi_agent_v1__wait_agent` で確認>
+- 実行モード: `spawn_agent` で起動した3つの独立した Reviewer サブエージェント
+- Reviewer A 識別子: <返却された ID または canonical task name>
+- Reviewer B 識別子: <返却された ID または canonical task name>
+- Reviewer C 識別子: <返却された ID または canonical task name>
+- Phase 1: <完了。`wait_agent` で確認>
+- Phase 2: <完了。`followup_task` 後に `wait_agent` で確認>
 - Chair 統合: <完了>
 
-3つの `agent_id` は相互に異なる値でなければならない。起動、送信、完了、または統合を確認できない場合は、この findings ファイル自体を生成しない。プロンプト、討議内容、投票、内部の思考過程は記載しない。
+3つの識別子は相互に異なる値でなければならない。起動、送信、完了、または統合を確認できない場合は、この findings ファイル自体を生成しない。プロンプト、討議内容、投票、内部の思考過程は記載しない。
 
 ## Evidence Used
 
@@ -107,13 +107,13 @@ Review Board Chair は、対象パッケージの `docs/reviews/specifications/`
 
 | Gate                                         | 結果  | 根拠    |
 | -------------------------------------------- | ----- | ------- |
-| 目的と範囲                                   | <合格 | 不合格> | <参照箇所または SR ID> |
-| 機能と制約                                   | <合格 | 不合格> | <参照箇所または SR ID> |
-| 処理と例外                                   | <合格 | 不合格> | <参照箇所または SR ID> |
-| 内部整合性                                   | <合格 | 不合格> | <参照箇所または SR ID> |
-| 検証可能性                                   | <合格 | 不合格> | <参照箇所または SR ID> |
-| 不可欠な前提の現実性と安全性                 | <合格 | 不合格> | <参照箇所または SR ID> |
-| コンセプト・要件定義との整合性と前段品質判定 | <合格 | 不合格> | <参照箇所または SR ID> |
+| 目的と範囲                                   | <合格 \| 不合格> | <参照箇所または SR ID> |
+| 機能と制約                                   | <合格 \| 不合格> | <参照箇所または SR ID> |
+| 処理と例外                                   | <合格 \| 不合格> | <参照箇所または SR ID> |
+| 内部整合性                                   | <合格 \| 不合格> | <参照箇所または SR ID> |
+| 検証可能性                                   | <合格 \| 不合格> | <参照箇所または SR ID> |
+| 不可欠な前提の現実性と安全性                 | <合格 \| 不合格> | <参照箇所または SR ID> |
+| コンセプト・要件定義との整合性と前段品質判定 | <合格 \| 不合格> | <参照箇所または SR ID> |
 
 ## Final Decision
 

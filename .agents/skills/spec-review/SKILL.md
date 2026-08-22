@@ -15,7 +15,7 @@ description: 仕様書を複数の観点でレビューし、実装へ安全に�
 - 候補が0件または複数件なら、推測で選ばず対象を確認して終了する。
 - 仕様書を選択した後、対象パッケージの `docs/consept/` と `docs/requirements/` でコンセプトシートと要件定義書の候補を探索する。コンセプトシートは `concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown の順、要件定義書は `requirements.md`、`requirement.md`、ファイル名に `requirements` または `requirement` を含む Markdown の順とする。`reviews/` ディレクトリ、`*-review-*.md`、仕様書、実装コードは候補から除外する。
 - 上流候補が複数ある場合は自動選択せず、候補のパスを示して対象を確認して終了する。候補が1件の場合は本文と、コンセプトレビューは対象パッケージの `docs/reviews/concept/` にある対象ベース名のレビュー番号最大のファイル1件、要件レビューは対象パッケージの `docs/reviews/requirements/` にある対象ベース名のレビュー番号最大のファイル1件を確認する。連番要件レビューがない場合に限り、旧形式の固定名レビューを確認する。候補がない場合は Evidence Used に「未確認」と記録し、レビューを続行する。
-- 実装者からの仕様フィードバックはレビュー対象ではなく補助資料として扱う。ユーザーまたは呼び出し元がパスを指定した場合はそのパスを優先し、指定がない場合は対象仕様に対応する実装ソースのプロジェクトルートを `<source-root>` と特定し、`<source-root>/docs/reviews/implementation/implement-spec-feedback.md` が存在するか確認する。通常、`<source-root>` は仕様書の `docs/` を含み、`package.json` と `src/` または実装対象を含む階層とする。対象が複数のソースルートにまたがる場合はパスを推測せず、Evidence Used に「未確認」と記録してレビューを続行する。
+- 実装者からの仕様フィードバックはレビュー対象ではなく補助資料として扱う。ユーザーまたは呼び出し元がパスを指定した場合はそのパスを優先し、指定がない場合は対象仕様に対応する実装ソースのプロジェクトルートを `<source-root>` と特定し、`<source-root>/docs/reviews/implementation/implement-spec-feedback.md` が存在するか確認する。通常、`<source-root>` は仕様書の `docs/`、対象の package manifest、`src/` または実装対象を含む階層とする。対象が複数のソースルートにまたがる場合はパスを推測せず、Evidence Used に「未確認」と記録してレビューを続行する。
 - 選択した仕様書の拡張子を除いたベース名に `-review-001.md` 形式の3桁連番を付加し、対象パッケージの `docs/reviews/specifications/` に新規成果物を作成する。たとえば対象パッケージの `docs/specifications/specification.md` の初回成果物は `docs/reviews/specifications/specification-review-001.md` とする。対象仕様書に対応する連番ファイルが既にある場合は最大番号の次を使用し、候補ファイルが存在する場合は空き番号まで進める。既存の固定名 `-review.md`、`-review-findings.md` および既存の連番成果物は移動・削除・上書きしない。`docs/reviews/specifications/` が存在しない場合は作成する。
 - 連番は対象仕様書のベース名ごとに管理する。対象仕様書の過去レビュー成果物（固定名の旧形式を含む）から正式な `SR-<番号>` を抽出し、新規指摘には最大番号の次を割り当てる。同一問題であることを確認できる既存指摘は同じIDを引き継ぎ、新規指摘へ過去IDを再利用しない。各正式指摘には `New`、`Open`、`Resolved`、`Deferred`、`Reopened` のいずれかの状態を付ける。`Required Changes` と `Optional Improvements` には現在対応が必要な指摘を、`Resolved Findings` には対応済み指摘と確認根拠を、必要に応じて `Deferred Findings` には後工程へ引き継いだ指摘を整理する。
 
@@ -25,18 +25,18 @@ description: 仕様書を複数の観点でレビューし、実装へ安全に�
 2. `review-process.md` を読む。
 3. `review-gates.md` を読む。
 4. `output-format.md` を読む。
-5. トップレベルのメインエージェントが Review Board Chair として、Reviewer A、B、C をそれぞれ独立したサブエージェントとして起動する。
+5. 現在のメインエージェントが Review Board Chair として、Reviewer A、B、C をそれぞれ独立したサブエージェントとして起動する。
 6. 起動監査に合格した場合だけ、定められた Phase 1 から Phase 3 を実施し、Chair が成果物を生成する。
 
 ## 監査可能な起動要件
 
-- Reviewer A、B、C は、トップレベルのメインエージェントが `multi_agent_v1__spawn_agent` を3回の別々の呼び出しで実行して起動する。各呼び出しは `fork_context: false` とし、役割ごとに独立した初期コンテキストを渡す。
-- このスキルを実行するトップレベルのメインエージェント自身が起動オーケストレーターであり、サブエージェントにスキル全体の再委譲をさせない。サブエージェントは担当レビューのメモだけを返し、ファイルを編集しない。
-- 各呼び出しから返された `agent_id` を役割に対応付け、Phase 1 の開始前に3件すべてが存在し、相互に異なることを確認する。1件でも欠落、重複、起動未確認があれば直ちに中止し、レビュー成果物を生成しない。
-- Phase 1 は各 `agent_id` に対して `multi_agent_v1__wait_agent` で完了を個別に確認する。失敗、タイムアウト、未完了、またはメモ未返却が1件でもあれば Phase 2 以降へ進まず、成果物を生成しない。
-- Phase 2 は Phase 1 の全メモを、起動時と同じ3つの `agent_id` へ `multi_agent_v1__send_input` で個別に送信する。返された `submission_id` を保存し、各送信に対応する `multi_agent_v1__wait_agent` の完了を確認する。別エージェントへの差し替えや単一エージェントへの代替をしない。
-- `multi_agent_v1__spawn_agent`、`multi_agent_v1__send_input`、`multi_agent_v1__wait_agent` が利用できない場合に、メインエージェントの自己レビューへフォールバックしない。起動・完了を監査できないため、中止してその理由だけを報告する。
-- Chair は、3つの `agent_id`、Phase 1 と Phase 2 の完了確認、Chair による統合完了を `Execution Audit` に記録できる場合だけ、指定された findings ファイルを生成する。プロンプト、討議内容、思考過程は記録しない。
+- Reviewer A、B、C は、現在のメインエージェントが `spawn_agent` を3回の別々の呼び出しで実行して起動する。各呼び出しは会話履歴を引き継がない `fork_turns: "none"` とし、必要な資料と担当観点を初期タスクに明示する。
+- このスキルを実行する現在のメインエージェント自身が起動オーケストレーターであり、サブエージェントにスキル全体の再委譲をさせない。サブエージェントは担当レビューのメモだけを返し、ファイルを編集しない。
+- 各呼び出しから返されたエージェント識別子を役割に対応付け、Phase 1 の開始前に3件すべてが存在し、相互に異なることを確認する。1件でも欠落、重複、起動未確認があれば直ちに中止し、レビュー成果物を生成しない。
+- Phase 1 は `wait_agent` で各担当の完了を個別に確認する。失敗、タイムアウト、未完了、またはメモ未返却が1件でもあれば Phase 2 以降へ進まず、成果物を生成しない。
+- Phase 2 は Phase 1 の全メモを、`followup_task` で同じ3担当へ個別に送信し、その後 `wait_agent` で完了を確認する。別エージェントへの差し替えや単一エージェントへの代替をしない。
+- `spawn_agent`、`followup_task`、`wait_agent` が利用できない場合に、メインエージェントの自己レビューへフォールバックしない。起動・完了を監査できないため、中止してその理由だけを報告する。
+- Chair は、3つのエージェント識別子、Phase 1 と Phase 2 の完了確認、Chair による統合完了を `Execution Audit` に記録できる場合だけ、指定された findings ファイルを生成する。プロンプト、討議内容、思考過程は記録しない。
 
 討議、投票、Reviewer 個人の意見、却下理由、思考過程は内部情報であり、成果物へ含めない。
 
