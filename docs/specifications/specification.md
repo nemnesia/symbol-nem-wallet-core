@@ -244,6 +244,8 @@ TAG          = 16 bytes
 
 `software_key_index` の論理値には既知の `key_id` と `chain` だけを含める。Decoder は未知 field を論理モデル、一覧結果および意味検証へ取り込まない。既存 Profile の `software_key_index` の受信 wire 値（index entry 内の未知 field を含む）は、AAD の入力および再出力時の保存値として保持する。対象 Profile を保持する mutation（Software Key 登録・削除または password change）では、既知 fieldをcanonicalに再生成しつつ未知 fieldをlosslessに保持して新しい nonce で再暗号化する。対象または対象外 Profileの未知 fieldを保持できない場合は mutation 全体を拒否し、replacement Store を返してはならない。Profile delete では対象 envelope を除去し、再暗号化しない。正確な wire 表現は `wallet-store-format-v1.md` §2、§7.1、§11 を正本とする。
 
+未知 field は、現行 schema version の wire object 内で意味解釈しない opaque extension field とする。この保持規則は、未知 field を logical model、一覧結果、重複判定または意味検証へ取り込まず、warning なしで受理し、mutation で再出力する必要がある場合に lossless に保持することだけを定める。保持できない場合は `InvalidStore` として mutation 全体を拒否する。将来 Store version または Profile schema version に対する一般的な forward compatibility、未知 field の意味解釈、自動 migration または unsupported version の受理を保証しない。unknown enum はこの規則の対象外であり fatal error とする。
+
 過去versionでAADの認証対象外だったunknown fieldに、同じschema versionのままsecurity上の
 意味を与えてはならない。新しいfieldへsecurity上の意味を持たせる場合は、schema version、
 AAD contractおよびmigrationを更新し、backward compatibilityを判断する。
@@ -272,12 +274,15 @@ Wallet Store の CBOR schema、整数 key、enum wire 値、並び順、AAD、�
 
 本書では次の動作だけを API 契約として固定する。
 
+- Wallet Store の入力 bytes は、RFC 8949 Core Deterministic Encoding Requirements に従う完全な CBOR item をちょうど 1 個含み、その item が入力 bytes 全体を消費する場合だけ受理する。空入力、truncated CBOR、CBOR decode failure、indefinite-length、integer または length の非最短表現、duplicate map key、v1 が許可しない CBOR 型、trailing bytes、2 個以上の CBOR item の連結および deterministic CBOR 制約違反は `InvalidStore` とする。内部 CBOR parser error は Binding の公開 error codeへそのまま漏らさず、`InvalidStore` へ対応付ける。
+- 受理した CBOR item の top-level は map でなければならない。top-level の必須 field 欠落、magic の型・長さ・値不正、既知 field の型・長さ・値不正その他の Wallet Store 構造不正は `InvalidStore` とする。
+
 - `profiles = []` と `software_keys = []` は正常状態として扱う。
 - `software_key_index = []` は正常状態として扱い、index は暗号化 payload と同一の `key_id -> chain` 写像を表さなければならない。
 - 構造上受理された Profile の `profile_id` は Store 内で一意、対象 Profile の `key_id` は Chain にかかわらず Profile 内で一意でなければならない。
 - 子オブジェクトの必須 field 欠落、型・長さ・値不正、未知 enum、重複、canonical order 違反および index と payload の対応不一致は、保存フォーマット仕様に従って Store 操作全体を fatal error として拒否する。対象オブジェクトをスキップして処理を継続してはならない。
-- Store top-level を解釈できない不正は `InvalidStore` または version 専用 error とする。
-- 未知 field は論理デコード時に無視し、意味解釈、一覧結果、重複判定または写像検証へ使用しない。未知 field を含む wire object を mutation で再出力する場合は、保存フォーマット仕様に従って未知 field を lossless に保持し、保持できない場合は `InvalidStore` として mutation 全体を拒否する。未知 field の存在自体は warning とせず、`UnknownField` warning を追加しない。
+- `WalletStore.version` と `ProfileEnvelope.schema_version` の field 欠落または unsigned integer 以外の型は `InvalidStore` とする。field が unsigned integer として構造上正しく解釈でき、その値だけが未対応の場合に限り、それぞれ `UnsupportedStoreVersion` または `UnsupportedProfileSchemaVersion` とする。
+- 未知 field は、現行 schema version の wire object 内で意味解釈しない opaque extension field として扱う。未知 field を logical model、一覧結果、重複判定または写像検証へ使用せず、存在自体は warning としない。未知 field を含む wire object を mutation で再出力する場合は、保存フォーマット仕様に従って未知 field を lossless に保持し、保持できない場合は `InvalidStore` として mutation 全体を拒否する。unknown enum は別扱いの fatal error とする。この規則は将来 Store version または Profile schema version の一般的な forward compatibility、未知 field の意味解釈、自動 migration または unsupported version の受理を保証しない。
 - `software_key_index` が AAD に含まれる場合、AAD は logical model から再構築せず、未知 map key を含む受信 wire 値を同じ要素順序・整数 key・空配列表現で使用する。
 - Store / Profile schema の migration は暗黙に行わない。
 - 将来 migration が必要な場合は `migrate_store_v1_to_v2` のような変換元・変換先 version 固定 API を追加する。
@@ -575,7 +580,7 @@ SerializationFailure
 PendingProfileInvalid
 ```
 
-`DecodeWarning` を含む結果型は維持するが、v1 の不正 Profile、未知 enum、canonical order 違反または未知 field のために Profile を skip してはならない。未知 field は正常な forward-compatible wire data として warning なしで扱い、`UnknownField` warning は定義しない。fatal error の code は `wallet-store-format-v1.md` に従う。
+`DecodeWarning` を含む結果型は維持するが、v1 の不正 Profile、未知 enum、canonical order 違反または未知 field のために Profile を skip してはならない。未知 field は、現行 schema version の wire object 内で意味解釈しない opaque extension field として warning なしで扱う。`UnknownField` warning は定義しない。fatal error の code は `wallet-store-format-v1.md` に従う。この規則は将来 version の一般的な forward compatibility、未知 field の意味解釈、自動 migration または unsupported version の受理を保証しない。
 
 error / warning message に Mnemonic、private key、Profile password、derived seed、decrypted payload、secret の hash / hex dump を含めない。
 
@@ -591,16 +596,17 @@ panic / stack trace に秘密値を format しない。
 | password不一致またはAEAD認証失敗 | `AuthenticationFailed` |
 | Profile / Software Key 重複 | `DuplicateProfile` / `DuplicateSoftwareKey` |
 | Profile Network と Chain / Network 条件の不一致 | `NetworkMismatch` |
-| Store構造または型の致命的な不正 | `InvalidStore` |
+| 空入力、truncated CBOR、CBOR decode failure、deterministic CBOR 制約違反、trailing bytes、複数 CBOR item、top-level 非 map、Store の必須 field・magic・型・長さ・値の不正 | `InvalidStore` |
 | Store 内の `profile_id` 重複、または Profile 内の `key_id` 重複 | `InvalidStore` |
 | 認証・復号後の `software_key_index` と Software Key payload の `key_id -> chain` 写像不一致 | `InvalidStore` |
 | AEAD認証成功後の `duplicate_tag` と復号済み Mnemonic / 認証済み Network の意味的不一致 | `InvalidStore` |
-| 未対応 Store / Profile schema version | `UnsupportedStoreVersion` / `UnsupportedProfileSchemaVersion` |
+| unsigned integer として構造上正しいが未対応の `WalletStore.version` | `UnsupportedStoreVersion` |
+| unsigned integer として構造上正しいが未対応の `ProfileEnvelope.schema_version` | `UnsupportedProfileSchemaVersion` |
 | Pendingのversion、対象Store、改ざんまたは整合性不正 | `PendingProfileInvalid` |
 | Pendingを含むpassword認証または保護データの認証失敗 | `AuthenticationFailed` |
 | 乱数源、暗号または保存bytes生成の失敗 | `RandomSourceFailure` / `CryptoFailure` / `SerializationFailure` |
 
-Store子オブジェクトの必須 field 欠落、型・長さ・値不正、未知 enum、重複、canonical order 違反または index と payload の対応不一致は `InvalidStore` とし、Profileを skip してはならない。未対応schemaは `UnsupportedProfileSchemaVersion` とする。既存 Profile を対象とする処理では、Store構造と ID 一意性の検証、対象 Profile の一意な解決、認証・復号、`duplicate_tag` および `software_key_index` の意味的一致検証をこの順で行い、その後にだけ重複判定、秘密情報処理または mutation へ進む。パスワードを要求しない一覧処理も構造検証に失敗したStore全体を拒否し、認証後の意味的一致だけを保証しない。
+Store子オブジェクトの必須 field 欠落、型・長さ・値不正、未知 enum、重複、canonical order 違反または index と payload の対応不一致は `InvalidStore` とし、Profileを skip してはならない。CBOR item または top-level の検証に失敗した場合も `InvalidStore` とする。`WalletStore.version` または `ProfileEnvelope.schema_version` の欠落・型不正は `InvalidStore` とし、unsigned integer だが未対応の場合だけ対応する version 専用 error とする。Store の拒否時は秘密情報処理を開始せず、正常な read 結果または秘密情報を返さず、mutation では replacement Store を返さない。child object を skip して処理を継続してはならない。既存 Profile を対象とする処理では、Store構造と ID 一意性の検証、対象 Profile の一意な解決、認証・復号、`duplicate_tag` および `software_key_index` の意味的一致検証をこの順で行い、その後にだけ重複判定、秘密情報処理または mutation へ進む。パスワードを要求しない一覧処理も構造検証に失敗したStore全体を拒否し、認証後の意味的一致だけを保証しない。
 
 ---
 

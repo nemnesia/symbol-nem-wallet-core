@@ -1268,6 +1268,71 @@ fn store_version_missing_or_wrong_type_is_invalid_store() {
 }
 
 #[test]
+fn wallet_store_cbor_boundary_and_version_errors_are_fixed() {
+    let valid = create_empty_store().unwrap();
+    assert_eq!(list_profiles(&valid).unwrap().value.len(), 0);
+
+    let mut trailing = valid.clone();
+    trailing.push(0);
+    assert_eq!(
+        list_profiles(&trailing).unwrap_err().code,
+        ErrorCode::InvalidStore
+    );
+
+    let mut concatenated = valid.clone();
+    concatenated.extend_from_slice(&valid);
+    assert_eq!(
+        list_profiles(&concatenated).unwrap_err().code,
+        ErrorCode::InvalidStore
+    );
+
+    let truncated = valid[..valid.len() - 1].to_vec();
+    for invalid in [
+        Vec::new(),
+        truncated,
+        vec![0x80],                         // top-level array
+        vec![0xb8, 0x01, 0x00],             // non-short map length
+        vec![0xa1, 0x00, 0x18, 0x00],       // non-short unsigned integer
+        vec![0xa2, 0x00, 0x00, 0x00, 0x00], // duplicate map key
+    ] {
+        assert_eq!(
+            list_profiles(&invalid).unwrap_err().code,
+            ErrorCode::InvalidStore
+        );
+    }
+
+    let mut store_value = cbor::decode(&valid).unwrap();
+    let store_map = match &mut store_value {
+        Value::Map(entries) => entries,
+        _ => unreachable!(),
+    };
+    *map_value_mut(store_map, 1) = Value::UInt(2);
+    let unsupported_store_version = cbor::encode(&store_value).unwrap();
+    assert_eq!(
+        list_profiles(&unsupported_store_version).unwrap_err().code,
+        ErrorCode::UnsupportedStoreVersion
+    );
+
+    let valid_profile = minimal_store(1, 0);
+    let mut profile_schema_type = cbor::decode(&valid_profile).unwrap();
+    *map_value_mut(first_profile_map_mut(&mut profile_schema_type), 3) =
+        Value::Text("1".to_owned());
+    let profile_schema_type = cbor::encode(&profile_schema_type).unwrap();
+    assert_eq!(
+        list_profiles(&profile_schema_type).unwrap_err().code,
+        ErrorCode::InvalidStore
+    );
+
+    let mut profile_schema_version = cbor::decode(&valid_profile).unwrap();
+    *map_value_mut(first_profile_map_mut(&mut profile_schema_version), 3) = Value::UInt(2);
+    let profile_schema_version = cbor::encode(&profile_schema_version).unwrap();
+    assert_eq!(
+        list_profiles(&profile_schema_version).unwrap_err().code,
+        ErrorCode::UnsupportedProfileSchemaVersion
+    );
+}
+
+#[test]
 fn fixed_aad_and_duplicate_tag_fixture_values() {
     // Wallet Store v1で固定されたAADとduplicate_tagの期待値を照合する。
     let registry_key = [0u8; 32];

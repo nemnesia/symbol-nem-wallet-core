@@ -12,6 +12,15 @@
 
 Wallet Store v1 は **RFC 8949 Core Deterministic Encoding Requirements に従う CBOR** とする。
 
+Wallet Store の入力 bytes は、完全な Wallet Store CBOR item をちょうど 1 個含み、
+その item が入力 bytes 全体を消費する場合だけ wire 構造として受理する。空入力、
+truncated item、trailing bytes、2 個以上の CBOR item を連結した入力は受理しない。
+CBOR item は RFC 8949 Core Deterministic Encoding Requirements を満たさなければならず、
+indefinite-length、integer または length の非最短表現、duplicate map key、v1 が許可しない
+CBOR 型その他の deterministic CBOR 違反は受理しない。これらの入力拒否に対する公開 error
+code はすべて `InvalidStore` とする。内部 parser の error 型や decode error はこの公開契約を
+変更しない。
+
 次を必須とする。
 
 - map key は unsigned integer とする。
@@ -19,7 +28,7 @@ Wallet Store v1 は **RFC 8949 Core Deterministic Encoding Requirements に従�
 - integer および length は最短表現を使用する。
 - duplicate map key は許可しない。
 - float は使用しない。
-- 未知 field は decoder が論理モデルへ取り込まず、意味解釈、一覧結果、重複判定または index と payload の写像へ使用しない。
+- 未知 field は、現行 schema version の wire object 内で意味解釈しない opaque extension field とする。decoder は未知 field を論理モデルへ取り込まず、一覧結果、重複判定または index と payload の写像へ使用しない。
 - mutation で再出力する wire object に未知 field が存在する場合、未知 field の key/value を lossless に保持しなければならない。保持できない場合は mutation 全体を `InvalidStore` として拒否し、replacement Store を返してはならない。
 - `software_key_index` が AAD に含まれる場合、未知 map key を含む受信 wire 値を同じ要素順序・整数 key・空配列表現で AAD に使用する。
 - 未知 enum 値は decoder が意味解釈できないため、対象 Profile または Software Key を skip せず fatal error とする。
@@ -27,6 +36,17 @@ Wallet Store v1 は **RFC 8949 Core Deterministic Encoding Requirements に従�
 同一の論理値について deterministic な CBOR 表現を生成する。
 
 ### 2.1 不正オブジェクトの扱い
+
+CBOR item の decode 後、Wallet Store の top-level は map であり、必須 field、magic、
+version、型、固定長および値の規則を満たさなければならない。top-level が map でない場合、
+必須 field が欠落している場合、magic の型・長さ・値が不正な場合、既知 field の型・長さ・
+値が不正な場合、またはその他の top-level 構造を解釈できない場合は `InvalidStore` とする。
+
+`WalletStore.version` と `ProfileEnvelope.schema_version` は、field が存在し unsigned
+integer として解釈できることを構造上検証してから値を判定する。field の欠落または unsigned
+integer 以外の型は `InvalidStore` とし、unsigned integer だが未対応の値だけを、それぞれ
+`UnsupportedStoreVersion` または `UnsupportedProfileSchemaVersion` とする。これ以外の
+version 専用 error は定義しない。
 
 Profile / Software Key などの子オブジェクトについて、次のいずれかを検出した場合は、対象オブジェクトを skip せず、Store 操作全体を拒否する。
 
@@ -38,15 +58,19 @@ Profile / Software Key などの子オブジェクトについて、次のいず
 - 配列要素の重複または規定された canonical order 違反
 - index と payload の対応不一致
 
-構造不正は `InvalidStore` とする。未対応の `WalletStore.version` は `UnsupportedStoreVersion`、未対応の `ProfileEnvelope.schema_version` は `UnsupportedProfileSchemaVersion` とする。
+その他の構造不正は `InvalidStore` とする。上記の構造検証を通過した unsigned integer の
+`WalletStore.version` が未対応の場合は `UnsupportedStoreVersion`、同じ条件の
+`ProfileEnvelope.schema_version` が未対応の場合は `UnsupportedProfileSchemaVersion` とする。
 
-不正オブジェクトを skip して残りの Profile だけで read または mutation を継続してはならない。失敗時は秘密情報、正常な read 結果および replacement Store を返してはならない。
+不正または未対応の Store を受理してはならず、秘密情報処理を開始してはならない。正常な read 結果、秘密情報または mutation の replacement Store を返してはならない。child object を skip して残りの Profile だけで read または mutation を継続してはならない。
 
 `DecodeWarning` はこの不正条件の通知には使用しない。warning を返す結果型を使用する場合も、v1 の不正 Profile を warning 付きで受理してはならない。
 
 warning に Mnemonic entropy、private key、ciphertext などの秘密情報を含めてはならない。v1 は不正オブジェクトの skip warning code を定義しない。未知 field は warning なしで受理するが、mutation 時に再出力する場合の lossless 保持条件は本節および §11 に従う。
 
-Wallet Store top-level 自体の必須 field 欠落、型不正、固定長 field の長さ不正など、Store 全体を解釈できない不正は decode error とする。
+Wallet Store top-level 自体の必須 field 欠落、型不正、固定長 field の長さ不正、magic の不正、
+top-level が map でないことその他 Store 全体を解釈できない不正は、内部で CBOR parser または
+decoder の error が発生した場合を含め、公開 error code `InvalidStore` とする。
 
 ### 2.2 Resource limits
 
@@ -149,14 +173,14 @@ UUID string から raw bytes への変換に失敗した外部入力は `Invalid
 
 一度割り当てた enum wire 値の意味は変更しない。廃止した値も別用途へ再利用しない。
 
-未知 enum 値は `InvalidStore` として Store 操作全体を拒否する。未知 enum を既知値として解釈したり、対象オブジェクトを skip して処理を継続したりしてはならない。
+未知 enum 値は `InvalidStore` として Store 操作全体を拒否する。未知 enum を既知値として解釈したり、対象オブジェクトを skip して処理を継続したりしてはならない。unknown field の opaque 保持規則は unknown enum には適用しない。
 
 具体例:
 
 - `SoftwareKeyRecordV1.chain` または `SoftwareKeyOriginV1.origin` が未知値の場合は `InvalidStore` とする。
 - `ProfileEnvelopeV1.network`、`KdfParamsV1.algorithm` または `CiphertextV1.algorithm` が未知値の場合は `InvalidStore` とする。
-- `WalletStore.version` が未対応の場合はスキップせず `UnsupportedStoreVersion` として Store 全体を拒否する。
-- `ProfileEnvelope.schema_version` が未対応の場合は `UnsupportedProfileSchemaVersion` とする。
+- `WalletStore.version` が unsigned integer として構造上正しく、値だけが未対応の場合はスキップせず `UnsupportedStoreVersion` として Store 全体を拒否する。欠落または型不正は `InvalidStore` とする。
+- `ProfileEnvelope.schema_version` が unsigned integer として構造上正しく、値だけが未対応の場合は `UnsupportedProfileSchemaVersion` として Store 全体を拒否する。欠落または型不正は `InvalidStore` とする。
 
 ---
 
@@ -542,9 +566,9 @@ Mutation における保存規則は次のとおりとする。
 
 - 対象外 Profile は再認証・再暗号化せず、Profile envelope と `software_key_index` の未知 fieldを含む受信 wire 値を lossless に保持して、変更前と同じ AAD を再構成できるようにする。
 - 対象 Profile を保持する成功 mutation（Software Key 登録・削除または password change）は、既知 fieldをcanonicalに再生成し、既存の未知 fieldをlosslessに保持した上で、新しい nonce と AAD で再暗号化する。未知 fieldを保持できない場合は `InvalidStore` として mutation 全体を拒否し、replacement Store を返してはならない。Profile delete では対象 envelope を除去する。
-- 対象外 Profile または対象 Profile の未知 fieldを、意味解釈せずに保存するための wire-preservation は、将来形式として公開するものではない。
+- 対象外 Profile または対象 Profile の未知 fieldを、意味解釈せずに保存するための wire-preservation は、現行 schema version の wire object 内に限る opaque extension field の保持規則であり、将来 Store version または Profile schema version に対する一般的な forward compatibility を保証するものではない。
 
-これらは、対象 Profile のみを置換する atomicity と、対象外 Profile の ciphertext / tag / AAD を変更しない契約を同時に満たすための v1 規則である。未知 field の一般的な前方互換性または意味解釈を提供するものではない。
+これらは、対象 Profile のみを置換する atomicity と、対象外 Profile の ciphertext / tag / AAD を変更しない契約を同時に満たすための v1 規則である。unknown field の意味解釈、自動 migration、unsupported version の受理は提供しない。unknown enum は引き続き fatal error とする。
 
 過去のv1 decoderでAADの認証対象外だったunknown fieldに、同じschema versionのままsecurity上
 意味のある解釈を追加してはならない。新しいfieldへsecurity上の意味を持たせる場合は、schema
@@ -590,13 +614,16 @@ UTF-8("symbol-nem-wallet-core/profile-duplicate/v1")
 
 ## 13. バージョニングと migration
 
-未対応 Store version は次のエラーとする。
+`WalletStore.version` が field として存在し unsigned integer であり、その値だけが未対応の
+場合は次のエラーとする。field の欠落または unsigned integer 以外の型は `InvalidStore` とする。
 
 ```text
 UnsupportedStoreVersion
 ```
 
-未対応 Profile schema version は次のエラーとする。
+`ProfileEnvelope.schema_version` が field として存在し unsigned integer であり、その値だけが
+未対応の場合は次のエラーとする。field の欠落または unsigned integer 以外の型は
+`InvalidStore` とする。
 
 ```text
 UnsupportedProfileSchemaVersion
