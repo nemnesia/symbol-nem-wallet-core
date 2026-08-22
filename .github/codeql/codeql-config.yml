@@ -1,8 +1,0 @@
-name: "Symbol Nem Wallet Core CodeQL"
-
-# 組み込みのセキュリティクエリは有効なままにする。この追加クエリにより、
-# 行単位の // codeql[query-id] コメントがSARIFのソース内抑制として出力される。
-# CodeQLのDefault setupでこのファイルを選択するか、Advanced setupのinitで
-# config-fileとして指定する。
-packs:
-  - codeql/rust-queries:AlertSuppression.ql
