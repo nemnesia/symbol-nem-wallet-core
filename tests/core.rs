@@ -3,11 +3,14 @@
 //! 状態変更APIが入力Storeを直接変更せず、成功時にreplacement Storeを返すこと、
 //! Symbol/NEMのChain境界、認証失敗・不正入力時のエラー分類を確認する。
 
+use uuid::Uuid;
+
 use symbol_nem_wallet_core::{
     change_profile_password, create_empty_store, delete_profile, delete_software_key,
     derive_software_key, export_mnemonic, export_private_key, finalize_generated_profile,
     get_public_account, import_software_key, list_profiles, list_software_keys,
-    prepare_generated_profile, restore_profile, sign, Chain, ErrorCode, Network,
+    prepare_generated_profile, restore_profile, sign, Chain, ErrorCode, Network, SoftwareKeyOrigin,
+    WalletError,
 };
 
 const MNEMONIC: &[u8] = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
@@ -19,6 +22,123 @@ fn array32(hex_value: &str) -> [u8; 32] {
     hex::decode(hex_value).unwrap().try_into().unwrap()
 }
 
+fn cbor_uint(value: u64) -> Vec<u8> {
+    match value {
+        0..=23 => vec![value as u8],
+        24..=0xff => vec![0x18, value as u8],
+        0x100..=0xffff => {
+            let mut bytes = vec![0x19];
+            bytes.extend_from_slice(&(value as u16).to_be_bytes());
+            bytes
+        }
+        0x1_0000..=0xffff_ffff => {
+            let mut bytes = vec![0x1a];
+            bytes.extend_from_slice(&(value as u32).to_be_bytes());
+            bytes
+        }
+        _ => {
+            let mut bytes = vec![0x1b];
+            bytes.extend_from_slice(&value.to_be_bytes());
+            bytes
+        }
+    }
+}
+
+fn cbor_bytes(value: &[u8]) -> Vec<u8> {
+    let mut bytes = match value.len() {
+        0..=23 => vec![0x40 | value.len() as u8],
+        24..=0xff => vec![0x58, value.len() as u8],
+        _ => panic!("test fixture is too large"),
+    };
+    bytes.extend_from_slice(value);
+    bytes
+}
+
+fn cbor_array(values: Vec<Vec<u8>>) -> Vec<u8> {
+    assert!(values.len() <= 23);
+    let mut bytes = vec![0x80 | values.len() as u8];
+    for value in values {
+        bytes.extend_from_slice(&value);
+    }
+    bytes
+}
+
+fn cbor_map(mut fields: Vec<(u64, Vec<u8>)>) -> Vec<u8> {
+    assert!(fields.len() <= 23);
+    fields.sort_by_key(|(key, _)| *key);
+    let mut bytes = vec![0xa0 | fields.len() as u8];
+    for (key, value) in fields {
+        bytes.extend_from_slice(&cbor_uint(key));
+        bytes.extend_from_slice(&value);
+    }
+    bytes
+}
+
+fn valid_profile_fields() -> Vec<(u64, Vec<u8>)> {
+    vec![
+        (0, cbor_bytes(&[1; 16])),
+        (1, cbor_uint(1)),
+        (2, cbor_bytes(&[2; 32])),
+        (3, cbor_uint(1)),
+        (
+            4,
+            cbor_map(vec![
+                (0, cbor_uint(0)),
+                (1, cbor_uint(0x13)),
+                (2, cbor_uint(65_536)),
+                (3, cbor_uint(3)),
+                (4, cbor_uint(1)),
+                (5, cbor_bytes(&[3; 16])),
+            ]),
+        ),
+        (
+            5,
+            cbor_map(vec![
+                (0, cbor_uint(0)),
+                (1, cbor_bytes(&[4; 12])),
+                (2, cbor_bytes(&[])),
+                (3, cbor_bytes(&[5; 16])),
+            ]),
+        ),
+        (6, cbor_array(Vec::new())),
+    ]
+}
+
+fn valid_profile_with(overrides: &[(u64, Vec<u8>)]) -> Vec<u8> {
+    let mut fields = valid_profile_fields();
+    for (key, value) in overrides {
+        fields.iter_mut().find(|(field, _)| field == key).unwrap().1 = value.clone();
+    }
+    cbor_map(fields)
+}
+
+fn raw_store(profiles: Vec<Vec<u8>>) -> Vec<u8> {
+    cbor_map(vec![
+        (0, cbor_bytes(b"SNWC")),
+        (1, cbor_uint(1)),
+        (2, cbor_bytes(&[0x11; 32])),
+        (3, cbor_array(profiles)),
+    ])
+}
+
+fn raw_store_with_unknown_simple() -> Vec<u8> {
+    cbor_map(vec![
+        (0, cbor_bytes(b"SNWC")),
+        (1, cbor_uint(1)),
+        (2, cbor_bytes(&[0x11; 32])),
+        (3, cbor_array(Vec::new())),
+        (99, vec![0xf7]),
+    ])
+}
+
+fn assert_invalid_store(bytes: &[u8]) {
+    assert_error(bytes, ErrorCode::InvalidStore);
+}
+
+fn assert_error(bytes: &[u8], expected: ErrorCode) {
+    assert_eq!(list_profiles(bytes).unwrap_err().code, expected);
+}
+
 #[test]
 fn profile_and_software_key_lifecycle_is_atomic() {
     // Profile作成から鍵の導出・import・署名・password変更・削除までを通し、
@@ -27,9 +147,19 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     let created = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
     let profile_id = created.value.profile_id;
     assert_eq!(list_profiles(&created.store).unwrap().value.len(), 1);
+    let prepared_with_existing_profile =
+        prepare_generated_profile(&created.store, PASSWORD, Network::Testnet).unwrap();
+    assert!(!prepared_with_existing_profile
+        .value
+        .pending_profile
+        .is_empty());
 
     let exported = export_mnemonic(&created.store, profile_id, PASSWORD).unwrap();
     assert_eq!(exported.value.mnemonic_utf8, MNEMONIC);
+    assert_eq!(
+        format!("{:?}", exported.value),
+        r#"MnemonicExport { mnemonic_utf8: "[redacted]" }"#
+    );
     assert_eq!(
         export_mnemonic(&created.store, profile_id, b"wrong")
             .unwrap_err()
@@ -39,11 +169,38 @@ fn profile_and_software_key_lifecycle_is_atomic() {
 
     let symbol =
         derive_software_key(&created.store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
-    let symbol_private =
-        export_private_key(&symbol.store, profile_id, symbol.value.key_id, PASSWORD)
-            .unwrap()
-            .value
-            .private_key;
+    let exported_private =
+        export_private_key(&symbol.store, profile_id, symbol.value.key_id, PASSWORD).unwrap();
+    assert_eq!(
+        format!("{:?}", exported_private.value),
+        r#"PrivateKeyExport { private_key: "[redacted]" }"#
+    );
+    let symbol_private = exported_private.value.private_key;
+    let missing_key_id = Uuid::from_bytes([0; 16]);
+    assert_eq!(
+        export_private_key(&symbol.store, profile_id, missing_key_id, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::SoftwareKeyNotFound
+    );
+    assert_eq!(
+        get_public_account(&symbol.store, profile_id, missing_key_id, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::SoftwareKeyNotFound
+    );
+    assert_eq!(
+        sign(
+            &symbol.store,
+            profile_id,
+            missing_key_id,
+            PASSWORD,
+            b"missing key",
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::SoftwareKeyNotFound
+    );
     assert_eq!(
         get_public_account(&symbol.store, profile_id, symbol.value.key_id, PASSWORD)
             .unwrap()
@@ -112,6 +269,10 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     )
     .unwrap();
     assert_eq!(signature.value.signature.len(), 64);
+    assert_eq!(
+        format!("{:?}", signature.value),
+        r#"Signature { signature: "[redacted]" }"#
+    );
 
     let password_changed =
         change_profile_password(&nem.store, profile_id, PASSWORD, NEW_PASSWORD).unwrap();
@@ -177,6 +338,36 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     // Profileを追加できること、およびPendingの再利用を拒否することを確認する。
     let store = create_empty_store().unwrap();
     let prepared = prepare_generated_profile(&store, PASSWORD, Network::Testnet).unwrap();
+    assert_eq!(
+        format!("{:?}", prepared.value),
+        r#"PreparedProfile { mnemonic_utf8: "[redacted]", pending_profile: "[redacted]" }"#
+    );
+    let mut invalid_version = prepared.value.pending_profile.clone();
+    invalid_version[8] = 2;
+    assert_eq!(
+        finalize_generated_profile(&store, &invalid_version, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::PendingProfileInvalid
+    );
+    let mut invalid_network = prepared.value.pending_profile.clone();
+    invalid_network[57] = 2;
+    assert_eq!(
+        finalize_generated_profile(&store, &invalid_network, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::PendingProfileInvalid
+    );
+    assert_eq!(
+        finalize_generated_profile(
+            &store,
+            &prepared.value.pending_profile[..prepared.value.pending_profile.len() - 1],
+            PASSWORD,
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::PendingProfileInvalid
+    );
     assert!(list_profiles(&store).unwrap().value.is_empty());
     assert_eq!(
         finalize_generated_profile(&store, &prepared.value.pending_profile, b"wrong")
@@ -210,6 +401,158 @@ fn generated_profile_requires_a_matching_pending_handoff() {
 }
 
 #[test]
+fn malformed_public_store_envelopes_are_rejected_before_authentication() {
+    // 公開APIから到達可能なStore envelopeの各構造エラーを、秘密処理の前に拒否する。
+    for bytes in [
+        Vec::new(),
+        cbor_uint(0),
+        cbor_map(vec![(0, cbor_bytes(b"BAD!"))]),
+        cbor_map(vec![
+            (0, cbor_bytes(b"SNWC")),
+            (1, cbor_uint(1)),
+            (2, cbor_bytes(&[0; 31])),
+            (3, cbor_array(Vec::new())),
+        ]),
+        cbor_map(vec![
+            (0, cbor_bytes(b"SNWC")),
+            (1, cbor_uint(1)),
+            (2, cbor_bytes(&[0; 32])),
+        ]),
+        cbor_map(vec![
+            (0, cbor_bytes(b"SNWC")),
+            (1, cbor_uint(1)),
+            (2, cbor_bytes(&[0; 32])),
+            (3, cbor_uint(0)),
+        ]),
+    ] {
+        assert_invalid_store(&bytes);
+    }
+    assert_error(
+        &cbor_map(vec![(0, cbor_bytes(b"SNWC")), (1, cbor_uint(2))]),
+        ErrorCode::UnsupportedStoreVersion,
+    );
+
+    for profile in [
+        cbor_uint(0),
+        valid_profile_with(&[(0, cbor_bytes(&[1; 15]))]),
+        valid_profile_with(&[(1, cbor_uint(2))]),
+        valid_profile_with(&[(2, cbor_bytes(&[2; 31]))]),
+        valid_profile_with(&[(3, cbor_bytes(&[]))]),
+        valid_profile_with(&[(4, cbor_uint(0))]),
+        valid_profile_with(&[(
+            4,
+            cbor_map(vec![
+                (0, cbor_uint(0)),
+                (1, cbor_uint(0x13)),
+                (2, cbor_uint(65_536)),
+                (3, cbor_uint(3)),
+                (4, cbor_uint(1)),
+                (5, cbor_bytes(&[3; 15])),
+            ]),
+        )]),
+        valid_profile_with(&[(5, cbor_uint(0))]),
+        valid_profile_with(&[(
+            5,
+            cbor_map(vec![
+                (0, cbor_uint(0)),
+                (1, cbor_bytes(&[4; 11])),
+                (2, cbor_bytes(&[])),
+                (3, cbor_bytes(&[5; 16])),
+            ]),
+        )]),
+        valid_profile_with(&[(
+            5,
+            cbor_map(vec![
+                (0, cbor_uint(0)),
+                (1, cbor_bytes(&[4; 12])),
+                (2, cbor_uint(0)),
+                (3, cbor_bytes(&[5; 16])),
+            ]),
+        )]),
+        valid_profile_with(&[(
+            5,
+            cbor_map(vec![
+                (0, cbor_uint(0)),
+                (1, cbor_bytes(&[4; 12])),
+                (2, cbor_bytes(&[])),
+                (3, cbor_bytes(&[5; 15])),
+            ]),
+        )]),
+        valid_profile_with(&[(6, cbor_uint(0))]),
+        valid_profile_with(&[(6, cbor_array(vec![cbor_uint(0)]))]),
+        valid_profile_with(&[(
+            6,
+            cbor_array(vec![cbor_map(vec![
+                (0, cbor_bytes(&[1; 15])),
+                (1, cbor_uint(0)),
+            ])]),
+        )]),
+        valid_profile_with(&[(
+            6,
+            cbor_array(vec![cbor_map(vec![
+                (0, cbor_bytes(&[1; 16])),
+                (1, cbor_uint(2)),
+            ])]),
+        )]),
+    ] {
+        assert_invalid_store(&raw_store(vec![profile]));
+    }
+    assert_error(
+        &raw_store(vec![valid_profile_with(&[(3, cbor_uint(2))])]),
+        ErrorCode::UnsupportedProfileSchemaVersion,
+    );
+
+    let unknown_simple = raw_store_with_unknown_simple();
+    let restored = restore_profile(&unknown_simple, MNEMONIC, PASSWORD, Network::Mainnet)
+        .expect("unknown simple field should be preserved");
+    assert_eq!(list_profiles(&restored.store).unwrap().value.len(), 1);
+}
+
+#[test]
+fn generated_software_key_and_error_strings_are_public_contracts() {
+    let store = create_empty_store().unwrap();
+    let created = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
+    let generated = symbol_nem_wallet_core::generate_software_key(
+        &created.store,
+        created.value.profile_id,
+        PASSWORD,
+        Chain::Symbol,
+    )
+    .unwrap();
+    assert_eq!(generated.value.origin, SoftwareKeyOrigin::Generated);
+
+    let cases = [
+        (ErrorCode::InvalidArgument, "InvalidArgument"),
+        (ErrorCode::InvalidStore, "InvalidStore"),
+        (
+            ErrorCode::UnsupportedStoreVersion,
+            "UnsupportedStoreVersion",
+        ),
+        (
+            ErrorCode::UnsupportedProfileSchemaVersion,
+            "UnsupportedProfileSchemaVersion",
+        ),
+        (ErrorCode::ProfileNotFound, "ProfileNotFound"),
+        (ErrorCode::SoftwareKeyNotFound, "SoftwareKeyNotFound"),
+        (ErrorCode::AuthenticationFailed, "AuthenticationFailed"),
+        (ErrorCode::InvalidMnemonic, "InvalidMnemonic"),
+        (ErrorCode::InvalidPrivateKey, "InvalidPrivateKey"),
+        (ErrorCode::DuplicateProfile, "DuplicateProfile"),
+        (ErrorCode::DuplicateSoftwareKey, "DuplicateSoftwareKey"),
+        (ErrorCode::InvalidAccountIndex, "InvalidAccountIndex"),
+        (ErrorCode::NetworkMismatch, "NetworkMismatch"),
+        (ErrorCode::CryptoFailure, "CryptoFailure"),
+        (ErrorCode::RandomSourceFailure, "RandomSourceFailure"),
+        (ErrorCode::SerializationFailure, "SerializationFailure"),
+        (ErrorCode::PendingProfileInvalid, "PendingProfileInvalid"),
+    ];
+    for (code, expected) in cases {
+        assert_eq!(code.as_str(), expected);
+        assert_eq!(WalletError { code }.to_string(), expected);
+    }
+}
+
+#[test]
 fn invalid_secret_inputs_are_rejected_without_mutating_the_store() {
     // Mnemonic、private key、account indexの不正入力を拒否し、失敗したmutationが
     // 入力Storeを変更しないことを確認する。
@@ -220,8 +563,27 @@ fn invalid_secret_inputs_are_rejected_without_mutating_the_store() {
             .code,
         ErrorCode::InvalidMnemonic
     );
+    assert_eq!(
+        restore_profile(&store, &[0xff], PASSWORD, Network::Mainnet)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidMnemonic
+    );
     let created = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
     let before = created.store.clone();
+    let missing_profile_id = Uuid::from_bytes([0; 16]);
+    assert_eq!(
+        list_software_keys(&created.store, missing_profile_id)
+            .unwrap_err()
+            .code,
+        ErrorCode::ProfileNotFound
+    );
+    assert_eq!(
+        delete_profile(&created.store, missing_profile_id, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::ProfileNotFound
+    );
     assert_eq!(
         import_software_key(
             &created.store,

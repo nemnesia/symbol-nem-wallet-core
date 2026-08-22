@@ -9,9 +9,9 @@ use symbol_nem_wallet_core::{get_public_account, sign};
 use symbol_nem_wallet_core_native::{
     snwc_create_empty_store, snwc_derive_software_key, snwc_export_private_key, snwc_free_bytes,
     snwc_free_profiles, snwc_free_software_key_list, snwc_free_warnings, snwc_get_public_account,
-    snwc_list_profiles, snwc_list_software_keys, snwc_restore_profile, snwc_sign, SnwcBytes,
-    SnwcOwnedBytes, SnwcProfileInfo, SnwcPublicAccountInfo, SnwcSoftwareKeyInfo,
-    SnwcSoftwareKeyListItem, SnwcUuid, SnwcWarnings,
+    snwc_import_software_key, snwc_list_profiles, snwc_list_software_keys, snwc_restore_profile,
+    snwc_sign, SnwcBytes, SnwcOwnedBytes, SnwcProfileInfo, SnwcPublicAccountInfo,
+    SnwcSoftwareKeyInfo, SnwcSoftwareKeyListItem, SnwcUuid, SnwcWarnings,
 };
 
 const MNEMONIC: &[u8] = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
@@ -388,5 +388,161 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         assert!(!account.address.ptr.is_null());
         snwc_free_bytes(account.address);
         snwc_free_warnings(account_warnings);
+    }
+}
+
+#[test]
+fn c_abi_nem_external_fixture_matches_public_key_address_and_signature() {
+    // NEMのBinding結果をCoreとの再比較だけでなく、独立した固定fixtureへ照合する。
+    const NEM_ACCOUNT_PRIVATE_KEY: &[u8; 32] =
+        b"\x57\x5D\xBB\x30\x62\x26\x7E\xFF\x57\xC9\x70\xA3\x36\xEB\xBC\x8F\xBC\xFE\x12\xC5\xBD\x3E\xD7\xBC\x11\xEB\x04\x81\xD7\x70\x4C\xED";
+    const NEM_SIGNATURE_PRIVATE_KEY: &[u8; 32] =
+        b"\xAB\xF4\xCF\x55\xA2\xB3\xF7\x42\xD7\x54\x3D\x9C\xC1\x7F\x50\x44\x7B\x96\x9E\x6E\x06\xF5\xEA\x91\x95\xD4\x28\xAB\x12\xB7\x31\x8D";
+    const PAYLOAD: &[u8; 41] = b"\x8C\xE0\x3C\xD6\x05\x14\x23\x3B\x86\x78\x97\x29\x10\x2E\xA0\x9E\x86\x7F\xC6\xD9\x64\xDE\xA8\xC2\x01\x8E\xF7\xD0\xA2\xE0\xE2\x4B\xF7\xE3\x48\xE9\x17\x11\x66\x90\xB9";
+
+    unsafe {
+        let mut empty = SnwcOwnedBytes {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(snwc_create_empty_store(&mut empty).is_null());
+        let empty_store = take_bytes(empty);
+
+        let mut restored_store = SnwcOwnedBytes {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        let mut profile = SnwcProfileInfo::default();
+        let mut restore_warnings = SnwcWarnings {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(snwc_restore_profile(
+            borrowed(&empty_store),
+            borrowed(MNEMONIC),
+            borrowed(PASSWORD),
+            1,
+            &mut restored_store,
+            &mut profile,
+            &mut restore_warnings,
+        )
+        .is_null());
+        snwc_free_warnings(restore_warnings);
+        let restored_store = take_bytes(restored_store);
+        let profile_id = SnwcUuid {
+            bytes: profile.profile_id,
+        };
+
+        let mut imported_store = SnwcOwnedBytes {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        let mut imported_key = SnwcSoftwareKeyInfo::default();
+        let mut import_warnings = SnwcWarnings {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(snwc_import_software_key(
+            borrowed(&restored_store),
+            profile_id,
+            borrowed(PASSWORD),
+            0,
+            borrowed(NEM_ACCOUNT_PRIVATE_KEY),
+            &mut imported_store,
+            &mut imported_key,
+            &mut import_warnings,
+        )
+        .is_null());
+        snwc_free_warnings(import_warnings);
+        let imported_store = take_bytes(imported_store);
+        let key_id = SnwcUuid {
+            bytes: imported_key.key_id,
+        };
+
+        let mut account = SnwcPublicAccountInfo {
+            key_id: [0; 16],
+            chain: 0,
+            network: 0,
+            public_key: [0; 32],
+            address: SnwcOwnedBytes {
+                ptr: ptr::null_mut(),
+                len: 0,
+            },
+        };
+        let mut account_warnings = SnwcWarnings {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(snwc_get_public_account(
+            borrowed(&imported_store),
+            profile_id,
+            key_id,
+            borrowed(PASSWORD),
+            &mut account,
+            &mut account_warnings,
+        )
+        .is_null());
+        let expected_public_key: [u8; 32] =
+            hex::decode("C5F54BA980FCBB657DBAAA42700539B207873E134D2375EFEAB5F1AB52F87844")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        assert_eq!(account.public_key, expected_public_key);
+        assert_eq!(
+            slice::from_raw_parts(account.address.ptr, account.address.len),
+            b"NDD2CT6LQLIYQ56KIXI3ENTM6EK3D44P5JFXJ4R4"
+        );
+        snwc_free_bytes(account.address);
+        snwc_free_warnings(account_warnings);
+
+        let mut signature_store = SnwcOwnedBytes {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        let mut signature_key = SnwcSoftwareKeyInfo::default();
+        let mut signature_import_warnings = SnwcWarnings {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(snwc_import_software_key(
+            borrowed(&imported_store),
+            profile_id,
+            borrowed(PASSWORD),
+            0,
+            borrowed(NEM_SIGNATURE_PRIVATE_KEY),
+            &mut signature_store,
+            &mut signature_key,
+            &mut signature_import_warnings,
+        )
+        .is_null());
+        snwc_free_warnings(signature_import_warnings);
+        let signature_store = take_bytes(signature_store);
+        let signature_key_id = SnwcUuid {
+            bytes: signature_key.key_id,
+        };
+
+        let mut signature = SnwcOwnedBytes {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        let mut sign_warnings = SnwcWarnings {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(snwc_sign(
+            borrowed(&signature_store),
+            profile_id,
+            signature_key_id,
+            borrowed(PASSWORD),
+            borrowed(PAYLOAD),
+            &mut signature,
+            &mut sign_warnings,
+        )
+        .is_null());
+        assert_eq!(
+            take_bytes(signature),
+            hex::decode("D9CEC0CC0E3465FAB229F8E1D6DB68AB9CC99A18CB0435F70DEB6100948576CD5C0AA1FEB550BDD8693EF81EB10A556A622DB1F9301986827B96716A7134230C").unwrap()
+        );
+        snwc_free_warnings(sign_warnings);
     }
 }

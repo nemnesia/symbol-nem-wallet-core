@@ -11,6 +11,9 @@ fn secret_dto_debug_output_is_redacted() {
     let private_key = PrivateKeyExport {
         private_key: [0xA5; 32],
     };
+    let signature = Signature {
+        signature: [0xA5; 64],
+    };
     let prepared = PreparedProfile {
         mnemonic_utf8: b"secret prepared mnemonic".to_vec(),
         pending_profile: b"secret pending profile".to_vec(),
@@ -18,5 +21,6 @@ fn secret_dto_debug_output_is_redacted() {
 
     assert!(!format!("{mnemonic:?}").contains("secret mnemonic"));
     assert!(!format!("{private_key:?}").contains("A5"));
+    assert!(!format!("{signature:?}").contains("A5"));
     assert!(!format!("{prepared:?}").contains("secret"));
 }

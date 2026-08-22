@@ -258,7 +258,10 @@ pub fn finalize_generated_profile(
         .iter()
         .any(|profile| profile.profile_id == pending.profile_id)
     {
-        return Err(WalletError::new(ErrorCode::InvalidStore));
+        // The input Store was already structurally validated. A collision in the
+        // authenticated Pending blob is therefore a Pending inconsistency, not a
+        // malformed Store.
+        return Err(WalletError::new(ErrorCode::PendingProfileInvalid));
     }
 
     let mut payload = ProfilePayload {

@@ -80,3 +80,8 @@ fn parser_rejects_noncanonical_simple_values_and_floats() {
     assert!(decode(&[0xfa, 0x00, 0x00, 0x00, 0x00]).is_err());
     assert!(decode(&[0xfb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]).is_err());
 }
+
+#[test]
+fn cbor_error_display_is_stable() {
+    assert_eq!(CborError.to_string(), "invalid deterministic CBOR");
+}

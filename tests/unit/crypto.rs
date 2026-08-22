@@ -135,6 +135,24 @@ fn hd_derivation_covers_all_v1_networks_chains_and_account_boundaries() {
 }
 
 #[test]
+fn generated_private_key_retries_invalid_candidates_and_propagates_random_failure() {
+    // Generated keyの候補妥当性確認と、乱数源失敗時の安全側終了を公開設定なしで検証する。
+    let valid = bytes::<32>("575DBB3062267EFF57C970A336EBBC8FBCFE12C5BD3ED7BC11EB0481D7704CED");
+    let mut candidates = [[0u8; 32], valid].into_iter();
+    let generated = generate_private_key_with(Chain::Symbol, || {
+        Ok(candidates.next().expect("candidate fixture exhausted"))
+    })
+    .unwrap();
+    assert_eq!(generated, valid);
+
+    let error = generate_private_key_with(Chain::Symbol, || {
+        Err(WalletError::new(ErrorCode::RandomSourceFailure))
+    })
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::RandomSourceFailure);
+}
+
+#[test]
 fn hd_derivation_matches_fixed_sdk_fixture_for_all_v1_networks() {
     let mnemonic = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
     let (entropy, _) = parse_mnemonic(mnemonic).unwrap();

@@ -20,7 +20,7 @@ wasm = ["dep:js-sys", "dep:wasm-bindgen"]
 aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"] }
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
 bip39 = { version = "2.1.0", features = ["zeroize"] }
-curve25519-dalek = "4.1.3"
+curve25519-dalek = { version = "4.1.3", default-features = false, features = ["alloc", "precomputed-tables", "zeroize"] }
 getrandom = { version = "0.3.4", features = ["wasm_js"] }
 hmac = "0.12.1"
 ripemd = "0.1.3"
@@ -31,6 +31,9 @@ uuid = { version = "1.18.1", default-features = false }
 js-sys = { version = "0.3.77", optional = true }
 wasm-bindgen = { version = "0.2.105", optional = true }
 zeroize = { version = "1.8.2", features = ["derive"] }
+
+[patch.crates-io]
+curve25519-dalek = { path = "third_party/curve25519-dalek-4.1.3" }
 
 [dev-dependencies]
 hex = "0.4.3"

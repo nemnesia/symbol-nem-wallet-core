@@ -312,6 +312,166 @@ fn wallet_with_one_profile() -> (Vec<u8>, Uuid) {
     (restored.store, restored.value.profile_id)
 }
 
+fn assert_invalid_store<T>(result: WalletResult<T>) {
+    match result {
+        Err(error) => assert_eq!(error.code, ErrorCode::InvalidStore),
+        Ok(_) => panic!("expected InvalidStore"),
+    }
+}
+
+#[test]
+fn public_store_paths_are_exercised_in_unit_build() {
+    // Unit test側のCore buildでも、公開Store APIの成功経路を一通り通過させる。
+    let empty = create_empty_store().unwrap();
+    let prepared = prepare_generated_profile(&empty, PASSWORD, Network::Testnet).unwrap();
+    assert!(!prepared.value.mnemonic_utf8.is_empty());
+    let finalized =
+        finalize_generated_profile(&empty, &prepared.value.pending_profile, PASSWORD).unwrap();
+    assert_eq!(list_profiles(&finalized.store).unwrap().value.len(), 1);
+
+    let (store, profile_id) = wallet_with_one_profile();
+    assert!(list_software_keys(&store, profile_id)
+        .unwrap()
+        .value
+        .is_empty());
+    let missing_profile_id = Uuid::from_bytes([0; 16]);
+    assert_eq!(
+        list_software_keys(&store, missing_profile_id)
+            .unwrap_err()
+            .code,
+        ErrorCode::ProfileNotFound
+    );
+    assert_eq!(
+        delete_profile(&store, missing_profile_id, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::ProfileNotFound
+    );
+    let derived = derive_software_key(&store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
+    let imported = import_software_key(
+        &derived.store,
+        profile_id,
+        PASSWORD,
+        Chain::Nem,
+        &[0x11; 32],
+    )
+    .unwrap();
+    let generated = generate_software_key(&store, profile_id, PASSWORD, Chain::Symbol).unwrap();
+    assert_eq!(
+        list_software_keys(&imported.store, profile_id)
+            .unwrap()
+            .value
+            .len(),
+        2
+    );
+
+    let exported_mnemonic = export_mnemonic(&imported.store, profile_id, PASSWORD).unwrap();
+    assert_eq!(exported_mnemonic.value.mnemonic_utf8, MNEMONIC);
+    let exported_private =
+        export_private_key(&imported.store, profile_id, derived.value.key_id, PASSWORD).unwrap();
+    assert_eq!(exported_private.value.private_key.len(), 32);
+    let missing_key_id = Uuid::from_bytes([0; 16]);
+    assert_eq!(
+        export_private_key(&imported.store, profile_id, missing_key_id, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::SoftwareKeyNotFound
+    );
+    assert_eq!(
+        get_public_account(&imported.store, profile_id, derived.value.key_id, PASSWORD)
+            .unwrap()
+            .value
+            .public_key
+            .len(),
+        32
+    );
+    assert_eq!(
+        get_public_account(&imported.store, profile_id, missing_key_id, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::SoftwareKeyNotFound
+    );
+    assert_eq!(
+        sign(
+            &imported.store,
+            profile_id,
+            derived.value.key_id,
+            PASSWORD,
+            b"unit fixture"
+        )
+        .unwrap()
+        .value
+        .signature
+        .len(),
+        64
+    );
+    assert_eq!(
+        sign(
+            &imported.store,
+            profile_id,
+            missing_key_id,
+            PASSWORD,
+            b"missing key",
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::SoftwareKeyNotFound
+    );
+
+    let changed =
+        change_profile_password(&imported.store, profile_id, PASSWORD, b"unit password").unwrap();
+    let without_imported = delete_software_key(
+        &changed.store,
+        profile_id,
+        imported.value.key_id,
+        b"unit password",
+    )
+    .unwrap();
+    let without_derived = delete_software_key(
+        &without_imported.store,
+        profile_id,
+        derived.value.key_id,
+        b"unit password",
+    )
+    .unwrap();
+    let deleted = delete_profile(&without_derived.store, profile_id, b"unit password").unwrap();
+    assert!(list_profiles(&deleted.store).unwrap().value.is_empty());
+    assert_eq!(generated.value.origin, SoftwareKeyOrigin::Generated);
+}
+
+#[test]
+fn error_code_strings_and_display_are_stable() {
+    let cases = [
+        (ErrorCode::InvalidArgument, "InvalidArgument"),
+        (ErrorCode::InvalidStore, "InvalidStore"),
+        (
+            ErrorCode::UnsupportedStoreVersion,
+            "UnsupportedStoreVersion",
+        ),
+        (
+            ErrorCode::UnsupportedProfileSchemaVersion,
+            "UnsupportedProfileSchemaVersion",
+        ),
+        (ErrorCode::ProfileNotFound, "ProfileNotFound"),
+        (ErrorCode::SoftwareKeyNotFound, "SoftwareKeyNotFound"),
+        (ErrorCode::AuthenticationFailed, "AuthenticationFailed"),
+        (ErrorCode::InvalidMnemonic, "InvalidMnemonic"),
+        (ErrorCode::InvalidPrivateKey, "InvalidPrivateKey"),
+        (ErrorCode::DuplicateProfile, "DuplicateProfile"),
+        (ErrorCode::DuplicateSoftwareKey, "DuplicateSoftwareKey"),
+        (ErrorCode::InvalidAccountIndex, "InvalidAccountIndex"),
+        (ErrorCode::NetworkMismatch, "NetworkMismatch"),
+        (ErrorCode::CryptoFailure, "CryptoFailure"),
+        (ErrorCode::RandomSourceFailure, "RandomSourceFailure"),
+        (ErrorCode::SerializationFailure, "SerializationFailure"),
+        (ErrorCode::PendingProfileInvalid, "PendingProfileInvalid"),
+    ];
+    for (code, expected) in cases {
+        assert_eq!(code.as_str(), expected);
+        assert_eq!(WalletError::new(code).to_string(), expected);
+    }
+}
+
 #[test]
 fn malformed_profiles_and_unknown_enums_are_fatal_store_errors() {
     // 不正な子要素や未知enumをskipせず、Store全体をInvalidStoreとして拒否する。
@@ -401,6 +561,67 @@ fn authenticated_semantic_mismatch_and_aad_tamper_are_atomic() {
 }
 
 #[test]
+fn authenticated_semantic_mismatch_rejects_all_secret_and_mutation_paths_atomically() {
+    // 認証済みの意味的不一致は、秘密情報処理と全mutationで同じfatal errorとなり、
+    // いずれの経路もreplacement Storeや部分状態を返さない。
+    let (restored_store, profile_id) = wallet_with_one_profile();
+    let derived =
+        derive_software_key(&restored_store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
+    let mismatch = replace_index_chain_with_authenticated_value(&derived.store);
+    let key_id = derived.value.key_id;
+    let before = mismatch.clone();
+
+    assert_invalid_store(export_mnemonic(&mismatch, profile_id, PASSWORD));
+    assert_eq!(mismatch, before);
+    assert_invalid_store(export_private_key(&mismatch, profile_id, key_id, PASSWORD));
+    assert_eq!(mismatch, before);
+    assert_invalid_store(get_public_account(&mismatch, profile_id, key_id, PASSWORD));
+    assert_eq!(mismatch, before);
+    assert_invalid_store(sign(
+        &mismatch,
+        profile_id,
+        key_id,
+        PASSWORD,
+        b"fixture payload",
+    ));
+    assert_eq!(mismatch, before);
+    assert_invalid_store(derive_software_key(
+        &mismatch,
+        profile_id,
+        PASSWORD,
+        Chain::Nem,
+        0,
+    ));
+    assert_eq!(mismatch, before);
+    assert_invalid_store(import_software_key(
+        &mismatch,
+        profile_id,
+        PASSWORD,
+        Chain::Nem,
+        &[0x11; 32],
+    ));
+    assert_eq!(mismatch, before);
+    assert_invalid_store(generate_software_key(
+        &mismatch,
+        profile_id,
+        PASSWORD,
+        Chain::Nem,
+    ));
+    assert_eq!(mismatch, before);
+    assert_invalid_store(change_profile_password(
+        &mismatch,
+        profile_id,
+        PASSWORD,
+        b"new password",
+    ));
+    assert_eq!(mismatch, before);
+    assert_invalid_store(delete_software_key(&mismatch, profile_id, key_id, PASSWORD));
+    assert_eq!(mismatch, before);
+    assert_invalid_store(delete_profile(&mismatch, profile_id, PASSWORD));
+    assert_eq!(mismatch, before);
+}
+
+#[test]
 fn generated_profile_id_retries_after_store_collision() {
     let (store, existing_id) = wallet_with_one_profile();
     let (wallet, _) = decode_store(&store).unwrap();
@@ -412,6 +633,27 @@ fn generated_profile_id_retries_after_store_collision() {
     })
     .unwrap();
     assert_eq!(selected, [0xA5; 16]);
+}
+
+#[test]
+fn authenticated_pending_profile_id_collision_is_pending_invalid() {
+    // 構造的に正常なStoreへ、別の生成内容を持つ認証済みPendingを
+    // 既存Profile IDで結び付けた場合は、Store不正ではなくPending不整合とする。
+    let (store, existing_id) = wallet_with_one_profile();
+    let entropy = [0xA5; 32];
+    let pending = make_pending(
+        &store,
+        &existing_id.into_bytes(),
+        Network::Mainnet,
+        &entropy,
+        PASSWORD,
+    )
+    .unwrap();
+    let before = store.clone();
+
+    let error = finalize_generated_profile(&store, &pending, PASSWORD).unwrap_err();
+    assert_eq!(error.code, ErrorCode::PendingProfileInvalid);
+    assert_eq!(store, before);
 }
 
 #[test]
@@ -664,6 +906,136 @@ fn payload_order_and_fixed_fields_are_fatal_store_errors() {
 }
 
 #[test]
+fn parser_rejection_paths_are_explicitly_classified() {
+    // 認証済みopaque payloadと内部envelope parserの不正構造を、すべてInvalidStoreへ分類する。
+    assert_invalid_store(parse_payload(&[0xff]));
+    assert_invalid_store(parse_payload(&cbor::encode(&Value::UInt(0)).unwrap()));
+    assert_invalid_store(parse_payload(
+        &cbor::encode(&Value::Map(vec![(0, Value::Bytes(vec![0; 32]))])).unwrap(),
+    ));
+    assert_invalid_store(parse_payload(
+        &cbor::encode(&Value::Map(vec![
+            (0, Value::Bytes(vec![0; 32])),
+            (1, Value::UInt(0)),
+        ]))
+        .unwrap(),
+    ));
+
+    let kdf = Value::Map(vec![
+        (0, Value::UInt(KDF_ALGORITHM)),
+        (1, Value::UInt(crypto::KDF_VERSION as u64)),
+        (2, Value::UInt(crypto::KDF_MEMORY_KIB as u64)),
+        (3, Value::UInt(crypto::KDF_ITERATIONS as u64)),
+        (4, Value::UInt(crypto::KDF_PARALLELISM as u64)),
+        (5, Value::Bytes(vec![3; 16])),
+    ]);
+    assert_invalid_store(parse_kdf(Some(&Value::UInt(0))));
+    assert_invalid_store(parse_kdf(Some(&Value::Map(vec![
+        (0, Value::UInt(KDF_ALGORITHM)),
+        (1, Value::UInt(crypto::KDF_VERSION as u64)),
+        (2, Value::UInt(crypto::KDF_MEMORY_KIB as u64)),
+        (3, Value::UInt(crypto::KDF_ITERATIONS as u64)),
+        (4, Value::UInt(crypto::KDF_PARALLELISM as u64)),
+        (5, Value::Bytes(vec![3; 15])),
+    ]))));
+
+    let cipher = Value::Map(vec![
+        (0, Value::UInt(CIPHER_ALGORITHM)),
+        (1, Value::Bytes(vec![4; 12])),
+        (2, Value::Bytes(Vec::new())),
+        (3, Value::Bytes(vec![5; 16])),
+    ]);
+    assert_invalid_store(parse_cipher(Some(&Value::UInt(0))));
+    assert_invalid_store(parse_cipher(Some(&Value::Map(vec![
+        (0, Value::UInt(CIPHER_ALGORITHM)),
+        (1, Value::Bytes(vec![4; 11])),
+        (2, Value::Bytes(Vec::new())),
+        (3, Value::Bytes(vec![5; 16])),
+    ]))));
+    assert_invalid_store(parse_cipher(Some(&Value::Map(vec![
+        (0, Value::UInt(CIPHER_ALGORITHM)),
+        (1, Value::Bytes(vec![4; 12])),
+        (2, Value::Bytes(Vec::new())),
+        (3, Value::Bytes(vec![5; 15])),
+    ]))));
+    assert_invalid_store(parse_cipher(Some(&Value::Map(vec![
+        (0, Value::UInt(CIPHER_ALGORITHM)),
+        (1, Value::Bytes(vec![4; 12])),
+        (2, Value::UInt(0)),
+        (3, Value::Bytes(vec![5; 16])),
+    ]))));
+
+    assert_invalid_store(parse_index_entry(&Value::UInt(0)));
+    assert_invalid_store(parse_index_entry(&Value::Map(vec![(
+        0,
+        Value::Bytes(vec![1; 15]),
+    )])));
+    assert_invalid_store(parse_index_entry(&Value::Map(vec![
+        (0, Value::Bytes(vec![1; 16])),
+        (1, Value::UInt(2)),
+    ])));
+
+    let profile = Value::Map(vec![
+        (0, Value::Bytes(vec![1; 16])),
+        (1, Value::UInt(Network::Mainnet.wire())),
+        (2, Value::Bytes(vec![2; 32])),
+        (3, Value::UInt(PROFILE_SCHEMA_VERSION)),
+        (4, kdf),
+        (5, cipher),
+        (6, Value::Array(Vec::new())),
+    ]);
+    let profile_error = |field: u64, replacement: Value| {
+        let mut value = profile.clone();
+        *map_value_mut(
+            match &mut value {
+                Value::Map(entries) => entries,
+                _ => unreachable!(),
+            },
+            field,
+        ) = replacement;
+        parse_profile(&value)
+    };
+    assert_invalid_store(profile_error(0, Value::UInt(0)));
+    assert_invalid_store(profile_error(1, Value::UInt(2)));
+    assert_invalid_store(profile_error(6, Value::UInt(0)));
+
+    for key in [
+        Value::UInt(0),
+        Value::Map(Vec::new()),
+        Value::Map(vec![(0, Value::Bytes(vec![1; 16]))]),
+        Value::Map(vec![
+            (0, Value::Bytes(vec![1; 16])),
+            (1, Value::UInt(Chain::Symbol.wire())),
+        ]),
+        Value::Map(vec![
+            (0, Value::Bytes(vec![1; 16])),
+            (1, Value::UInt(Chain::Symbol.wire())),
+            (2, Value::Bytes(vec![2; 32])),
+        ]),
+        Value::Map(vec![
+            (0, Value::Bytes(vec![1; 16])),
+            (1, Value::UInt(Chain::Symbol.wire())),
+            (2, Value::Bytes(vec![2; 32])),
+            (3, Value::UInt(0)),
+        ]),
+        Value::Map(vec![
+            (0, Value::Bytes(vec![1; 16])),
+            (1, Value::UInt(Chain::Symbol.wire())),
+            (2, Value::Bytes(vec![2; 32])),
+            (3, Value::Map(Vec::new())),
+        ]),
+        Value::Map(vec![
+            (0, Value::Bytes(vec![1; 16])),
+            (1, Value::UInt(Chain::Symbol.wire())),
+            (2, Value::Bytes(vec![2; 32])),
+            (3, Value::Map(vec![(0, Value::UInt(0))])),
+        ]),
+    ] {
+        assert_invalid_store(parse_key_record(&key));
+    }
+}
+
+#[test]
 fn store_version_missing_or_wrong_type_is_invalid_store() {
     // top-level versionの欠落と型違いをInvalidStoreとして拒否する。
     let store = create_empty_store().unwrap();
@@ -765,4 +1137,17 @@ fn deterministic_manifest_with_multiple_keys_has_fixed_aad_bytes() {
         hex::encode(aad.as_slice()),
         "8a44534e574301582000000000000000000000000000000000000000000000000000000000000000005001010101010101010101010101010101015820020202020202020202020202020202020202020202020202020202020202020201000082a20050010101010101010101010101010101010100a20050020202020202020202020202020202020101"
     );
+}
+
+#[test]
+fn store_serialization_failure_does_not_produce_partial_bytes() {
+    // 保存bytes生成失敗は明示的なSerializationFailureとして扱い、部分Storeを返さない。
+    let wallet = WalletStore {
+        registry_key: [0x11; 32],
+        profiles: Vec::new(),
+        // Simple 20 is intentionally rejected by the deterministic encoder.
+        unknown_fields: vec![(99, Value::Simple(20))],
+    };
+    let error = encode_store(&wallet).unwrap_err();
+    assert_eq!(error.code, ErrorCode::SerializationFailure);
 }

@@ -173,9 +173,18 @@ pub(crate) fn validate_private_key(
 }
 
 pub(crate) fn generate_private_key(chain: Chain) -> WalletResult<[u8; 32]> {
+    generate_private_key_with(chain, random::<32>)
+}
+
+fn generate_private_key_with<F>(chain: Chain, mut candidate: F) -> WalletResult<[u8; 32]>
+where
+    F: FnMut() -> WalletResult<[u8; 32]>,
+{
     // 乱数候補をChain固有の鍵処理で検証し、通過した値だけを返す。
+    // Production callers pass the CSPRNG above; the injectable private helper lets tests
+    // exercise invalid-candidate and random-source failure paths without changing the API.
     loop {
-        let candidate = Zeroizing::new(random::<32>()?);
+        let candidate = Zeroizing::new(candidate()?);
         if let Ok(private_key) = validate_private_key(chain, &candidate[..]) {
             return Ok(*private_key);
         }
