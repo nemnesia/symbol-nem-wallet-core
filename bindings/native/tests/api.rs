@@ -9,9 +9,10 @@ use symbol_nem_wallet_core::{get_public_account, sign};
 use symbol_nem_wallet_core_native::{
     snwc_create_empty_store, snwc_derive_software_key, snwc_export_private_key, snwc_free_bytes,
     snwc_free_profiles, snwc_free_software_key_list, snwc_free_warnings, snwc_get_public_account,
-    snwc_import_software_key, snwc_list_profiles, snwc_list_software_keys, snwc_restore_profile,
-    snwc_sign, SnwcBytes, SnwcOwnedBytes, SnwcProfileInfo, SnwcPublicAccountInfo,
-    SnwcSoftwareKeyInfo, SnwcSoftwareKeyListItem, SnwcUuid, SnwcWarnings,
+    snwc_import_software_key, snwc_list_profiles, snwc_list_software_keys,
+    snwc_prepare_generated_profile, snwc_restore_profile, snwc_sign, SnwcBytes, SnwcOwnedBytes,
+    SnwcProfileInfo, SnwcPublicAccountInfo, SnwcSoftwareKeyInfo, SnwcSoftwareKeyListItem, SnwcUuid,
+    SnwcWarnings,
 };
 
 const MNEMONIC: &[u8] = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
@@ -46,6 +47,37 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         };
         assert!(snwc_create_empty_store(&mut empty).is_null());
         let store = take_bytes(empty);
+
+        // 複数出力が同じ構造体を指す場合は、先に作成した秘密bufferを
+        // pending出力で上書きしない。
+        let mut aliased_output = SnwcOwnedBytes {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(snwc_create_empty_store(&mut aliased_output).is_null());
+        let aliased_ptr = aliased_output.ptr;
+        let aliased_len = aliased_output.len;
+        let mut alias_warnings = SnwcWarnings {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        let alias_ptr: *mut SnwcOwnedBytes = &mut aliased_output;
+        let error = snwc_prepare_generated_profile(
+            borrowed(&store),
+            borrowed(PASSWORD),
+            0,
+            alias_ptr,
+            alias_ptr,
+            &mut alias_warnings,
+        );
+        assert_eq!(
+            std::ffi::CStr::from_ptr(error).to_str().unwrap(),
+            "InvalidArgument"
+        );
+        assert_eq!(aliased_output.ptr, aliased_ptr);
+        assert_eq!(aliased_output.len, aliased_len);
+        snwc_free_bytes(aliased_output);
+        snwc_free_warnings(alias_warnings);
 
         // 失敗時は既存のowned出力を上書きせず、callerがそのまま解放できる。
         let mut sentinel_store = SnwcOwnedBytes {

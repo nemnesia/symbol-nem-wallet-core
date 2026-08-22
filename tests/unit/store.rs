@@ -458,6 +458,56 @@ fn replace_index_chain_with_authenticated_value(store: &[u8]) -> Vec<u8> {
     encode_store(&wallet).unwrap()
 }
 
+fn authenticated_payload_with_malformed_origin(store: &[u8], case: u8) -> Vec<u8> {
+    // AEAD認証は通るが、origin検証で拒否されるpayloadを作る。parse_key_recordの
+    // early return経路でprivate key ownerがzeroizeされることを公開API経由で確認する。
+    let (mut wallet, _) = decode_store(store).unwrap();
+    let profile = wallet.profiles.first().unwrap();
+    let key = crypto::derive_encryption_key(PASSWORD, &profile.kdf.salt).unwrap();
+    let aad = profile_aad(&wallet, profile).unwrap();
+    let plaintext = zeroize::Zeroizing::new(
+        crypto::decrypt(
+            &key,
+            &profile.cipher.nonce,
+            &profile.cipher.tag,
+            &aad,
+            &profile.cipher.ciphertext,
+        )
+        .unwrap(),
+    );
+    let mut payload = cbor::decode(&plaintext).unwrap();
+    let payload_map = match &mut payload {
+        Value::Map(entries) => entries,
+        _ => unreachable!(),
+    };
+    let keys = match map_value_mut(payload_map, 1) {
+        Value::Array(values) => values,
+        _ => unreachable!(),
+    };
+    let key_map = match keys.first_mut().unwrap() {
+        Value::Map(entries) => entries,
+        _ => unreachable!(),
+    };
+    let origin = match map_value_mut(key_map, 3) {
+        Value::Map(entries) => entries,
+        _ => unreachable!(),
+    };
+    match case {
+        0 => *map_value_mut(origin, 0) = Value::UInt(99),
+        1 => origin.retain(|(field, _)| *field != 0),
+        2 => *map_value_mut(origin, 1) = Value::Text("0".to_owned()),
+        3 => *map_value_mut(origin, 1) = Value::UInt(2_147_483_648),
+        _ => unreachable!(),
+    }
+    let payload_bytes = zeroize::Zeroizing::new(cbor::encode(&payload).unwrap());
+    let (ciphertext, tag) =
+        crypto::encrypt(&key, &profile.cipher.nonce, &aad, &payload_bytes).unwrap();
+    let profile = wallet.profiles.first_mut().unwrap();
+    profile.cipher.ciphertext = ciphertext;
+    profile.cipher.tag = tag;
+    encode_store(&wallet).unwrap()
+}
+
 fn wallet_with_one_profile() -> (Vec<u8>, Uuid) {
     let store = create_empty_store().unwrap();
     let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
@@ -820,6 +870,23 @@ fn authenticated_semantic_mismatch_rejects_all_secret_and_mutation_paths_atomica
     assert_eq!(mismatch, before);
     assert_invalid_store(delete_profile(&mismatch, profile_id, PASSWORD));
     assert_eq!(mismatch, before);
+}
+
+#[test]
+fn authenticated_malformed_origin_is_rejected_without_secret_result() {
+    // 認証済みpayloadでもoriginの未知値、欠落、型不正、範囲外はStore全体を拒否する。
+    let (store, profile_id) = wallet_with_one_profile();
+    let derived = derive_software_key(&store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
+
+    for case in 0..=3 {
+        let malformed = authenticated_payload_with_malformed_origin(&derived.store, case);
+        assert_eq!(
+            export_private_key(&malformed, profile_id, derived.value.key_id, PASSWORD)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidStore
+        );
+    }
 }
 
 #[test]

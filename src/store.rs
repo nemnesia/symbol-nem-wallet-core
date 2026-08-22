@@ -192,12 +192,12 @@ pub fn prepare_generated_profile(
     let (wallet, warnings) = decode_store(store)?;
     crypto::validate_password(password_utf8)?;
     let entropy = zeroize::Zeroizing::new(crypto::random::<32>()?);
-    let mnemonic_utf8 = zeroize::Zeroizing::new(crypto::mnemonic_from_entropy(&entropy)?);
+    let mut mnemonic_utf8 = zeroize::Zeroizing::new(crypto::mnemonic_from_entropy(&entropy)?);
     let profile_id = new_profile_id(&wallet)?;
     let pending_profile = make_pending(store, &profile_id, network, &entropy, password_utf8)?;
     Ok(ReadResult {
         value: PreparedProfile {
-            mnemonic_utf8: mnemonic_utf8.to_vec(),
+            mnemonic_utf8: std::mem::take(&mut *mnemonic_utf8),
             pending_profile,
         },
         warnings,
@@ -1017,8 +1017,13 @@ fn parse_key_record(value: &Value) -> WalletResult<KeyRecord> {
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let chain =
         parse_chain(map_value(map, 1)).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
-    let private_key = fixed_bytes(map_value(map, 2), 32)
-        .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    // originの検証が完了するまで、認証済みpayloadから取り出した秘密鍵を
+    // zeroize保証のあるownerで保持する。originの不正によるearly returnでも
+    // plainな秘密鍵bufferを残さない。
+    let private_key = zeroize::Zeroizing::new(
+        fixed_bytes(map_value(map, 2), 32)
+            .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?,
+    );
     let origin_map =
         as_map(map_value(map, 3).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?)
             .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
@@ -1046,7 +1051,7 @@ fn parse_key_record(value: &Value) -> WalletResult<KeyRecord> {
     Ok(KeyRecord {
         key_id,
         chain,
-        private_key,
+        private_key: *private_key,
         origin,
         unknown_fields: unknown_fields(map, &[0, 1, 2, 3]),
         origin_unknown_fields: unknown_fields(origin_map, origin_known_fields),

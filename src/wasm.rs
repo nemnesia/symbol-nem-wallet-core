@@ -15,6 +15,7 @@ use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroizing;
 
+use crate::store::MAX_WALLET_STORE_BYTES;
 use crate::{
     change_profile_password as core_change_profile_password,
     create_empty_store as core_create_empty_store, delete_profile as core_delete_profile,
@@ -53,30 +54,60 @@ fn bytes(value: &Uint8Array) -> Zeroizing<Vec<u8>> {
     Zeroizing::new(value.to_vec())
 }
 
+fn store_bytes(value: &Uint8Array) -> Result<Zeroizing<Vec<u8>>, WalletError> {
+    // Store decoderの上限検査より前にWASM側で入力全体を複製しないよう、
+    // Uint8Arrayの長さをRust側のallocation前に確認する。
+    if (value.length() as usize) > MAX_WALLET_STORE_BYTES {
+        return Err(WalletError {
+            code: ErrorCode::InvalidStore,
+        });
+    }
+    Ok(bytes(value))
+}
+
 fn uint8_array(value: &[u8]) -> JsValue {
     Uint8Array::from(value).into()
 }
 
-fn parse_network(value: u8) -> Result<Network, WalletError> {
+fn parse_network(value: f64) -> Result<Network, WalletError> {
     // C ABIと同じwire mappingを使い、未知値を暗黙に補正しない。
+    if !value.is_finite() || value.fract() != 0.0 {
+        return Err(WalletError {
+            code: ErrorCode::InvalidArgument,
+        });
+    }
     match value {
-        0 => Ok(Network::Testnet),
-        1 => Ok(Network::Mainnet),
+        0.0 => Ok(Network::Testnet),
+        1.0 => Ok(Network::Mainnet),
         _ => Err(WalletError {
             code: ErrorCode::InvalidArgument,
         }),
     }
 }
 
-fn parse_chain(value: u8) -> Result<Chain, WalletError> {
+fn parse_chain(value: f64) -> Result<Chain, WalletError> {
     // Chain値の取り違えを防ぐため、0/1以外は入力エラーにする。
+    if !value.is_finite() || value.fract() != 0.0 {
+        return Err(WalletError {
+            code: ErrorCode::InvalidArgument,
+        });
+    }
     match value {
-        0 => Ok(Chain::Nem),
-        1 => Ok(Chain::Symbol),
+        0.0 => Ok(Chain::Nem),
+        1.0 => Ok(Chain::Symbol),
         _ => Err(WalletError {
             code: ErrorCode::InvalidArgument,
         }),
     }
+}
+
+fn parse_account_index(value: f64) -> Result<u32, WalletError> {
+    if !value.is_finite() || value.fract() != 0.0 || !(0.0..=2_147_483_647.0).contains(&value) {
+        return Err(WalletError {
+            code: ErrorCode::InvalidAccountIndex,
+        });
+    }
+    Ok(value as u32)
 }
 
 fn parse_uuid(value: &str) -> Result<Uuid, WalletError> {
@@ -293,10 +324,10 @@ pub fn create_empty_store() -> Result<Uint8Array, JsValue> {
 pub fn prepare_generated_profile(
     store: &Uint8Array,
     password_utf8: &Uint8Array,
-    network: u8,
+    network: f64,
 ) -> Result<JsValue, JsValue> {
     let network = parse_network(network).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
     let result =
         core_prepare_generated_profile(&store_bytes, &password, network).map_err(binding_error)?;
@@ -312,7 +343,7 @@ pub fn finalize_generated_profile(
     pending_profile: &Uint8Array,
     password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let pending_bytes = bytes(pending_profile);
     let password = bytes(password_utf8);
     let result = core_finalize_generated_profile(&store_bytes, &pending_bytes, &password)
@@ -330,10 +361,10 @@ pub fn restore_profile(
     store: &Uint8Array,
     mnemonic_utf8: &Uint8Array,
     password_utf8: &Uint8Array,
-    network: u8,
+    network: f64,
 ) -> Result<JsValue, JsValue> {
     let network = parse_network(network).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let mnemonic = bytes(mnemonic_utf8);
     let password = bytes(password_utf8);
     let result =
@@ -353,7 +384,7 @@ pub fn export_mnemonic(
     password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
     let result =
         core_export_mnemonic(&store_bytes, profile_id, &password).map_err(binding_error)?;
@@ -373,7 +404,7 @@ pub fn export_private_key(
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let key_id = parse_uuid(key_id).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
     let result = core_export_private_key(&store_bytes, profile_id, key_id, &password)
         .map_err(binding_error)?;
@@ -386,7 +417,7 @@ pub fn export_private_key(
 /// payloadのAEAD認証済み情報とは区別する。
 #[wasm_bindgen(js_name = list_profiles)]
 pub fn list_profiles(store: &Uint8Array) -> Result<JsValue, JsValue> {
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let result = core_list_profiles(&store_bytes).map_err(binding_error)?;
     let array = Array::new();
     for value in &result.value {
@@ -403,7 +434,7 @@ pub fn list_profiles(store: &Uint8Array) -> Result<JsValue, JsValue> {
 #[wasm_bindgen(js_name = list_software_keys)]
 pub fn list_software_keys(store: &Uint8Array, profile_id: &str) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let result = core_list_software_keys(&store_bytes, profile_id).map_err(binding_error)?;
     let array = Array::new();
     for value in &result.value {
@@ -422,12 +453,13 @@ pub fn derive_software_key(
     store: &Uint8Array,
     profile_id: &str,
     password_utf8: &Uint8Array,
-    chain: u8,
-    account_index: u32,
+    chain: f64,
+    account_index: f64,
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let chain = parse_chain(chain).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let account_index = parse_account_index(account_index).map_err(binding_error)?;
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
     let result =
         core_derive_software_key(&store_bytes, profile_id, &password, chain, account_index)
@@ -444,12 +476,12 @@ pub fn import_software_key(
     store: &Uint8Array,
     profile_id: &str,
     password_utf8: &Uint8Array,
-    chain: u8,
+    chain: f64,
     private_key: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let chain = parse_chain(chain).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
     let private_key = bytes(private_key);
     let result = core_import_software_key(&store_bytes, profile_id, &password, chain, &private_key)
@@ -467,11 +499,11 @@ pub fn generate_software_key(
     store: &Uint8Array,
     profile_id: &str,
     password_utf8: &Uint8Array,
-    chain: u8,
+    chain: f64,
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let chain = parse_chain(chain).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
     let result = core_generate_software_key(&store_bytes, profile_id, &password, chain)
         .map_err(binding_error)?;
@@ -492,7 +524,7 @@ pub fn get_public_account(
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let key_id = parse_uuid(key_id).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
     let result = core_get_public_account(&store_bytes, profile_id, key_id, &password)
         .map_err(binding_error)?;
@@ -513,7 +545,7 @@ pub fn sign(
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let key_id = parse_uuid(key_id).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
     let payload = bytes(payload);
     let result =
@@ -533,7 +565,7 @@ pub fn change_profile_password(
     new_password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let current_password = bytes(current_password_utf8);
     let new_password = bytes(new_password_utf8);
     let result =
@@ -555,7 +587,7 @@ pub fn delete_software_key(
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let key_id = parse_uuid(key_id).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
     let result = core_delete_software_key(&store_bytes, profile_id, key_id, &password)
         .map_err(binding_error)?;
@@ -573,7 +605,7 @@ pub fn delete_profile(
     password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
-    let store_bytes = bytes(store);
+    let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
     let result = core_delete_profile(&store_bytes, profile_id, &password).map_err(binding_error)?;
     mutation_result(result, JsValue::NULL)

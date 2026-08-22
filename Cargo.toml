@@ -32,11 +32,6 @@ js-sys = { version = "0.3.77", optional = true }
 wasm-bindgen = { version = "0.2.105", optional = true }
 zeroize = { version = "1.8.2", features = ["derive"] }
 
-[patch.crates-io]
-# Local security patch for secret-scalar temporaries; see the third-party patch
-# notes before upgrading or removing this override.
-curve25519-dalek = { path = "third_party/curve25519-dalek-4.1.3" }
-
 [dev-dependencies]
 hex = "0.4.3"
 wasm-bindgen-test = "0.3.55"

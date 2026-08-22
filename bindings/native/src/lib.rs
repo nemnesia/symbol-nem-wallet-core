@@ -366,6 +366,11 @@ pub unsafe extern "C" fn snwc_prepare_generated_profile(
         require_output(out_mnemonic)?;
         require_output(out_pending)?;
         require_output(out_warnings)?;
+        if out_mnemonic == out_pending {
+            return Err(WalletError {
+                code: ErrorCode::InvalidArgument,
+            });
+        }
         let network = match network_value {
             0 => Network::Testnet,
             1 => Network::Mainnet,
@@ -382,11 +387,11 @@ pub unsafe extern "C" fn snwc_prepare_generated_profile(
         let out_mnemonic = output(out_mnemonic)?;
         let out_pending = output(out_pending)?;
         let out_warnings = output(out_warnings)?;
-        // C callerへ所有権を移すまではZeroizingで保持し、元DTOはDropでzeroizeする。
-        let mut mnemonic = Zeroizing::new(value.mnemonic_utf8.to_vec());
-        let mut pending = Zeroizing::new(value.pending_profile.to_vec());
-        *out_mnemonic = owned_bytes(std::mem::take(&mut *mnemonic));
-        *out_pending = owned_bytes(std::mem::take(&mut *pending));
+        // 未移動のDTO fieldはDropでzeroizeし、移動したbufferはC callerの
+        // snwc_free_bytesでzeroizeして解放する。
+        let mut value = value;
+        *out_mnemonic = owned_bytes(std::mem::take(&mut value.mnemonic_utf8));
+        *out_pending = owned_bytes(std::mem::take(&mut value.pending_profile));
         *out_warnings = warnings_value;
         Ok(success())
     })
@@ -487,8 +492,8 @@ pub unsafe extern "C" fn snwc_export_mnemonic(
             input(password_utf8)?,
         )?;
         let (value, warnings_value) = read_warnings(value);
-        let mut mnemonic = Zeroizing::new(value.mnemonic_utf8.to_vec());
-        *output(out_mnemonic)? = owned_bytes(std::mem::take(&mut *mnemonic));
+        let mut value = value;
+        *output(out_mnemonic)? = owned_bytes(std::mem::take(&mut value.mnemonic_utf8));
         *output(out_warnings)? = warnings_value;
         Ok(success())
     })

@@ -19,6 +19,23 @@ int main(void) {
     SnwcOwnedBytes empty = {NULL, 0};
     assert(snwc_create_empty_store(&empty) == NULL);
 
+    SnwcOwnedBytes aliased = {NULL, 0};
+    assert(snwc_create_empty_store(&aliased) == NULL);
+    uint8_t *aliased_ptr = aliased.ptr;
+    size_t aliased_len = aliased.len;
+    SnwcWarnings alias_warnings = {NULL, 0};
+    const char *alias_error = snwc_prepare_generated_profile(
+        borrowed(empty.ptr, empty.len),
+        borrowed(password, sizeof(password) - 1),
+        0,
+        &aliased,
+        &aliased,
+        &alias_warnings);
+    assert(alias_error != NULL && strcmp(alias_error, "InvalidArgument") == 0);
+    assert(aliased.ptr == aliased_ptr && aliased.len == aliased_len);
+    snwc_free_bytes(aliased);
+    snwc_free_warnings(alias_warnings);
+
     SnwcOwnedBytes restored = {NULL, 0};
     SnwcProfileInfo profile = {{0}, 0, 0};
     SnwcWarnings restore_warnings = {NULL, 0};

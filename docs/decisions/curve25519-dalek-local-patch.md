@@ -39,6 +39,10 @@ v1 の zeroize 保証対象を Core / Binding が明示的に所有または生�
 この supersession は、現行実装から local patch を直ちに削除する決定ではない。local patchを
 残す場合も、v1 の規範構成または適合条件として必須とはしない。
 
+2026-08-22 に local patch、`Cargo.toml` の `[patch.crates-io]` override、および専用の
+検証スクリプトを削除した。現在は crates.io の `curve25519-dalek 4.1.3` を使用する。
+以下の記述は、削除前の設計判断と provenance を履歴として保持する。
+
 ## Rationale at the time of the decision
 
 当時の仕様書は、署名処理で secret を含む temporary buffer を `zeroize` 対象と定めていた
@@ -74,10 +78,7 @@ zeroize の適用範囲を確認したうえで、この override の撤去を�
 
 ## Validation and maintenance
 
-依存更新または patch 撤去を検討する際は、少なくとも次を確認する。
-
-- `bash scripts/check-curve25519-dalek-patch.sh` が成功し、upstream source との差分が
-  意図した zeroize 修正だけであること
-- 公開鍵生成・Symbol / NEM 署名の既存 fixture とテスト結果が変わらないこと
-- `cargo test --workspace --all-features` および対象環境の build / check が成功すること
-- patch を撤去しても仕様書 §12.1 の signing temporary 要件を満たすこと
+local patch の撤去後も、公開鍵生成・Symbol / NEM 署名の既存 fixture とテスト結果が変わら
+ないこと、および `cargo test --workspace --all-features` と対象環境の build / check が成功
+することを確認する。今後 `curve25519-dalek` を更新する場合は、仕様書 §12.1 の zeroize
+保証境界と、公開鍵・署名 bytes の互換性を再確認する。

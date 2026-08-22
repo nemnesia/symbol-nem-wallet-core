@@ -39,7 +39,7 @@ fn wasm_secret_boundaries_and_core_parity() {
     let empty_store = create_empty_store().unwrap();
 
     // 生成Pendingの秘密入出力はすべてUint8Arrayであり、stringではない。
-    let prepared = prepare_generated_profile(&empty_store, &password, 0).unwrap();
+    let prepared = prepare_generated_profile(&empty_store, &password, 0.0).unwrap();
     let prepared_value = value(&prepared);
     let mnemonic = bytes_field(&prepared_value, "mnemonic_utf8").to_vec();
     let pending = bytes_field(&prepared_value, "pending_profile").to_vec();
@@ -54,7 +54,7 @@ fn wasm_secret_boundaries_and_core_parity() {
     assert!(!mutation_store(&finalized).is_empty());
 
     let restored =
-        restore_profile(&empty_store, &Uint8Array::from(MNEMONIC), &password, 1).unwrap();
+        restore_profile(&empty_store, &Uint8Array::from(MNEMONIC), &password, 1.0).unwrap();
     let restored_store = mutation_store(&restored);
     let restored_value = value(&restored);
     let profile_id_text = string_field(&restored_value, "profile_id");
@@ -64,8 +64,8 @@ fn wasm_secret_boundaries_and_core_parity() {
         &Uint8Array::from(restored_store.as_slice()),
         &profile_id_text,
         &password,
-        1,
-        0,
+        1.0,
+        0.0,
     )
     .unwrap();
     let derived_store = mutation_store(&derived);
@@ -125,8 +125,8 @@ fn wasm_secret_boundaries_and_core_parity() {
         &Uint8Array::from(restored_store.as_slice()),
         &profile_id_text,
         &password,
-        0,
-        0,
+        0.0,
+        0.0,
     )
     .unwrap();
     let nem_derived_store = mutation_store(&nem_derived);
@@ -210,7 +210,7 @@ fn wasm_secret_boundaries_and_core_parity() {
         &Uint8Array::from(derived_store.as_slice()),
         &profile_id_text,
         &password,
-        1,
+        1.0,
         &Uint8Array::from(imported.as_slice()),
     )
     .unwrap();
@@ -221,7 +221,7 @@ fn wasm_secret_boundaries_and_core_parity() {
         &Uint8Array::from(derived_store.as_slice()),
         &profile_id_text,
         &password,
-        0,
+        0.0,
         &Uint8Array::from(NEM_ACCOUNT_PRIVATE_KEY.as_slice()),
     )
     .unwrap();
@@ -247,7 +247,7 @@ fn wasm_secret_boundaries_and_core_parity() {
         &Uint8Array::from(nem_store.as_slice()),
         &profile_id_text,
         &password,
-        0,
+        0.0,
         &Uint8Array::from(NEM_SIGNATURE_PRIVATE_KEY.as_slice()),
     )
     .unwrap();
@@ -271,8 +271,37 @@ fn wasm_secret_boundaries_and_core_parity() {
         &empty_store,
         &Uint8Array::from(b"not a mnemonic".as_slice()),
         &password,
-        1,
+        1.0,
     )
     .unwrap_err();
     assert_eq!(invalid.as_string().as_deref(), Some("InvalidMnemonic"));
+
+    // JavaScript Numberを狭い整数型へ変換する前に範囲と整数性を検証する。
+    for network in [256.0, -1.0, 0.5, f64::NAN] {
+        let invalid = prepare_generated_profile(&empty_store, &password, network).unwrap_err();
+        assert_eq!(invalid.as_string().as_deref(), Some("InvalidArgument"));
+    }
+    let restored_store_array = Uint8Array::from(restored_store.as_slice());
+    for chain in [256.0, -1.0, 0.5, f64::NAN] {
+        let invalid = import_software_key(
+            &restored_store_array,
+            &profile_id_text,
+            &password,
+            chain,
+            &Uint8Array::from([0x11; 32].as_slice()),
+        )
+        .unwrap_err();
+        assert_eq!(invalid.as_string().as_deref(), Some("InvalidArgument"));
+    }
+    for account_index in [2_147_483_648.0, -1.0, 0.5, f64::NAN] {
+        let invalid = derive_software_key(
+            &restored_store_array,
+            &profile_id_text,
+            &password,
+            1.0,
+            account_index,
+        )
+        .unwrap_err();
+        assert_eq!(invalid.as_string().as_deref(), Some("InvalidAccountIndex"));
+    }
 }
