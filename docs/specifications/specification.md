@@ -632,16 +632,25 @@ Software Key の登録・削除では、暗号化 payload の `software_keys` �
 
 ### 12.1 zeroize 対象
 
-少なくとも次を `zeroize` 対象とする。
+Core および Binding が明示的に所有または生成する秘密情報の buffer は、利用終了時に
+`zeroize` 対象とする。少なくとも次を含む。
 
 - Profile password の Rust 側コピー
-- BIP39 entropy の復号 copy
+- BIP39 entropy
 - mnemonic normalized buffer
 - seed
 - private key
 - Argon2id output key
 - decrypted ProfilePayload buffer
-- signing temporary buffer のうち secret を含むもの
+- Core 自身が明示的に確保した、secret を含む signing temporary buffer
+
+第三者暗号ライブラリ内部の算術 temporary、コンパイラが生成する暗黙の copy、register、
+stack spill、runtime、allocator または OS 内部の copy について、完全な消去は保証しない。
+これらを `zeroize` するためだけに依存ライブラリを fork することは、v1 の必須要件としない。
+
+Core は不要な secret copy を作成せず、利用する型または依存ライブラリが `zeroize` 機構を
+提供する場合は、合理的な範囲でこれを利用する。ただし、source-level または process-wide
+の全 secret temporary 消去をセキュリティ保証とはしない。
 
 ### 12.2 所有権
 

@@ -59,7 +59,8 @@ Core の `src/crypto.rs` は `EdwardsPoint::mul_base` を、通常の公開鍵�
 3. `src/scalar.rs`、`src/edwards.rs`および両serial backendのzeroize修正が維持されて
    いるか確認する。
 4. 公開鍵、Symbol / NEM 署名、既存 fixture および全ワークスペース検証を実行する。
-5. upstream に同等修正がある場合は、`DEC-CRYPTO-001` を更新して override 撤去を判断する。
+5. upstream に同等修正がある場合は、互換性と仕様書 §12.1 の適用範囲を確認して
+   override 撤去の可否を判断する。
 
 このファイルは upstream の README や CHANGELOG を置き換えるものではなく、ローカル差分の
 由来と保守条件を記録する。
