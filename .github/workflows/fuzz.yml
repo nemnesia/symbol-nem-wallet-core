@@ -1,0 +1,43 @@
+name: Wallet Store fuzzing
+
+on:
+  schedule:
+    - cron: "23 3 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  wallet-store-decode:
+    name: Wallet Store decoder fuzz
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install nightly Rust toolchain
+        uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly
+        with:
+          toolchain: nightly
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
+        with:
+          tool: cargo-fuzz@0.13.2
+
+      - name: Fuzz Wallet Store decoder
+        run: cargo fuzz run wallet_store_decode -- -max_total_time=60 -timeout=5
+
+      - name: Upload fuzz artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wallet-store-fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

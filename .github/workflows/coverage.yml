@@ -49,6 +49,9 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
+      - name: Check fuzz targets
+        run: cargo check --manifest-path fuzz/Cargo.toml --locked --bin wallet_store_decode
+
       - name: Run tests
         run: cargo test --workspace --all-features --locked
 
