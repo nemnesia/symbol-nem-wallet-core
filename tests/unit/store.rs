@@ -12,6 +12,11 @@ fn bytes<const N: usize>(hex: &str) -> [u8; N] {
     hex::decode(hex).unwrap().try_into().unwrap()
 }
 
+fn random_test_password() -> zeroize::Zeroizing<Vec<u8>> {
+    let entropy = zeroize::Zeroizing::new(crypto::random::<32>().unwrap());
+    zeroize::Zeroizing::new(hex::encode(entropy.as_ref()).into_bytes())
+}
+
 fn minimal_profile(id: [u8; 16], software_key_index: Vec<Value>) -> Value {
     Value::Map(vec![
         (0, Value::Bytes(id.to_vec())),
@@ -620,23 +625,24 @@ fn public_store_paths_are_exercised_in_unit_build() {
         ErrorCode::SoftwareKeyNotFound
     );
 
+    let new_password = random_test_password();
     let changed =
-        change_profile_password(&imported.store, profile_id, PASSWORD, b"unit password").unwrap();
+        change_profile_password(&imported.store, profile_id, PASSWORD, &new_password[..]).unwrap();
     let without_imported = delete_software_key(
         &changed.store,
         profile_id,
         imported.value.key_id,
-        b"unit password",
+        &new_password[..],
     )
     .unwrap();
     let without_derived = delete_software_key(
         &without_imported.store,
         profile_id,
         derived.value.key_id,
-        b"unit password",
+        &new_password[..],
     )
     .unwrap();
-    let deleted = delete_profile(&without_derived.store, profile_id, b"unit password").unwrap();
+    let deleted = delete_profile(&without_derived.store, profile_id, &new_password[..]).unwrap();
     assert!(list_profiles(&deleted.store).unwrap().value.is_empty());
     assert_eq!(generated.value.origin, SoftwareKeyOrigin::Generated);
 }
@@ -859,11 +865,12 @@ fn authenticated_semantic_mismatch_rejects_all_secret_and_mutation_paths_atomica
         Chain::Nem,
     ));
     assert_eq!(mismatch, before);
+    let new_password = random_test_password();
     assert_invalid_store(change_profile_password(
         &mismatch,
         profile_id,
         PASSWORD,
-        b"new password",
+        &new_password[..],
     ));
     assert_eq!(mismatch, before);
     assert_invalid_store(delete_software_key(&mismatch, profile_id, key_id, PASSWORD));
