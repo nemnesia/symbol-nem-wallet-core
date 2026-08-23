@@ -36,6 +36,25 @@ int main(void) {
     snwc_free_bytes(aliased);
     snwc_free_warnings(alias_warnings);
 
+    SnwcOwnedBytes generated_mnemonic = {NULL, 0};
+    SnwcOwnedBytes generated_pending = {NULL, 0};
+    SnwcWarnings generated_warnings = {NULL, 0};
+    assert(snwc_prepare_generated_profile(
+               borrowed(empty.ptr, empty.len),
+               borrowed(password, sizeof(password) - 1),
+               0,
+               &generated_mnemonic,
+               &generated_pending,
+               &generated_warnings) == NULL);
+    assert(generated_mnemonic.ptr != NULL && generated_mnemonic.len > 0);
+    assert(generated_pending.ptr != NULL && generated_pending.len > 0);
+    assert(generated_mnemonic.ptr != generated_pending.ptr);
+    assert(generated_mnemonic.ptr[0] != 0);
+    assert(generated_pending.ptr[0] != 0);
+    snwc_free_bytes(generated_mnemonic);
+    snwc_free_bytes(generated_pending);
+    snwc_free_warnings(generated_warnings);
+
     SnwcOwnedBytes restored = {NULL, 0};
     SnwcProfileInfo profile = {{0}, 0, 0};
     SnwcWarnings restore_warnings = {NULL, 0};
@@ -65,6 +84,20 @@ int main(void) {
 
     SnwcUuid profile_id;
     memcpy(profile_id.bytes, profile.profile_id, sizeof(profile_id.bytes));
+    SnwcOwnedBytes exported_mnemonic = {NULL, 0};
+    SnwcWarnings export_mnemonic_warnings = {NULL, 0};
+    assert(snwc_export_mnemonic(
+               borrowed(restored.ptr, restored.len),
+               profile_id,
+               borrowed(password, sizeof(password) - 1),
+               &exported_mnemonic,
+               &export_mnemonic_warnings) == NULL);
+    assert(exported_mnemonic.ptr != NULL);
+    assert(exported_mnemonic.len == sizeof(mnemonic) - 1);
+    assert(memcmp(exported_mnemonic.ptr, mnemonic, exported_mnemonic.len) == 0);
+    snwc_free_bytes(exported_mnemonic);
+    snwc_free_warnings(export_mnemonic_warnings);
+
     SnwcOwnedBytes derived = {NULL, 0};
     SnwcSoftwareKeyInfo key = {{0}, 0, 0, 0};
     SnwcWarnings derive_warnings = {NULL, 0};

@@ -1,4 +1,5 @@
 use super::*;
+use crate::cbor::{self, Value};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -33,6 +34,42 @@ fn mutation_store(result: &JsValue) -> Vec<u8> {
         .to_vec()
 }
 
+fn store_with_unknown_padding(last_padding_len: usize) -> Vec<u8> {
+    let mut fields = vec![
+        (0, Value::Bytes(b"SNWC".to_vec())),
+        (1, Value::UInt(1)),
+        (2, Value::Bytes(vec![0x11; 32])),
+        (3, Value::Array(Vec::new())),
+    ];
+    for key in 4..19 {
+        fields.push((key, Value::Bytes(vec![0xA5; cbor::MAX_BYTE_OR_TEXT_LENGTH])));
+    }
+    fields.push((19, Value::Bytes(vec![0xA5; last_padding_len])));
+    cbor::encode(&Value::Map(fields)).unwrap()
+}
+
+fn max_sized_store() -> Vec<u8> {
+    let limit = crate::store::MAX_WALLET_STORE_BYTES;
+    let mut low = 0;
+    let mut high = cbor::MAX_BYTE_OR_TEXT_LENGTH;
+    let mut best = Vec::new();
+    let mut best_padding = 0;
+    while low <= high {
+        let middle = low + (high - low) / 2;
+        let candidate = store_with_unknown_padding(middle);
+        if candidate.len() <= limit {
+            best = candidate;
+            best_padding = middle;
+            low = middle + 1;
+        } else {
+            high = middle.saturating_sub(1);
+        }
+    }
+    let candidate = store_with_unknown_padding(best_padding + limit - best.len());
+    assert_eq!(candidate.len(), limit);
+    candidate
+}
+
 #[wasm_bindgen_test]
 fn wasm_secret_boundaries_and_core_parity() {
     let password = Uint8Array::from(PASSWORD);
@@ -59,6 +96,17 @@ fn wasm_secret_boundaries_and_core_parity() {
     let restored_value = value(&restored);
     let profile_id_text = string_field(&restored_value, "profile_id");
     let profile_id = parse_uuid(&profile_id_text).unwrap();
+
+    let exported_mnemonic = export_mnemonic(
+        &Uint8Array::from(restored_store.as_slice()),
+        &profile_id_text,
+        &password,
+    )
+    .unwrap();
+    assert_eq!(
+        bytes_field(&value(&exported_mnemonic), "mnemonic_utf8").to_vec(),
+        MNEMONIC
+    );
 
     let derived = derive_software_key(
         &Uint8Array::from(restored_store.as_slice()),
@@ -304,4 +352,20 @@ fn wasm_secret_boundaries_and_core_parity() {
         .unwrap_err();
         assert_eq!(invalid.as_string().as_deref(), Some("InvalidAccountIndex"));
     }
+}
+
+#[wasm_bindgen_test]
+fn wasm_store_size_boundary_uses_public_api() {
+    let at_limit = max_sized_store();
+    assert_eq!(at_limit.len(), crate::store::MAX_WALLET_STORE_BYTES);
+
+    let at_limit_js = Uint8Array::from(at_limit.as_slice());
+    let accepted = list_profiles(&at_limit_js).unwrap();
+    let profiles = value(&accepted).dyn_into::<js_sys::Array>().unwrap();
+    assert_eq!(profiles.length(), 0);
+
+    let mut over_limit = at_limit;
+    over_limit.push(0);
+    let error = list_profiles(&Uint8Array::from(over_limit.as_slice())).unwrap_err();
+    assert_eq!(error.as_string().as_deref(), Some("InvalidStore"));
 }
