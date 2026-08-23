@@ -103,10 +103,10 @@ fn wasm_secret_boundaries_and_core_parity() {
         &password,
     )
     .unwrap();
-    assert_eq!(
-        bytes_field(&value(&exported_mnemonic), "mnemonic_utf8").to_vec(),
-        MNEMONIC
-    );
+    let exported_mnemonic_bytes = bytes_field(&value(&exported_mnemonic), "mnemonic_utf8").to_vec();
+    if exported_mnemonic_bytes.as_slice() != MNEMONIC {
+        panic!("exported mnemonic mismatch");
+    }
 
     let derived = derive_software_key(
         &Uint8Array::from(restored_store.as_slice()),
@@ -134,11 +134,17 @@ fn wasm_secret_boundaries_and_core_parity() {
         .unwrap()
         .value
         .private_key;
-    assert!(exported_private_key.to_vec() == core_private_key);
-    assert_eq!(
-        hex::encode_upper(core_private_key),
-        "521BF2A56DD3BCA09A43D8378FB6659ABA155A02DE0486A0FEF8026F464AB764"
-    );
+    if exported_private_key.to_vec() != core_private_key {
+        panic!("exported private key mismatch");
+    }
+    let expected_private_key: [u8; 32] =
+        hex::decode("521BF2A56DD3BCA09A43D8378FB6659ABA155A02DE0486A0FEF8026F464AB764")
+            .unwrap()
+            .try_into()
+            .unwrap();
+    if core_private_key != expected_private_key {
+        panic!("private key fixture mismatch");
+    }
 
     let wasm_account = get_public_account(
         &Uint8Array::from(derived_store.as_slice()),
