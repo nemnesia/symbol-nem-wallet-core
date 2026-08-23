@@ -43,6 +43,11 @@ jobs:
         with:
           tool: wasm-bindgen-cli@0.2.127
 
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
+        with:
+          tool: wasm-pack@0.15.0
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -55,10 +60,8 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-features --locked
 
-      - name: Run WASM tests
-        env:
-          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
-        run: cargo test --target wasm32-unknown-unknown --features wasm --locked --lib
+      - name: Run WASM tests with wasm-pack and Node.js
+        run: wasm-pack test --node --locked --features wasm
 
       - name: Check WASM target
         run: cargo check --target wasm32-unknown-unknown --features wasm --locked

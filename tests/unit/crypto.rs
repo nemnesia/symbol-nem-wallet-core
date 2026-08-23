@@ -6,6 +6,153 @@ fn bytes<const N: usize>(hex: &str) -> [u8; N] {
     hex::decode(hex).unwrap().try_into().unwrap()
 }
 
+fn canonical_scalar(bytes: [u8; 32]) -> Scalar {
+    let scalar = Scalar::from_bytes_mod_order(bytes);
+    assert_eq!(scalar.to_bytes(), bytes);
+    scalar
+}
+
+fn assert_scalar_add_matches_dalek(left: Scalar, right: Scalar, case: &str) {
+    let left_bytes = left.to_bytes();
+    let right_bytes = right.to_bytes();
+    let expected = (left + right).to_bytes();
+
+    assert_eq!(
+        scalar_add_mod_order(&left_bytes, &right_bytes).as_ref(),
+        &expected,
+        "{case}"
+    );
+}
+
+fn assert_scalar_mul_matches_dalek(left: Scalar, right: Scalar, case: &str) {
+    let left_bytes = left.to_bytes();
+    let right_bytes = right.to_bytes();
+    let expected = (left * right).to_bytes();
+
+    assert_eq!(
+        scalar_mul_mod_order(&left_bytes, &right_bytes).as_ref(),
+        &expected,
+        "{case}"
+    );
+}
+
+#[test]
+fn scalar_add_mod_order_matches_dalek_at_order_boundaries() {
+    let zero = Scalar::ZERO;
+    let one = Scalar::ONE;
+    let order_minus_one = -one;
+    let order_half = canonical_scalar([
+        0xf6, 0xe9, 0x7a, 0x2e, 0x8d, 0x31, 0x09, 0x2c, 0x6b, 0xce, 0x7b, 0x51, 0xef, 0x7c, 0x6f,
+        0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x08,
+    ]);
+    let order_half_plus_one = order_half + one;
+    let mut multi_byte_carry_bytes = [0u8; 32];
+    multi_byte_carry_bytes[..3].fill(0xff);
+    let multi_byte_carry = canonical_scalar(multi_byte_carry_bytes);
+
+    for (left, right, case) in [
+        (zero, zero, "0 + 0"),
+        (zero, order_minus_one, "0 + (L - 1)"),
+        (order_minus_one, zero, "(L - 1) + 0"),
+        (order_minus_one, one, "(L - 1) + 1"),
+        (order_minus_one, order_minus_one, "(L - 1) + (L - 1)"),
+        (one, order_minus_one, "1 + (L - 1)"),
+        (order_half, order_half, "floor(L / 2) + floor(L / 2)"),
+        (
+            order_half,
+            order_half_plus_one,
+            "floor(L / 2) + floor(L / 2) + 1",
+        ),
+        (multi_byte_carry, one, "multi-byte carry + 1"),
+    ] {
+        assert_scalar_add_matches_dalek(left, right, case);
+    }
+}
+
+#[test]
+fn scalar_mul_mod_order_matches_dalek_at_order_boundaries() {
+    let zero = Scalar::ZERO;
+    let one = Scalar::ONE;
+    let two = one + one;
+    let order_minus_one = -one;
+    let order_half = canonical_scalar([
+        0xf6, 0xe9, 0x7a, 0x2e, 0x8d, 0x31, 0x09, 0x2c, 0x6b, 0xce, 0x7b, 0x51, 0xef, 0x7c, 0x6f,
+        0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x08,
+    ]);
+    let mut upper_bit_scalar_bytes = [0xffu8; 32];
+    upper_bit_scalar_bytes[31] = 0x0f;
+    let upper_bit_scalar = canonical_scalar(upper_bit_scalar_bytes);
+
+    for (left, right, case) in [
+        (zero, zero, "0 * 0"),
+        (zero, upper_bit_scalar, "0 * x"),
+        (one, upper_bit_scalar, "1 * x"),
+        (upper_bit_scalar, one, "x * 1"),
+        (order_minus_one, order_minus_one, "(L - 1) * (L - 1)"),
+        (order_minus_one, two, "(L - 1) * 2"),
+        (two, order_minus_one, "2 * (L - 1)"),
+        (order_half, order_half, "floor(L / 2) * floor(L / 2)"),
+        (
+            order_half,
+            upper_bit_scalar,
+            "floor(L / 2) * upper-bit scalar",
+        ),
+    ] {
+        assert_scalar_mul_matches_dalek(left, right, case);
+    }
+}
+
+struct DeterministicScalarGenerator {
+    state: u64,
+}
+
+impl DeterministicScalarGenerator {
+    fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+
+    fn next_scalar(&mut self) -> Scalar {
+        // This generator is test-data-only and must not be used for cryptographic randomness.
+        let mut bytes = [0u8; 32];
+        for offset in (0..bytes.len()).step_by(8) {
+            self.state = self
+                .state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            bytes[offset..offset + 8].copy_from_slice(&self.state.to_le_bytes());
+        }
+        Scalar::from_bytes_mod_order(bytes)
+    }
+}
+
+#[test]
+fn scalar_arithmetic_matches_dalek_for_deterministic_inputs() {
+    const CASES: usize = 4_096;
+    let mut generator = DeterministicScalarGenerator::new(0x6d5a_56da_0c3e_9b17);
+
+    for case_index in 0..CASES {
+        let left = generator.next_scalar();
+        let right = generator.next_scalar();
+        let left_bytes = left.to_bytes();
+        let right_bytes = right.to_bytes();
+        let expected_sum = (left + right).to_bytes();
+        let expected_product = (left * right).to_bytes();
+
+        assert_eq!(
+            scalar_add_mod_order(&left_bytes, &right_bytes).as_ref(),
+            &expected_sum,
+            "addition differential case {case_index}"
+        );
+        assert_eq!(
+            scalar_mul_mod_order(&left_bytes, &right_bytes).as_ref(),
+            &expected_product,
+            "multiplication differential case {case_index}"
+        );
+    }
+}
+
 #[test]
 fn symbol_key_address_and_signature_match_sdk_vectors() {
     // Symbolの公開鍵、Mainnet/Testnet address、raw signatureをfixtureと照合する。

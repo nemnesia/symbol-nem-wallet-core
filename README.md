@@ -145,6 +145,14 @@ rustup target add wasm32-unknown-unknown
 cargo build --target wasm32-unknown-unknown --features wasm --release
 ```
 
+WASM Bindingの実行テストは `wasm-bindgen-test` を使用し、Node.js上で次のコマンドを実行します。
+`wasm-bindgen-test` は開発依存関係に含まれています。`wasm-pack` は別途インストールしてください。
+
+```bash
+cargo install wasm-pack --version 0.15.0 --locked
+wasm-pack test --node --locked --features wasm
+```
+
 ### TypeScript から利用する
 
 このリポジトリには生成済みの npm パッケージは含まれません。別途 `wasm-bindgen` CLIをインストールしたうえで、次のスクリプトを実行すると、WASM glue code と TypeScript 定義を `pkg/` に生成できます。
@@ -332,7 +340,7 @@ python3 scripts/check-invisible-characters.py
 cargo test --workspace --all-features --locked
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --target wasm32-unknown-unknown --features wasm --locked --lib
+wasm-pack test --node --locked --features wasm
 cargo check --target wasm32-unknown-unknown --features wasm --locked
 cargo build --package symbol-nem-wallet-core-native --release --locked
 cc -std=c11 -Wall -Wextra -Werror -I bindings/native/include -fsyntax-only bindings/native/tests/header_compile.c
