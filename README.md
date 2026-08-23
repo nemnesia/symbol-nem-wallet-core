@@ -255,12 +255,49 @@ WASM の binary data は `Uint8Array`、Native の入力は借用 buffer、Nativ
 - WASMはJavaScriptと同じexecution contextで動作し、JavaScriptから秘密情報を隔離するsecurity boundaryではありません。Rust側でzeroizeしても、呼び出し側のJavaScript `Uint8Array` のコピーは自動的には消去されません。
 - XSSや悪意あるBrowser Extensionが同じJavaScript execution contextを取得した場合、WASM APIも呼び出され得ます。WebページのJavaScriptへWallet Coreを直接公開する設計は推奨しません。
 - Browser Extensionでは、可能な限りpage contextから分離されたbackground / extension contextでCoreを管理してください。
-- `sign()` はTransactionを解釈しないraw byte列への署名primitiveです。Transaction parsing、human-readable確認、署名承認UIおよび権限管理は呼び出し側の責務です。
 - `export_mnemonic` と `export_private_key` は明示的な秘密情報exportであり、通常の署名処理では使用しないでください。
 - 秘密情報をJavaScript `string`へ変換すると、明示的なzeroizeが困難になります。秘密入力は可能な限り`Uint8Array`で扱い、不要になったコピーを速やかに破棄してください。
 - Profile は Mainnet / Testnet に固定され、Software Key は Symbol / NEM のいずれかに固定されます。両者を暗黙に混在させないでください。
 - Wallet Store の保存・置換は、利用する環境側で atomic に行ってください。
 - Profile password を失った場合の recovery / reset API はありません。
+
+### Blind signing の防止
+
+`sign()` は Transaction parser ではなく、呼び出し側から渡された raw byte 列を解釈・検証・加工せずに署名する低レベルの signing primitive です。Wallet Core は Transaction の意味や安全性を自動検証しないため、統合先アプリが内容確認なしで `sign()` を呼び出すと blind signing が成立します。
+
+統合先アプリは、`sign()` を呼び出す前に Transaction / payload を解釈し、人間が確認できる形式で表示したうえで、利用者から明示的な承認を得てください。署名前確認 UI を必須とし、該当する以下の重要情報を表示してください。
+
+- Network
+- Transaction type
+- recipient / destination
+- amount
+- mosaic / asset
+- fee
+- message
+- Aggregate Transaction のすべての内部 Transaction
+- その他、資産移動・権限・状態変更に影響する情報
+
+unknown / unsupported Transaction type は blind signing せず拒否してください。payload を完全に解釈できない場合は fail closed とし、必須情報を確認 UI に表示できない場合も原則として署名を拒否してください。Aggregate Transaction は外側の情報だけでなく、内部 Transaction まで展開して確認してください。
+
+### 表示対象と署名対象の同一性
+
+解析した payload、確認 UI に表示した payload、利用者が承認した payload、`sign()` に渡す payload は、同一の byte 列であることを保証してください。確認後に payload を再生成・再取得する設計では、署名前に内容が変更されていないことを検証し、別の payload へ差し替えないでください。
+
+```text
+payload A を解析
+    ↓
+確認 UI に A を表示
+    ↓
+利用者が承認
+    ↓
+同じ payload A を sign(A)
+```
+
+### 責任分界
+
+Wallet Core の責務は、raw byte 列への暗号学的署名、private key を利用した暗号処理、Wallet Store の暗号化・認証、および Chain / Network に対応した鍵処理です。
+
+統合先アプリの責務は、Transaction parsing、human-readable representation、署名前確認 UI、利用者の明示的な承認、policy / permission checks、blind signing の防止、ならびに表示対象と署名対象の同一性保証です。
 
 ## ドキュメント
 
@@ -274,6 +311,19 @@ WASM の binary data は `Uint8Array`、Native の入力は借用 buffer、Nativ
 - [技術知識ベース](docs/knowledge/)
 
 仕様、実装、SDK の利便 API は同一視せず、互換性やプロトコル上の判断が必要な場合は、承認済み仕様と対応するレビュー・決定記録を確認してください。
+
+### レビュー資料の位置づけ
+
+`docs/reviews/` 配下の仕様レビュー・実装レビューは、設計・実装判断の追跡、指摘と修正の履歴保存、セキュリティレビューの透明性、および将来のレビュアーが判断経緯を確認できるようにするための資料です。レビュー文書は上書きせず、次のように連番で保存します。
+
+```text
+implement-review-001.md
+implement-review-002.md
+...
+implement-review-009.md
+```
+
+後続レビューでは Finding の状態を `Resolved` / `Open` / `New` などとして追跡します。過去レビューには、その時点では有効でも後続実装で解消された指摘が含まれるため、古いレビュー単体を現行実装の状態や、現在存在する脆弱性の一覧として解釈しないでください。現行実装のレビュー状態を確認する場合は、[実装レビュー履歴](docs/reviews/implementation/) 内の最新レビューを参照してください。過去のレビュー資料と Finding は変更せず保持します。
 
 ## 検証
 
