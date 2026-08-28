@@ -254,7 +254,7 @@ export async function deriveSymbolAccount(
 
 WASM APIのbyte列は `Uint8Array`、`profile_id` と `key_id` は UUID文字列、`network` は `"testnet"` / `"mainnet"`、`chain` は `"nem"` / `"symbol"` です。Rust APIと同様に、状態変更 API が返す `store` を次の呼び出しへ渡し、保存時は完全な replacement Storeとして扱ってください。エラー時は安定した error code が throw されます。
 
-WASM の binary data は `Uint8Array`、Native の入力は借用 buffer、Native の出力は対応する free API で解放する所有 buffer です。詳細な境界契約は [Binding の設計判断](docs/decisions/binding-implementation.md) とヘッダーを参照してください。
+WASM の binary data は `Uint8Array`、Native の入力は借用 buffer、Native の出力は対応する free API で解放する所有 buffer です。詳細な境界契約は [Binding の設計](docs/design/bindings.md) とヘッダーを参照してください。
 
 ## セキュリティ上の注意
 
@@ -313,7 +313,7 @@ Wallet Core の責務は、raw byte 列への暗号学的署名、private key �
 - [Wallet Core 仕様設計書](docs/specifications/specification.md)
 - [Wallet Store フォーマット v1](docs/specifications/wallet-store-format-v1.md)
 - [コンセプトシート](docs/consept/concept-sheet.md)
-- [設計判断](docs/decisions/)
+- [設計と設計判断](docs/design/)
 - [仕様レビュー](docs/reviews/specifications/)
 - [実装レビュー](docs/reviews/implementation/)
 - [技術知識ベース](docs/knowledge/)

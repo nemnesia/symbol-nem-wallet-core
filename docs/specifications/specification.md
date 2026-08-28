@@ -2,7 +2,7 @@
 
 ## 1. 目的
 
-本書は `docs/requirements/requirements.md` を実装可能な仕様へ具体化する v1 の設計正本である。
+本書は `docs/requirements/requirements.md` を実装可能な仕様へ具体化する v1 の仕様正本である。
 
 対象は Rust Wallet Core と Native / WASM Binding の境界までとし、Wallet UI、Network、Transaction 構築、OS Keychain / Secure Enclave / TPM、Hardware Wallet、External Signer は扱わない。
 
@@ -16,6 +16,8 @@
 - 保存済み Mnemonic / 秘密鍵は、正しい Profile パスワードを伴う明示的な個別エクスポートだけで返す。
 - 秘密情報を必要とする処理は毎回 Profile パスワードを要求し、継続的な unlocked state を持たない。
 - Native / WASM で同じ Core ロジックを使用する。
+
+責務、依存方向、trust boundaryおよび設計判断の正本は `docs/design/architecture.md`、`docs/design/security.md` および `docs/design/bindings.md` とする。
 
 Wallet Store の wire-level 仕様の正本は `docs/specifications/wallet-store-format-v1.md` とする。本書は API、状態遷移、暗号利用、Binding 境界などの実装契約を定義し、整数 key、CBOR 表現、AAD の正確な構成、enum wire 値、version / migration 規則については保存フォーマット仕様を重複定義しない。
 
@@ -696,7 +698,7 @@ Binding は型変換、byte buffer transfer、error / warning mapping、lifecycl
 
 Binding に暗号化、password authentication、Mnemonic validation、key derivation、signing、duplicate detection を再実装しない。
 
-v1 Native Binding は `bindings/native` の C ABI (`cdylib` / `staticlib`) を使用し、v1 WASM Binding は `wasm-bindgen` を使用する。Binding方式を変更する場合は、本仕様と対応する決定記録を更新する。秘密情報処理ロジックを Core と重複させない。
+v1 Native Binding は `bindings/native` の C ABI (`cdylib` / `staticlib`) を使用し、v1 WASM Binding は `wasm-bindgen` を使用する。Binding方式を変更する場合は、本仕様と `docs/design/bindings.md` を更新する。秘密情報処理ロジックを Core と重複させない。
 
 WASM public API は `Uint8Array` を binary data の基本型とする。Wallet Store blob、PendingProfileBlob、署名 payload、signature、public key、Mnemonic UTF-8 bytes、Profile password UTF-8 bytes、import / export private key は `Uint8Array` 相当とする。
 
@@ -818,10 +820,10 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 ## 18. 参照
 
 - `docs/requirements/requirements.md`
+- `docs/design/architecture.md`
+- `docs/design/security.md`
+- `docs/design/bindings.md`
 - `docs/specifications/wallet-store-format-v1.md`
-- `docs/decisions/open-001.md`
-- `docs/decisions/open-002.md`
-- `docs/decisions/open-validity-001.md`
 - RFC 8949: Concise Binary Object Representation (CBOR)
 - BIP39: Mnemonic code for generating deterministic keys
 - BIP44: Multi-Account Hierarchy for Deterministic Wallets
@@ -831,4 +833,4 @@ Mnemonic / Profile password の byte sequence は strict UTF-8 とし、不正 U
 - `symbol-sdk` 3.3.2 `sdk/javascript/src/facade/NemFacade.js`
 - `symbol-sdk` 3.3.2
 
-本書の変更で要件そのものを変更する必要が生じた場合は、仕様側で暗黙に拡張せず `docs/requirements/requirements.md` または decision record 側へ戻して決定する。
+本書の変更で要件そのものを変更する必要が生じた場合は、仕様側で暗黙に拡張せず `docs/requirements/requirements.md` または `docs/design/` の設計判断へ戻して決定する。

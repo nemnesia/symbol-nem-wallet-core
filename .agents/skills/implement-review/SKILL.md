@@ -13,7 +13,7 @@ description: symbol-nem-wallet-core の Rust 実装、Native C ABI、WASM bindin
 2. `../review-common/review-playbook.md`
 3. `reviewers.md`、`review-gates.md`、`output-format.md`
 4. 対象の差分、`src/`、`bindings/native/`、テスト、fixture、`Cargo.toml` / `Cargo.lock`
-5. 対応する `docs/specifications/`、`docs/requirements/`、`docs/design/`、移行前の `docs/decisions/`
+5. 対応する `docs/specifications/`、`docs/requirements/`、`docs/design/`
 6. 必要な `docs/knowledge/`、公式 protocol / schema / SDK 資料
 
 ## 対象と成果物
@@ -25,7 +25,7 @@ description: symbol-nem-wallet-core の Rust 実装、Native C ABI、WASM bindin
 
 ## 根拠の範囲
 
-差分、実装、テスト、fixture、承認済み仕様、要件、`docs/design/`、必要な公式資料を照合する。移行前の `docs/decisions/` は既存判断の確認に限って使う。既存コードやテストがそうなっていることだけを、仕様や protocol の根拠にしない。
+差分、実装、テスト、fixture、承認済み仕様、要件、`docs/design/`、必要な公式資料を照合する。既存コードやテストがそうなっていることだけを、仕様や protocol の根拠にしない。
 
 未確認の external node、network、registry、長時間テスト、WASM runtime、C compiler は成功扱いにしない。秘密情報、復号データ、credential を成果物や出力へ含めない。
 

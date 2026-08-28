@@ -12,9 +12,8 @@ description: symbol-nem-wallet-core の承認済み要求・設計を、実装�
 1. `AGENTS.md`
 2. ../author-common/author-playbook.md
 3. `docs/design/` の対象設計と設計判断
-4. 対象の承認済み requirements と関連仕様
-5. 移行前の `docs/decisions/` に残る判断（存在する場合）
-6. `docs/knowledge/` の対象技術資料と必要な公式資料
+4. 対象の承認済み requirements と関連仕様、`docs/design/` の設計判断
+5. `docs/knowledge/` の対象技術資料と必要な公式資料
 7. 対象の既存実装、公開API、テスト、fixture
 8. 対象の公開レビュー結果と実装者フィードバック
 

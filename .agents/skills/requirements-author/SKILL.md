@@ -13,8 +13,7 @@ description: symbol-nem-wallet-core の要求を、目的、利用者、範囲�
 2. ../author-common/author-playbook.md
 3. scope-boundary.md
 4. 対象機能のコンセプト、関連要件、仕様、`docs/design/` の設計判断
-5. 移行前の `docs/decisions/` に残る判断（存在する場合）
-6. ユーザーが明示した資料
+5. ユーザーが明示した資料
 
 ## 対象と出力
 
@@ -56,7 +55,7 @@ description: symbol-nem-wallet-core の要求を、目的、利用者、範囲�
 ## 情報源と前段資料
 
 - ユーザー依頼、会話、明示資料、対応コンセプトを最初に確認する。
-- `docs/design/` の設計判断、関連要件、既存仕様は、既に承認された範囲・責任・制約との整合確認に使う。移行前の `docs/decisions/` は現行正本とみなさず、既存判断の確認に限って参照する。
+- `docs/design/` の設計判断、関連要件、既存仕様は、既に承認された範囲・責任・制約との整合確認に使う。
 - 対応するconcept-reviewがある場合は、公開されたReview Result、未解決Critical、Required Changes、Deferred Findingsを確認する。レビュー指摘だけを根拠に新しい要求を発明しない。
 - 実装やSDKの挙動は、現在の実態確認に使えるが、要件の正本にはしない。
 - docs/knowledgeや公式資料は、技術的前提・法務・security・相互運用性の確認に不可欠な場合だけ読む。

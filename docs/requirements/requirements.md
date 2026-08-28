@@ -8,22 +8,20 @@ symbol-nem-wallet-core v1 は、Desktop / Mobile / Web の Symbol / NEM ウォ�
 
 Web には Web Application および Browser Extension を含む。Desktop / Mobile は Native Binding、Web は WASM Binding を介して同一 Core を利用する。
 
-### 1.2 上位方針と決定記録
+### 1.2 上位方針と承認履歴
 
-本書は次を上位根拠および承認済み決定として扱う。
+本書は次を上位根拠および現行の要件正本として扱う。
 
 - `docs/consept/concept-sheet.md`: 製品目的、v1範囲、責任境界
-- `docs/decisions/requirements-baseline-001.md` (`DEC-REQ-001`): 初期要件ベースラインの承認・追跡記録
-- `docs/decisions/open-001.md`: Symbol / NEM 互換性基準の決定
-- `docs/decisions/open-002.md`: Profile パスワード品質ポリシーの責任境界の決定
-- `docs/decisions/open-validity-001.md`: Mnemonic / 秘密鍵の妥当性・安全性基準の決定
 - コンセプトとの追跡: 背景・課題は `docs/consept/concept-sheet.md` §1〜§2、目的は§3、対象利用者・主要利用場面は§4、責任境界は§7〜§8に対応する。
 
-旧要件本文に存在した「独立した承認記録は存在しない」という記述は `DEC-REQ-001` により失効している。本書の確定事項は Git 履歴および上記決定記録から追跡する。
+初期承認ベースラインは commit `99fa54bb4bd64ca4ae9ecb7452f91c679a4c5fba`、blob `930d22b30bb1b48126895dd7bdbaedc9bfcb601f` である。現行の統合要件ベースラインは commit `2ef959be4a57cf25623a81edfb7750db161128af`、blob `e6a5eae4a30f357f5b1b40d57be5b51cf2a05330` とし、互換性基準の明確化は commit `b2969dc2011aff7d339848b793b5b5e03088d877`、パスワード品質方針の amendment 取り込みは commit `6eaaa2ba0462e18025d1966c397a4710cea4aedd` から追跡する。
+
+旧要件本文に存在した「独立した承認記録は存在しない」という記述および解消済みの OPEN 項目は現行要件では失効している。本書の確定事項と承認履歴は本文、Git 履歴および `docs/reviews/requirements/` の履歴記録から追跡する。
 
 ### 1.3 本書で決定しない事項
 
-API、型、保存レコード構造、暗号方式、KDF、salt / nonce、具体的な HD 導出パス値、FFI / WASM 実装、メモリ配置、zeroize 方法、対象 OS / Browser バージョン等は本要件書では詳細を定めず、仕様設計またはリリース要件で決定する。v1 の Native / WASM Binding 方式は対応する decision と仕様書で固定する。
+API、型、保存レコード構造、暗号方式、KDF、salt / nonce、具体的な HD 導出パス値、FFI / WASM 実装、メモリ配置、zeroize 方法、対象 OS / Browser バージョン等は本要件書では詳細を定めず、仕様設計またはリリース要件で決定する。v1 の Native / WASM Binding 方式は `docs/design/bindings.md` と仕様書で固定する。
 
 ---
 
@@ -178,8 +176,8 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | FR-001 | MUST | Core は新規 Mnemonic 生成または既存 Mnemonic から、未指定でも空でもない Profile パスワードと Mainnet / Testnet を使用して Profile を作成・復元できること。Mnemonic なし Profile を作成しないこと。新規Mnemonic生成経路では、初回バックアップ受渡しが完了した場合だけProfile作成を成功させ、受渡し失敗・中断時に新規Profileを正常状態として残さないこと。 |
 | FR-002 | MUST | Mnemonic を Profile のルート秘密情報として Profile 管理下へ保存すること。 |
 | FR-003 | MUST | 保存済み Mnemonic から Profile の Network と指定 Chain に対応する Derived Software Key を導出・保存できること。 |
-| FR-004 | MUST | 正しい Profile パスワードを Core が認可し、`OPEN-VALIDITY-001`で定める妥当性基準を満たした外部秘密鍵だけを Imported Software Key として保存すること。失敗時は Profile 状態を変更しないこと。 |
-| FR-005 | MUST | 正しい Profile パスワードを Core が認可し、`OPEN-VALIDITY-001`で定める妥当性基準を満たした独立生成秘密鍵だけを Generated Software Key として保存すること。失敗時は Profile 状態を変更しないこと。 |
+| FR-004 | MUST | 正しい Profile パスワードを Core が認可し、本要件書で定める妥当性基準を満たした外部秘密鍵だけを Imported Software Key として保存すること。失敗時は Profile 状態を変更しないこと。 |
+| FR-005 | MUST | 正しい Profile パスワードを Core が認可し、本要件書で定める妥当性基準を満たした独立生成秘密鍵だけを Generated Software Key として保存すること。失敗時は Profile 状態を変更しないこと。 |
 | FR-006 | MUST | Mnemonic と全 Software Key を暗号化保存対象とし、平文で永続保存しないこと。 |
 | FR-007 | MUST | 秘密情報を必要とする処理ごとに Profile パスワードを使用し、継続的な Unlocked 状態を保持しないこと。 |
 | FR-008 | MUST | Derived / Imported / Generated を同じ秘密鍵利用ライフサイクルで扱うこと。 |
@@ -195,7 +193,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | FR-018 | MUST | 同一 Profile 内かつ同一 Chain で同一秘密鍵に対応する Software Key の重複登録を由来をまたいで拒否すること。異なる Chain では同一秘密鍵に対応する Software Key を別 Software Key として許可すること。 |
 | FR-019 | MUST | Native / WASM Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除、Mnemonic の個別エクスポート、Software Key 秘密鍵の個別エクスポートを利用できること。新規Profile作成は初回バックアップ受渡しの完了を条件とし、Profile 全体の一括バックアップ・復旧は含めないこと。 |
 | FR-020 | MUST | Profile 作成・パスワード変更で未指定・空・Core 内部既定値の Profile パスワードを拒否すること。パスワード品質条件は上位 Application / Package の責任とし、Core は独自に要求しないこと。 |
-| FR-021 | MUST | 新規生成または外部入力の Mnemonic / 秘密鍵について、`OPEN-VALIDITY-001`で承認された妥当性・安全性基準を満たした値だけを登録・利用し、生成・検証・保存失敗時に不完全状態を登録せず既存 Profile を変更しないこと。 |
+| FR-021 | MUST | 新規生成または外部入力の Mnemonic / 秘密鍵について、本要件書で定める妥当性・安全性基準を満たした値だけを登録・利用し、生成・検証・保存失敗時に不完全状態を登録せず既存 Profile を変更しないこと。 |
 | FR-022 | MUST | Core は、正しい Profile パスワードを伴う明示的な要求に対して、指定 Profile の保存済み Mnemonic を個別にエクスポートできること。誤認証、対象不存在、処理失敗時は Mnemonic を返さず、Profile 状態を変更しないこと。 |
 | FR-023 | MUST | Core は、正しい Profile パスワードを伴う明示的な要求に対して、指定 Profile 配下の Derived / Imported / Generated Software Key のいずれか1つの秘密鍵を個別にエクスポートできること。誤認証、対象不存在、処理失敗時は秘密鍵を返さず、Profile 状態を変更しないこと。 |
 
@@ -295,7 +293,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | AC-032 | SEC-015 | 初回 Mnemonic バックアップおよび明示的な個別エクスポートの成功結果を除き、外部出力・診断へ秘密情報または復元可能表現を含めない。エクスポートの失敗結果・診断出力には含めない。 |
 | AC-033 | DR-008 | Symbol / NEM の鍵・公開鍵・アドレス・署名・Network の互換性を `symbol-sdk` 3.3.2 と比較して判定できる。HD 復元互換性は仕様で固定した導出規則および deterministic fixture により判定する。特定の既存 Wallet 製品との互換性は、名称、version または commit、入力、期待値および fixture を明示した範囲に限り判定する。 |
 | AC-034 | FR-001, FR-019, SEC-010, SEC-017 | 新規 Mnemonic 生成時は、初回バックアップ用の一時受渡しが完了した場合だけProfile作成が成功する。受渡し失敗・中断時は新規Profileを正常状態として残さず、受渡し後の保管・紛失防止は利用者および上位Application / Packageの責任とする。保存済み Mnemonic の通常取得には使用しない。 |
-| AC-035 | FR-004, FR-005, FR-021 | `OPEN-VALIDITY-001`で承認された妥当性・安全性基準を満たした Mnemonic / 秘密鍵だけを登録し、生成・検証・保存失敗時に不完全状態や既存 Profile 変更を残さない。 |
+| AC-035 | FR-004, FR-005, FR-021 | 本要件書で承認した妥当性・安全性基準を満たした Mnemonic / 秘密鍵だけを登録し、生成・検証・保存失敗時に不完全状態や既存 Profile 変更を残さない。 |
 | AC-037 | SEC-017 | 一時的に扱った秘密情報を成功・失敗・中断後に継続利用可能状態または診断出力として残さない。 |
 | AC-038 | SEC-018 | パスワード変更・鍵削除・Profile 削除は成功時に全体反映し、失敗時に外部観測上の部分適用を残さない。 |
 | AC-039 | SEC-019 | 1つの Profile 操作が他 Profile の秘密情報・認証状態・利用可否・削除結果へ影響しない。 |
@@ -328,10 +326,7 @@ Mnemonic / Software Key 秘密鍵の個別エクスポートは状態変更操�
 
 **要件レベルの未決定事項はない。**
 
-- `OPEN-001`: Closed。`docs/decisions/open-001.md` を参照。
-- `OPEN-002`: Closed。`docs/decisions/open-002.md` を参照。
-- `OPEN-VALIDITY-001`: Closed。`docs/decisions/open-validity-001.md` を参照。
-- 旧 `OPEN-003` 以降の解消済み事項は Git 履歴および過去レビューを参照する。
+過去に OPEN-001、OPEN-002 および OPEN-VALIDITY-001 として管理した事項は、本書の互換性、パスワード責任および妥当性・安全性の条項へ取り込んだため、現行要件では解消済みである。旧 OPEN 項目および過去レビューは Git 履歴と `docs/reviews/requirements/` の履歴記録で追跡する。
 
 仕様設計で決定する具体方式は未決定事項ではなく、要件から仕様へ引き継ぐ設計事項として管理する。
 
@@ -343,7 +338,7 @@ Mnemonic / Software Key 秘密鍵の個別エクスポートは状態変更操�
 
 - `symbol-sdk` 3.3.2 と互換な秘密鍵・公開鍵、アドレス、署名、Network 処理
 - Mnemonic の具体方式、seed 生成、HD 導出パス、index、Chain / Network 対応
-- `OPEN-VALIDITY-001`で承認された妥当性・安全性基準に基づく、Mnemonicおよび秘密鍵の生成・復元・取込みの具体的な検証方式
+- 本要件書で定める妥当性・安全性基準に基づく、Mnemonicおよび秘密鍵の生成・復元・取込みの具体的な検証方式
 - 仕様で固定した HD 導出規則と deterministic fixture による復元互換性の検証。特定の既存 Symbol / NEM Wallet 製品を追加対象とする場合は、名称、version または commit、入力、期待値および fixture を明示する。
 
 ### 12.2 秘密情報保護
@@ -390,8 +385,8 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 | RR-009 | Resolved | Imported / Generated 登録のパスワード認可と失敗時状態不変を明示。 |
 | RR-010 | Resolved | 初回 Mnemonic 受渡しの完了条件、失敗・中断時のProfile非作成、保管・紛失防止責任、Profileデータバックアップ責任を明示。 |
 | RR-011 | Resolved | Derived / Imported / Generated すべての公開情報利用を明示。 |
-| RR-012 | Resolved by decision | OPEN-002 によりパスワード品質ポリシーは上位責任と決定。Coreの品質判定要求は廃止。 |
-| RR-013 | Resolved by decision | OPEN-VALIDITY-001 により Mnemonic / 秘密鍵の妥当性・安全性基準の適用範囲と Wallet Core の判定責任を確定し、具体方式を仕様設計へ分離。 |
+| RR-012 | Resolved by approved requirement | パスワード品質ポリシーは上位責任とし、Coreの品質判定要求を廃止。 |
+| RR-013 | Resolved by approved requirement | Mnemonic / 秘密鍵の妥当性・安全性基準の適用範囲と Wallet Core の判定責任を確定し、具体方式を仕様設計へ分離。 |
 | RR-014 | Resolved | 一時秘密情報の処理範囲・終了後非保持を明示。 |
 | RR-015 | Resolved | `symbol-sdk` 3.3.2 互換の外部検証基準を明示。 |
 | RR-016 | Resolved | 状態変更の部分適用禁止を明示。 |
@@ -408,13 +403,10 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 | 資料 | 用途 |
 | --- | --- |
 | `docs/consept/concept-sheet.md` | 上位コンセプト、v1範囲、責任境界 |
-| `docs/decisions/requirements-baseline-001.md` | 初期承認ベースライン、RR-005追跡 |
-| `docs/decisions/open-001.md` | Symbol / NEM互換性基準 |
-| `docs/decisions/open-002.md` | Profileパスワード品質の責任分界 |
-| `docs/decisions/open-validity-001.md` | Mnemonic / 秘密鍵の妥当性・安全性基準、RR-013追跡 |
+| `docs/design/architecture.md` | 要件を実装配置へつなぐ基本設計と責任境界 |
 | `docs/knowledge/symbol-technicalref-jp.pdf` | Symbolの鍵・署名・Network・アドレス前提 |
 | `docs/knowledge/nem-technicalref.pdf` | NEMの鍵・署名・Network・アドレス前提 |
 | `docs/reviews/requirements/requirements-review-002.md` | RR-001〜RR-017の履歴レビュー |
 | `docs/reviews/requirements/requirements-review-003.md` | RR-001〜RR-019の最新レビュー |
 
-本書を v1 要件の単一の現行正本とする。決定記録は本書の根拠・変更理由・追跡性を提供し、要件本文と矛盾する別 amendment を並存させない。
+本書を v1 要件の単一の現行正本とする。要件上の承認履歴と変更理由は本書、Git 履歴および `docs/reviews/requirements/` から追跡し、要件本文と矛盾する別 amendment を並存させない。設計上の判断は `docs/design/` を参照する。

@@ -16,7 +16,7 @@ README は、利用者がこの Rust Wallet Core を安全に使い始めるた�
 3. 対象 README と `Cargo.toml` / workspace manifest
 4. Rust の公開 API、Native C ABI のヘッダー、WASM binding の公開定義
 5. `src/`、`bindings/native/`、`pkg/`、関連テスト、build script
-6. 対応する `docs/specifications/`、`docs/design/`、移行前の `docs/decisions/`、必要な公式資料
+6. 対応する `docs/specifications/`、`docs/design/`、必要な公式資料
 7. 既存レビューとユーザーが指定した修正内容
 
 ## 対象と変更境界

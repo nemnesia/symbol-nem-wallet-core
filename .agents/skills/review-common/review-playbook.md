@@ -5,8 +5,8 @@
 ## このリポジトリの前提
 
 - 対象は `symbol-nem-wallet-core` の Rust Core、Native C ABI、WASM binding、ドキュメント、テスト、fixture である。
-- 作業指針はリポジトリルートの `AGENTS.md` を読む。技術的な正本は対象機能の要件、仕様、`docs/design/`、必要な公式資料である。移行前の `docs/decisions/` は既存判断の参照資料とする。
-- 主要な資料置き場は `docs/consept/`、`docs/requirements/`、`docs/design/`、`docs/specifications/`、`docs/knowledge/`、レビュー成果物は `docs/reviews/` である。設計判断は `docs/design/` に統合する。移行前の `docs/decisions/` は既存資料の参照先であり、新規成果物の置き場にしない。
+- 作業指針はリポジトリルートの `AGENTS.md` を読む。技術的な正本は対象機能の要件、仕様、`docs/design/`、必要な公式資料である。
+- 主要な資料置き場は `docs/consept/`、`docs/requirements/`、`docs/design/`、`docs/specifications/`、`docs/knowledge/`、レビュー成果物は `docs/reviews/` である。設計と設計判断は `docs/design/` に統合する。
 - `Symbol / NEM`、`Mainnet / Testnet`、Core / Native / WASM、protocol / SDK を混同しない。存在しない外部サービスや別言語 package 固有の前提は、根拠がない限り持ち込まない。
 
 ## 目的と実行主体

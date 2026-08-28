@@ -12,12 +12,12 @@ description: symbol-nem-wallet-core の Rust Core、Native C ABI、WASM binding 
 1. `AGENTS.md`
 2. `../author-common/author-playbook.md`
 3. 対象機能の `docs/specifications/` と `docs/design/`
-4. `docs/requirements/`、適用可能な設計判断、移行前の `docs/decisions/`
+4. `docs/requirements/`、適用可能な `docs/design/` の設計判断
 5. 対象コード、テスト、fixture、`Cargo.toml` / `Cargo.lock`
 6. Native header / binding、WASM定義、build script、対応する公開レビュー
 7. Symbol / NEM の事実確認が必要な場合だけ `docs/knowledge/` と公式仕様・schema・SDK
 
-`docs/design/` が新しい設計・判断の正本である。`docs/decisions/` は移行前の既存資料であり、そこにしかない判断は移行済みとみなさず、競合があれば未決定として扱う。
+`docs/design/` が設計・判断の現行正本である。設計判断と仕様に競合があれば、実装で補完せず未決定として扱う。
 
 ## 対象と変更範囲
 

@@ -6,7 +6,7 @@
 
 - リポジトリ名は `symbol-nem-wallet-core`。Rust の Wallet Core、`bindings/native` の Native C ABI、`wasm-bindgen` による WASM binding を含む。
 - 作業指針はリポジトリルートの `AGENTS.md` を読む。`AGENTS.md` は作業方法の根拠であり、Symbol / NEM の技術仕様の正本ではない。
-- コンセプトは `docs/consept/`、要件は `docs/requirements/`、設計・設計判断は `docs/design/`、仕様は `docs/specifications/`、技術資料は `docs/knowledge/` に置く。`consept` は既存ディレクトリ名なので変更しない。移行前の `docs/decisions/` は既存判断の参照先であり、新規の正本は `docs/design/` に統合する。
+- コンセプトは `docs/consept/`、要件は `docs/requirements/`、設計・設計判断は `docs/design/`、仕様は `docs/specifications/`、技術資料は `docs/knowledge/` に置く。`consept` は既存ディレクトリ名なので変更しない。
 - コード、テスト、fixture はそれぞれ `src/`、`bindings/native/`、`tests/`、`fuzz/` 等を確認する。`pkg/` の生成物は実装の正本ではない。
 
 ## 作成の目的
@@ -43,14 +43,14 @@
 ## 共通の境界
 
 - Symbol と NEM、Mainnet と Testnet、Core と binding、SDK と protocol を暗黙に共通化しない。
-- Native C ABI と WASM の境界契約、所有権、buffer、error code は `docs/design/` の該当設計と仕様書を確認する。移行前の `docs/decisions/` にしかない判断は、移行済みとみなさず参照資料として扱う。
+- Native C ABI と WASM の境界契約、所有権、buffer、error code は `docs/design/` の該当設計と仕様書を確認する。
 - Wallet Store と Pending Profile は opaque byte 列として扱い、仕様がない限り内容を推測・編集しない。
 - Mnemonic、秘密鍵、Profile password、復号済み payload、credential を成果物、例、ログ、エラー、テスト出力に含めない。
 - 暗号、署名 byte 列、KDF、AEAD、salt、nonce、数量、canonical serialization を根拠なしに変更・補完しない。
 
 ## 作成手順
 
-1. 対象文書、上流資料、既存成果物、適用する `docs/design/` と移行前資料を確定する。
+1. 対象文書、上流資料、既存成果物および適用する `docs/design/` を確定する。
 2. 入力を事実、要求、制約、仮定、未決定、将来構想へ分類する。
 3. 対象文書種別の責務に該当する情報だけを採用する。
 4. 各採用内容を出典または上流項目へ追跡できるようにする。
