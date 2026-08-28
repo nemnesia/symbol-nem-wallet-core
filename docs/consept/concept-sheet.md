@@ -9,22 +9,33 @@ v1では、製品像をソフトウェアウォレットの秘密鍵ライフサ
 
 秘密鍵またはニーモニックの取込み時には、UI / Applicationがユーザー入力を一時的に仲介する場合がある。取込み後の秘密情報の管理責任はCoreが担い、Core管理下の秘密鍵は通常の処理結果としてUI / Applicationへ返さない。
 
+MnemonicはCoreが継続的に管理する秘密情報であり、生成・復元・取込み後もCore管理下のHD Walletの元秘密情報として扱う。Mnemonicはそこから導出されたSoftware Keyとは別の管理対象であり、UI / Applicationは取込み後のMnemonicを継続的に保有・管理する責任を持たない。具体的な保存・保護方式は後続工程で決定する。
+
 ## 2. 解決したい課題
+
+### 利用者が実際に直面する課題
 
 - 対象者: Symbol / NEMウォレットを開発するソフトウェア開発者。
 - 現在の課題: ウォレットのUIやアプリケーション本体が、ニーモニックや秘密鍵の生成、導出、保存、ロック、署名などを直接扱う可能性がある。
 - 課題の原因: Desktop / Mobile / Webなど実行環境ごとに鍵管理処理が分散し、秘密情報の扱いと責任境界が一貫しない可能性がある。また、Symbol / NEMおよびMainnet / Testnetの区別を共通処理の中で曖昧に扱う可能性がある。
-- 既存手段の不足: ウォレット開発者が、UIから秘密鍵処理を分離したソフトウェア鍵管理の責任領域を、Desktop / Mobile / Webで共通に利用できる形が確定していない。
 - 放置した場合の影響: 秘密情報の露出箇所や実装差異が増え、セキュリティレビューと保守の対象範囲が広がる可能性がある。
 
-上記はプロジェクト上の課題と仮定の整理であり、具体的な脅威モデルやリスク低減効果が検証済みであることを示すものではない。
+### プロジェクト上の仮定
+
+- 既存手段の不足: ウォレット開発者が、UIから秘密鍵処理を分離したソフトウェア鍵管理の責任領域を、Desktop / Mobile / Webで共通に利用できる形は、現時点で確定していないと本プロジェクトは仮定する。
+
+### 未検証の価値仮説
+
+- 本プロジェクトは、UIから秘密鍵処理を分離してCoreへ責任を集約することで、秘密情報の露出箇所や実装差異、セキュリティレビューと保守の対象範囲を抑えられる可能性があると仮定する。
+
+利用者の課題、プロジェクト上の仮定、未検証の価値仮説は区別して扱う。具体的な脅威モデルやリスク低減効果は、このコンセプトで検証済みの事実とはしない。
 
 ## 3. 目的
 
 symbol-nem-wallet-core v1 は、Desktop / Mobile / WebのSymbol / NEMウォレットから、次の状態を実現することを目的とする。WebにはWeb ApplicationおよびBrowser Extensionを含む。
 
-1. ニーモニックを用いたHD Walletの生成、復元、アカウント導出をCoreの責任領域として扱う。
-2. HD Walletから導出された秘密鍵、外部から直接取り込んだ秘密鍵、Core内で独立して生成した秘密鍵を、いずれもSoftware KeyとしてCoreの管理下で扱う。
+1. Mnemonicを基礎とするHD Walletの生成、復元、そこからの鍵導出をCoreの責任領域として扱う。Mnemonicは導出後もCore管理下の秘密情報として扱う。
+2. HD Walletから導出された秘密鍵、外部から直接取り込んだ秘密鍵、Core内で独立して生成した秘密鍵を、いずれもSoftware KeyとしてCoreの管理下で扱う。Mnemonicは導出されたSoftware Keyとは別の管理対象とする。
 3. Software Keyの暗号化保存、ロック、アンロック、署名への利用、破棄までをCoreの鍵管理責任として扱う。
 4. Symbol / NEMおよびMainnet / Testnetを区別し、HD Walletの導出パスを対象ネットワークに合わせる。
 5. 秘密鍵またはニーモニックの取込み時にUI / Applicationがユーザー入力を一時的に仲介する場合があっても、取込み後の秘密情報の管理責任をCoreが担う状態を作る。
@@ -44,20 +55,24 @@ symbol-nem-wallet-core v1 は、Desktop / Mobile / WebのSymbol / NEMウォレ�
 - 誰が: Symbol / NEMウォレットの開発者が。
 - どのような状況で: Desktop / Mobile / Webウォレットに、HD Walletからのアカウント導出、秘密鍵の直接取込み、Software Keyの生成・保管・ロック、署名を組み込むときに。秘密鍵またはニーモニックの取込み時には、UI / Applicationがユーザー入力を一時的に仲介する場合がある。
 - 何に困っており: UI / Applicationが秘密鍵を継続的に保持・管理したまま鍵管理と署名を実装することに困っている。
-- どのような状態になることを期待するか: 取込み後の秘密情報をCoreが管理し、ウォレットが鍵の由来にかかわらずSoftware KeyとしてCoreが担う鍵管理・署名を利用できる状態。Core管理下の秘密鍵は通常の処理結果としてUI / Applicationへ返さない。
+- どのような状態になることを期待するか: Mnemonicを基礎とするHD Walletから導出された秘密鍵や他経路の秘密鍵を、Core管理下のSoftware Keyとして扱い、Accountとして利用できる状態。どのAccountを利用するかはUI / Applicationが選択するが、秘密鍵やMnemonicの継続的な管理責任をUI / Applicationが持つことを意味しない。Core管理下の秘密鍵は通常の処理結果としてUI / Applicationへ返さない。
 
 CLI、署名専用アプリ、認証・SSO向けクライアントは、v1の成功判定対象ではなく、将来の利用候補とする。一般利用者がCoreを直接操作することは想定しない。
 
 ## 5. 用語
 
 - 秘密鍵処理: 秘密鍵そのものを利用する処理の総称。生成、導出、直接取込み、署名、暗号化などを含む。
-- HD Wallet: ニーモニックから秘密鍵を決定的に導出する仕組み。HD Walletから導出された秘密鍵は、Coreの管理下ではSoftware Keyとして扱う。
-- 鍵管理: Software Keyについて、生成、ニーモニックによる復元、秘密鍵の直接取込み、HD Walletからの導出、暗号化保存、ロック、アンロック、署名への利用、破棄までを扱う領域。
+- Mnemonic: HD Walletの元秘密情報。生成・復元・取込みの後もCoreが継続的に管理する秘密情報であり、導出後もCoreの責任から外れない。Software Keyとは別の管理対象として扱う。
+- HD Wallet: Mnemonicを基礎として鍵を決定的に導出する概念。HD Walletから導出された秘密鍵は、Coreの管理下ではSoftware Keyとして扱う。
+- 鍵管理: MnemonicをCore管理下の秘密情報として扱い、Software Keyについて、生成、秘密鍵の直接取込み、HD Walletからの導出、暗号化保存、ロック、アンロック、署名への利用、破棄までを扱う領域。
 - 署名処理: 管理下の秘密鍵を利用して署名結果を生成する処理。
 - Signer: 署名能力を持つ主体。v1ではCoreが管理するSoftware Keyのみを指す。
-- Software Key: Coreがソフトウェア上で管理・利用する秘密鍵の総称。HD Walletから導出された鍵、外部から直接取り込まれた鍵、Coreが独立して生成した鍵を含む。
+- Software Key: Coreが管理し、署名に利用する秘密鍵の総称。HD Walletから導出された鍵、外部から直接取り込まれた鍵、Coreが独立して生成した鍵を含み、Mnemonicとは別の管理対象とする。
+- Account: Symbol / NEMのチェーン上でSoftware Keyを利用するための利用上の概念。どのAccountを利用するかはUI / Applicationが選択するが、秘密鍵やMnemonicの管理責任をUI / Applicationが持つことを意味しない。
 - Watch-only: 署名能力を持たないアカウント利用形態。SignerおよびSigner実装候補とは別の概念として扱う。
 - Web: Web ApplicationおよびBrowser Extensionを含む実行環境。Web固有の実装方式やブラウザAPIはコンセプトシートでは定義しない。
+
+概念上の関係は、Mnemonicを基礎にHD Walletで鍵を導出し、導出した秘密鍵をSoftware KeyとしてCoreが管理し、そのSoftware KeyをAccountとしてチェーン上で利用する、という順序である。Accountの選択はUI / Applicationが担うが、秘密情報の管理責任を持つことを意味しない。
 
 Hardware Wallet、External Signer、OS-backed Keyは、v1には含めず、将来のSigner実装候補として扱う。Watch-onlyはSigner実装候補ではなく、署名能力を持たない別のアカウント利用形態として扱う。
 
@@ -75,7 +90,8 @@ Hardware Wallet、External Signer、OS-backed Keyは、v1には含めず、将�
 
 v1は、Desktop / Mobile / WebのSymbol / NEMウォレット向けソフトウェア鍵管理Coreとして、次の能力と責任を担う。WebにはWeb ApplicationおよびBrowser Extensionを含む。
 
-- ニーモニックを用いたHD Walletの生成、復元、アカウント導出。
+- Mnemonicを生成・復元・取込みした後も、MnemonicをCore管理下の秘密情報として継続的に扱うこと。MnemonicはHD Walletの基礎であり、導出されたSoftware Keyとは別の管理対象とする。
+- Mnemonicを基礎とするHD Walletの生成、復元、アカウント導出。
 - HD Walletからの秘密鍵の導出。導出された秘密鍵はSoftware Keyとして扱う。
 - 外部からの秘密鍵そのものの直接インポート。取り込まれた秘密鍵はSoftware Keyとして扱う。
 - Core内で独立したSoftware Keyの新規生成。
@@ -112,7 +128,7 @@ v1では、次の能力を製品責任に含めない。
 
 ### 外部へ委ねること
 
-- UI / Application: アカウント選択、公開情報の表示、ユーザー操作、ウォレット固有の表示や設定。秘密鍵またはニーモニックの取込み時には、ユーザー入力を一時的に仲介する場合があるが、秘密情報の継続的な保存・管理主体とはしない。
+- UI / Application: どのAccountを利用するかの選択、公開情報の表示、ユーザー操作、ウォレット固有の表示や設定。秘密鍵またはニーモニックの取込み時には、ユーザー入力を一時的に仲介する場合があるが、MnemonicやSoftware Keyの秘密情報の継続的な保存・管理主体とはしない。
 - Web Application / Browser Extension: Web固有のApplication状態、Browser固有Storage、ページまたはExtensionの実行環境とそのセキュリティ。これらをCoreの秘密情報管理責任へ含めない。
 - Network層: REST、WebSocket、announceなどのネットワーク通信。
 - Transaction構築層: Transactionの生成とシリアライズ。
@@ -125,7 +141,7 @@ v1は、少なくとも次の状態を満たしたときに、コンセプト上
 
 1. Desktop / Mobile / WebのSymbol / NEMウォレットから、同じRust製Coreへ鍵管理と署名の責任を集約できる。
 2. HD Wallet由来、直接取込み、Core独立生成の秘密鍵を、共通のSoftware Keyとして扱える。
-3. UI / Applicationが取込み時などに秘密情報を一時的に仲介しても、取込み後の継続的な秘密情報管理主体にならない。
+3. UI / Applicationが取込み時などに秘密情報を一時的に仲介しても、取込み後のMnemonicおよびSoftware Keyの継続的な秘密情報管理主体にならない。
 4. Core管理下の秘密鍵が通常の処理結果としてUI / Applicationへ返されない。
 5. Symbol / NEMおよびMainnet / Testnetの区別を保った鍵管理ができる。
 6. Desktop / Mobile / Webの実行環境の違いによって、Coreの秘密情報管理責任や秘密情報公開方針が変化しない。
@@ -167,7 +183,7 @@ v1は、少なくとも次の状態を満たしたときに、コンセプト上
 次の具体事項は要件定義または仕様設計で決定する。
 
 - 対象とするSymbol / NEMのプロトコル版、互換性基準、基準時点。
-- Profile、Mnemonic、Software Keyなどの具体的な管理単位とライフサイクル。
+- Profile、Mnemonic、Software Keyなどの具体的な管理単位、保存・保護・消去などの詳細なライフサイクル。MnemonicをCore管理下の秘密情報とする責任境界はコンセプトで定める。
 - 秘密情報保護に必要なパスワード安全性や認可条件。
 - Native / Webを含む具体的なBinding方式とパッケージ構成。
 - 対象OS・Browser・バージョン、ビルド・配布方式。
@@ -178,7 +194,7 @@ v1は、少なくとも次の状態を満たしたときに、コンセプト上
 要件定義では、次を一意に判定できる状態へ具体化する。
 
 - Desktop / Mobile / Webから利用するCoreとApplicationの責任境界。
-- Profile、Mnemonic、Software Keyの管理単位とライフサイクル。
+- Profile、Mnemonic、Software Keyの具体的な管理単位と詳細なライフサイクル。
 - Symbol / NEMおよびMainnet / Testnetの区別。
 - 秘密情報利用時の認可条件と、Core管理下の秘密情報をApplicationへ返さない境界。
 - Native Binding / Web向けBindingを含むv1機能の利用可能範囲。
