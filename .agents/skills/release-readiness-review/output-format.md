@@ -1,111 +1,15 @@
-# Release Readiness Review
+# Output Format
 
-レビュー結果は、指定された対象パッケージに対応する `docs/reviews/<パッケージディレクトリ名>-release-readiness.md` だけを生成または更新する。内部思考、未採用の推測、外部へ公開しない診断情報は記載しない。
+この Skill のレビュー成果物は、`../review-common/output-format.md` の共通構成・章名・順序・指摘必須項目を使用する。共通構成を省略、追加、並べ替えない。
 
-```markdown
-# Release Readiness Review
+## Skill-specific values
 
-## Review Target
-
-- 対象: <パッケージのパス、name、または対象差分>
-- 確認日: <YYYY-MM-DD HH:mm TZ>
-- 判定対象version: <package.jsonのversion>
-- 確認範囲: <差分、文書、設定、検証範囲>
-- 未確認範囲: <未確認事項。なければ「なし」>
-
-## Evidence Used
-
-| 種別          | 参照箇所                   | 用途                                |
-| ------------- | -------------------------- | ----------------------------------- |
-| Git差分・状態 | <コマンドまたはファイル>   | <公開対象変更の確認>                |
-| package.json  | <行または項目>             | <version、公開設定、依存関係の確認> |
-| README        | <行または未確認>           | <利用方法、API、互換性の確認>       |
-| CHANGELOG     | <行または未確認>           | <変更履歴、移行情報、versionの確認> |
-| 実装・公開型  | <ファイル、行または未確認> | <公開APIとSemVerの確認>             |
-| 検証結果      | <コマンド>                 | <品質、配布物、coverageの確認>      |
-| registry      | <確認先または未確認>       | <公開version、dist-tagの確認>       |
-
-## Version Assessment
-
-- 現在version: <version>
-- 推奨version: <versionまたは「変更不要」>
-- 判定レベル: <major | minor | patch | prerelease変更なし | 未確定>
-- 根拠: <公開API、データ形式、依存関係、差分、仕様およびCHANGELOGに基づく理由>
-- 自動更新: <更新したファイルまたは「なし」>
-
-## Review Result
-
-<公開可能 | 修正後に再チェック | 対象確認が必要>
-
-## Summary
-
-<公開準備の総合評価を3〜10行で記載する。推測や対象外の将来改善は含めない。>
-
-## Documentation Check
-
-| 項目                   | 結果  | 根拠・修正内容 |
-| ---------------------- | ----- | -------------- |
-| READMEの存在           | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-| インストール・使用例   | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-| 公開API・対応環境      | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-| セキュリティ・移行情報 | <合格 \| 不合格 \| 未確認 \| 該当なし> | <参照または理由> |
-| ライセンス記載         | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-| CHANGELOGの存在        | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-| 現在versionの変更履歴  | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-
-## Package Metadata Check
-
-| 項目                            | 結果  | 根拠・修正内容 |
-| ------------------------------- | ----- | -------------- |
-| name / version / private        | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-| license / repository / homepage | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-| exports / main / module / types | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-| files / 配布対象                | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-| engines / publishConfig         | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-| dependencies / workspace依存    | <合格 \| 不合格 \| 未確認> | <参照または理由> |
-
-## Validation Results
-
-| 検証            | コマンド                 | 結果      | 備考 |
-| --------------- | ------------------------ | --------- | ---- |
-| lint            | <コマンドまたは未実行>   | <成功 \| 失敗 \| 未確認> | <理由>                     |
-| format check    | <コマンドまたは未実行>   | <成功 \| 失敗 \| 未確認> | <理由>                     |
-| typecheck       | <コマンドまたは未実行>   | <成功 \| 失敗 \| 未確認> | <理由>                     |
-| test            | <コマンドまたは未実行>   | <成功 \| 失敗 \| 未確認> | <理由>                     |
-| build           | <コマンドまたは未実行>   | <成功 \| 失敗 \| 未確認> | <理由>                     |
-| coverage        | <行・分岐・関数の実測値、基準または未計測> | <基準達成 \| 未達 \| 基準なし \| 未計測> | <未カバー範囲と理由>       |
-| package dry-run | <コマンドまたは未実行>   | <成功 \| 失敗 \| 未確認> | <配布物と秘密情報の確認>   |
-| registry確認    | <確認先または未確認>     | <成功 \| 失敗 \| 未確認> | <ネットワーク・認証の理由> |
-
-## Automatic Changes
-
-- <変更ファイルと変更内容。なければ「なし」>
-
-## Required Changes
-
-公開を妨げる修正だけを記載する。なければ「なし」とする。
-
-### RR-001
-
-- Priority: <Critical | Major>
-- 対象箇所: <ファイルと行または項目>
-- 問題: <具体的な公開阻害事項>
-- 根拠: <Evidence Usedの種別と参照箇所>
-- 影響: <公開した場合の具体的な影響>
-- 修正条件: <必要最小限の完了条件>
-- 再チェック: <修正後に再実行する検証>
-
-## Optional Improvements
-
-公開を妨げない小さな改善だけを記載する。なければ「なし」とする。
-
-## Remaining Risks
-
-<修正後も残る可能性のあるリスク、未確認の外部環境、registry未確認、仕様上の未決定事項。なければ「なし」。>
-
-## Final Decision
-
-<Review Resultと同じ判定を記載し、理由を2〜5行で記載する。>
-```
-
-判定は、実行していない検証を成功扱いにせず、READMEまたはCHANGELOGの欠落、SemVer誤り、公開対象への秘密情報混入、build/test失敗、公開APIと文書の重大な不一致が残る場合は `修正後に再チェック` とする。coverage の基準未達だけの場合は、重要な未検証範囲や具体的な退行リスクがある場合に限り公開阻害事項とする。基準が存在しない場合は任意の数値目標を新設しない。
+- Formal finding prefix: `RL`
+- Severity: `Critical` / `Major` / `Minor`
+- Review Result: `READY` / `READY WITH MINOR FIXES` / `NOT READY` / `TARGET CONFIRMATION REQUIRED`
+- Required Changes: 公開を妨げる `Critical` / `Major` の New / Open / Reopened
+- Optional Improvements: 公開を妨げない `Minor` の New / Open / Reopened
+- Deferred Findings: 次回リリースまたは後工程へ引き継ぐ指摘・未決定事項
+- Domain Checks: Version Assessment、Documentation Check、Package Metadata Check、配布物、SemVer、capability、security
+- Scope and Traceability: crate / binding、差分、公開 API、README、仕様、設計、evidence の対応
+- Automatic Changes: 明示依頼があり安全な metadata / docs を変更した場合だけ記録する。publish、commit、tag、registry変更は記録上の完了と混同しない

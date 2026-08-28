@@ -4,11 +4,11 @@
 
 ## Skill-specific values
 
-- Formal finding prefix: `RR`
+- Formal finding prefix: `DR`
 - Severity: `Critical` / `Major` / `Minor`
-- Review Result: `READY` / `REVISE REQUIREMENTS`
+- Review Result: `READY` / `REVISE DESIGN`
 - Required Changes: `Critical` または `Major` の New / Open / Reopened
 - Optional Improvements: `Minor` の New / Open / Reopened
-- Deferred Findings: 仕様設計以降へ引き継ぐ指摘
-- Domain Checks: 要求の完全性、責任・範囲、MUST / SHOULD、受け入れ条件、セキュリティ、相互運用性
-- Scope and Traceability: 要求とコンセプト、設計、適用資料、下流工程との追跡
+- Deferred Findings: 下位仕様・実装・運用へ引き継ぐ指摘
+- Domain Checks: システムコンテキスト、責務、依存方向、trust boundary、データ所有、主要フロー、運用、下流実装可能性、設計判断
+- Scope and Traceability: 要件・仕様・既存設計・移行前判断と設計箇所の対応
