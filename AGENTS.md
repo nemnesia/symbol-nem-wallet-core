@@ -153,11 +153,36 @@ Symbol、NEM および関連技術に関する仕様、実装、テスト、レ�
 - `readme-author`
 - `readme-review`
 - `release-readiness-review`
+- `phase-context-maintainer`
 
 `AGENTS.md` はリポジトリ全体に共通するルールを定義し、
 各 Skill は特定作業に対する詳細ルールを定義する。
 
 同じ内容を両方へ大量に重複して記述しない。
+
+### Phase Context
+
+Phase Context は任意であり、新しい開発フェーズではない。
+
+正式資料の反復参照コストが高くなったフェーズについてのみ、
+リポジトリが非規範的な派生 Context を定義できる。通常は正式資料を直接参照し、
+Context は初期理解、探索および共通前提の把握を補助するためだけに使う。
+
+Phase Context は正式資料の代替、根拠または Source of Truth ではない。
+Context と正式資料が競合した場合は、必ず正式資料を優先する。
+
+リポジトリ側の登録は任意の `Phase Contexts` セクションで行い、
+フェーズ名と既存のリポジトリ相対パスを1行ずつ対応付ける。
+例えば、Context を導入した場合だけ次の形式で登録する。
+
+```text
+Phase Contexts:
+- Design: docs/context/design-context.md
+```
+
+`Phase Contexts` セクションまたは対象フェーズの登録がない場合、
+そのフェーズに Context は定義されていない。未作成のパスを登録したり、
+登録されていない Context ファイルを自動的に探索・利用したりしない。
 
 ---
 

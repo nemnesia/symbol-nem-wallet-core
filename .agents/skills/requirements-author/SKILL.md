@@ -11,10 +11,10 @@ description: symbol-nem-wallet-core の要求を、目的、利用者、範囲�
 
 1. `AGENTS.md`
 2. ../author-common/author-playbook.md
-3. scope-boundary.md
-4. 対象機能のコンセプト
-5. 既存の関連 Requirements
-6. ユーザーが明示した資料
+3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
+4. scope-boundary.md
+5. 対象の Requirements と、対象へ直接必要な承認済みコンセプト
+6. 既存の関連 Requirements およびユーザーが明示した資料
 
 通常の要件作成では、`docs/design/` と `docs/specifications/` を必須参照にしない。
 

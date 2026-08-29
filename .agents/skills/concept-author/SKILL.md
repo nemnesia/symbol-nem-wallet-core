@@ -11,8 +11,9 @@ description: symbol-nem-wallet-core のアイデア、会話、既存資料を�
 
 1. `AGENTS.md`
 2. ../author-common/author-playbook.md
-3. ユーザーが明示した資料
-4. `docs/consept/` の既存コンセプト
+3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
+4. ユーザーが明示した資料と対象のコンセプト
+5. `docs/consept/` の既存コンセプトおよび対象へ直接必要な正式上流資料
 
 ## 対象と出力
 

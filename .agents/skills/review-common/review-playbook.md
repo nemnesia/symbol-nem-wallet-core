@@ -15,6 +15,23 @@
 
 メインエージェントは Review Board Chair として、対象確定、根拠管理、指摘統合、ゲート判定、成果物作成を担当する。サブエージェントを使える場合でも、依頼範囲と権限に適合する場合だけ使う。使わない場合は観点ごとに別パスで自己レビューし、実施していない起動や並列実行を記録しない。
 
+## Phase Context の扱い
+
+Phase Context は任意の非規範的な派生情報であり、レビューの圧縮キャッシュである。
+対象フェーズが `AGENTS.md` の `Phase Contexts` に登録されている場合だけ、初期理解、
+共通前提の把握、authoritative source の探索および cross-cutting invariant の把握に利用できる。
+登録がない場合は Context を探索・作成せず、通常の正式資料参照を行う。
+
+Context の authoritative source map は正式資料の所在を示す案内として扱う。対象文書、
+承認済み上流資料、同一フェーズの正式資料および適用可能な公式資料の確認を省略しない。
+`Critical`、`Major` または品質 Gate の不合格を、Context 単独を根拠に確定してはならない。
+正式 finding の根拠は、対象文書または確認済みの正式な上流・同一フェーズ source へ追跡する。
+
+Context と正式資料が競合した場合は正式資料を優先する。Context の誤り、stale または
+inconsistent な状態は、それ自体をレビュー対象本文の欠陥にせず、必要に応じて別途報告する。
+Phase Context の導入によって、Review Board、severity、Review Gate、フェーズ順序または
+下流から上流への根拠の流れを変更しない。
+
 ## 実行フェーズ
 
 ### Phase 0: 対象・根拠・境界

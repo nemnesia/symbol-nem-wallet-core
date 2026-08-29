@@ -9,6 +9,43 @@
 - コンセプトは `docs/consept/`、要件は `docs/requirements/`、設計・設計判断は `docs/design/`、仕様は `docs/specifications/`、技術資料は `docs/knowledge/` に置く。`consept` は既存ディレクトリ名なので変更しない。
 - コード、テスト、fixture はそれぞれ `src/`、`bindings/native/`、`tests/`、`fuzz/` 等を確認する。`pkg/` の生成物は実装の正本ではない。
 
+## Phase Context の扱い
+
+Phase Context は任意の非規範的な派生情報であり、正式資料の圧縮キャッシュである。
+新しい開発フェーズ、要求、設計判断、仕様または Source of Truth ではない。
+
+### 発見と参照順序
+
+`AGENTS.md` の任意の `Phase Contexts` 登録を確認する。対象フェーズの登録がある場合だけ、
+登録された既存パスを、対象文書へ入る前の初期理解・探索用に読む。登録がない場合は
+Context を探索・作成せず、通常どおり正式資料を直接読む。
+
+Author の基本参照順序は次のとおりとする。各文書種別の Skill が定める追加の playbook や
+入力資料はこの順序へ適用する。
+
+1. `AGENTS.md`
+2. この Author common playbook
+3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
+4. 対象文書とユーザーが明示した資料
+5. 対象へ直接必要な承認済み正式上流資料
+6. 必要な場合だけ、その他の正式資料・公式資料・既存成果物
+
+Context を読んでも、対象文書または直接必要な正式上流資料を省略しない。Context の
+authoritative source map は所在を探すために使い、記載内容を検証済みの正本として扱わない。
+
+### 正式資料へのフォールバック
+
+次の場合は必ず正式資料へ戻って確認する。
+
+- Context に情報がない、曖昧である、鮮度が不明である
+- Context と対象文書または正式資料が競合している
+- 新しい Requirement、Design または Specification を決定する
+- security invariant、trust boundary、responsibility boundary に影響する
+- traceability またはその他の normative contract を確定する
+
+競合時は正式資料を優先し、Context の記載を根拠に補完・平均化・逆流させない。Context の
+stale または inconsistent な疑いは、正式資料を根拠に作業を続けられる場合でも別途報告する。
+
 ## 作成の目的
 
 成果物は、確認済みの事実・要求・判断を次工程が使える形へ整理する。入力にない機能、責任、制約、数値、方式、将来構想を網羅性のために発明しない。

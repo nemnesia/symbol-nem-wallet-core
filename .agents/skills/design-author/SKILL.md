@@ -11,10 +11,10 @@ description: symbol-nem-wallet-core の承認済み要件・既存設計判断�
 
 1. `AGENTS.md`
 2. `../author-common/author-playbook.md`
-3. 対象機能の Concept
-4. 承認済み Requirements
-5. 既存の関連 `docs/design/`
-6. `output-format.md`
+3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
+4. `output-format.md` と対象の Design
+5. 対象へ直接必要な承認済み Concept / Requirements
+6. 既存の関連 `docs/design/`
 
 通常の基本設計では、`docs/specifications/`、コード、テスト、fixture を必須参照にしない。
 

@@ -11,11 +11,12 @@ description: symbol-nem-wallet-core の承認済み要求・設計を、実装�
 
 1. `AGENTS.md`
 2. ../author-common/author-playbook.md
-3. `docs/design/` の対象設計と設計判断
-4. 対象の承認済み requirements と関連仕様、`docs/design/` の設計判断
-5. `docs/knowledge/` の対象技術資料と必要な公式資料
-6. 既存の実装、公開API、テスト、fixture（既存契約との互換性、実現可能性、回帰またはfixtureの照合に必要な場合だけ）
-7. 対象の公開レビュー結果と実装者フィードバック（対象一致する既存フィードバックの確認またはユーザーが明示した場合だけ）
+3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
+4. 対象の Specification と関連仕様
+5. `docs/design/` の対象設計と設計判断、および対象へ直接必要な承認済み requirements
+6. `docs/knowledge/` の対象技術資料と必要な公式資料
+7. 既存の実装、公開API、テスト、fixture（既存契約との互換性、実現可能性、回帰またはfixtureの照合に必要な場合だけ）
+8. 対象の公開レビュー結果と実装者フィードバック（対象一致する既存フィードバックの確認またはユーザーが明示した場合だけ）
 
 ## 対象と出力
 

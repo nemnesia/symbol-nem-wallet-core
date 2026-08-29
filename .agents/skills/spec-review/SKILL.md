@@ -9,9 +9,10 @@ description: symbol-nem-wallet-core の仕様書を、要求適合、API・デ�
 
 1. `AGENTS.md`
 2. ../review-common/review-playbook.md
-3. reviewers.md
-4. review-gates.md
-5. output-format.md
+3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
+4. reviewers.md
+5. review-gates.md
+6. output-format.md
 
 ## 対象と上流資料
 
