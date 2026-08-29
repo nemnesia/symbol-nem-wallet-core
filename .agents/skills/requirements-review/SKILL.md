@@ -26,7 +26,7 @@ description: symbol-nem-wallet-core の要件定義を、根拠追跡、範囲�
 
 ## 根拠の範囲
 
-要件本文、対応するコンセプト、公開された前段レビュー、ユーザー提供資料、`docs/design/` の設計判断、適用可能な承認済み資料を根拠とする。API、schema、algorithm、KDF、nonce、ライブラリ、DB、UI、実装手順は、既存要求の欠落した品質特性や制約を説明する場合を除き、要件の欠陥へ変換しない。
+要件本文、対応するコンセプト、公開された前段レビュー、ユーザー提供資料、既存の関連 Requirements を主な根拠とする。`docs/design/`、`docs/specifications/`、実装、テスト、fixture は、既存下流成果物との回帰・互換性や責任境界の整合を確認する必要がある場合、またはユーザーが明示した場合だけ補助的に参照する。下流資料を新しい Requirement の根拠にせず、API、schema、algorithm、KDF、nonce、ライブラリ、DB、UI、実装手順など下流で決める詳細の不足を要件の欠陥へ変換しない。
 
 前段レビューがブロック判定または未解決 Critical の場合は、要件書が整っていてもその影響を記録する。Major や Minor だけで自動的に差し戻さない。
 
@@ -47,7 +47,7 @@ description: symbol-nem-wallet-core の要件定義を、根拠追跡、範囲�
 
 review-playbook.md の Phase 0〜3 を適用する。Reviewer A、B、C を独立した観点で確認し、各候補を根拠、影響、必要条件で反証する。
 
-判定は READY または REVISE REQUIREMENTS とする。品質ゲート不合格の Critical がある場合だけ後者とし、Major / Minor は次工程へ引き継げるなら READY とする。
+判定は READY または REVISE REQUIREMENTS とする。品質 Gate を不合格にする finding は Critical とし、Critical が1件以上存在する場合だけ後者とする。Critical がなく Major / Minor のみの場合は READY とし、次工程へ引き継ぐ。
 
 レビュー中に要件本文、コンセプト、仕様、コード、テスト、READMEを変更しない。未確認事項と未決定事項は別々に記録する。
 

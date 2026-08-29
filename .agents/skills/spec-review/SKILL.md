@@ -44,7 +44,7 @@ description: symbol-nem-wallet-core の仕様書を、要求適合、API・デ�
 
 review-playbook.md の Phase 0〜3 を適用する。Reviewer A、B、C を独立した観点で確認し、候補を反証してからゲートを適用する。
 
-判定は READY または REVISE SPECIFICATION とする。Critical が品質ゲートを阻害する場合だけ後者とし、Major / Minor は実装前の確認事項または後工程へ整理する。
+判定は READY または REVISE SPECIFICATION とする。品質 Gate を不合格にする finding は Critical とし、Critical が1件以上存在する場合だけ後者とする。Critical がなく Major / Minor のみの場合は READY とし、実装前の確認事項または後工程へ整理する。
 
 レビュー中に仕様、要件、コード、テスト、fixture、READMEを変更しない。未確認範囲と未決定事項を成功扱いにしない。
 

@@ -34,7 +34,7 @@
 
 ## 根拠
 
-根拠の優先順位は、ユーザー依頼、承認済み上流文書、適用可能な設計判断、対象文書、公式仕様・schema・SDK、既存実装・テストの順とする。
+根拠の優先順位は、ユーザー依頼、対象フェーズの承認済み上流文書、同一フェーズの既存成果物、適用可能な設計判断、対象文書、公式仕様・schema・SDK、既存実装・テストの順とする。下流資料は、各 Skill が条件付き参照を定める場合またはユーザーが明示した場合だけ補助的に使い、新しい上流成果物の根拠にはしない。
 
 `docs/knowledge/` は対象機能に関係する資料だけを読む。既存コード・テスト・SDKの挙動は現状や実現可能性の確認には使えるが、このプロジェクトの要求や Symbol / NEM protocol の正本にはしない。
 
@@ -43,14 +43,14 @@
 ## 共通の境界
 
 - Symbol と NEM、Mainnet と Testnet、Core と binding、SDK と protocol を暗黙に共通化しない。
-- Native C ABI と WASM の境界契約、所有権、buffer、error code は `docs/design/` の該当設計と仕様書を確認する。
+- Native C ABI と WASM の境界契約、所有権、buffer、error code を扱う場合は、`docs/design/` の該当設計と仕様書を確認する。コンセプトや要件の通常参照へ、下流資料を追加しない。
 - Wallet Store と Pending Profile は opaque byte 列として扱い、仕様がない限り内容を推測・編集しない。
 - Mnemonic、秘密鍵、Profile password、復号済み payload、credential を成果物、例、ログ、エラー、テスト出力に含めない。
 - 暗号、署名 byte 列、KDF、AEAD、salt、nonce、数量、canonical serialization を根拠なしに変更・補完しない。
 
 ## 作成手順
 
-1. 対象文書、上流資料、既存成果物および適用する `docs/design/` を確定する。
+1. 対象文書、対象フェーズの上流資料、同一フェーズの既存成果物および Skill が指定する補助資料を確定する。
 2. 入力を事実、要求、制約、仮定、未決定、将来構想へ分類する。
 3. 対象文書種別の責務に該当する情報だけを採用する。
 4. 各採用内容を出典または上流項目へ追跡できるようにする。

@@ -12,8 +12,11 @@ description: symbol-nem-wallet-core の要求を、目的、利用者、範囲�
 1. `AGENTS.md`
 2. ../author-common/author-playbook.md
 3. scope-boundary.md
-4. 対象機能のコンセプト、関連要件、仕様、`docs/design/` の設計判断
-5. ユーザーが明示した資料
+4. 対象機能のコンセプト
+5. 既存の関連 Requirements
+6. ユーザーが明示した資料
+
+通常の要件作成では、`docs/design/` と `docs/specifications/` を必須参照にしない。
 
 ## 対象と出力
 
@@ -55,9 +58,11 @@ description: symbol-nem-wallet-core の要求を、目的、利用者、範囲�
 ## 情報源と前段資料
 
 - ユーザー依頼、会話、明示資料、対応コンセプトを最初に確認する。
-- `docs/design/` の設計判断、関連要件、既存仕様は、既に承認された範囲・責任・制約との整合確認に使う。
+- 関連 Requirements は、既存の要求、範囲、責任、制約との整合確認に使う。
+- `docs/design/` や `docs/specifications/` は、既存プロジェクトの Requirements を変更する際に既存下流成果物との回帰・互換性を確認する場合、ユーザーが明示的に参照を要求した場合、または既存の責任境界や承認済み判断との衝突確認が必要な場合だけ補助的に参照する。
+- Design / Specification は既存下流成果物との整合確認に利用できるが、Requirements の新しい根拠にはしない。下流資料から新しい Requirement を逆生成しない。
 - 対応するconcept-reviewがある場合は、公開されたReview Result、未解決Critical、Required Changes、Deferred Findingsを確認する。レビュー指摘だけを根拠に新しい要求を発明しない。
-- 実装やSDKの挙動は、現在の実態確認に使えるが、要件の正本にはしない。
+- 実装、テスト、fixture、SDKの挙動は、既存動作、回帰、互換性、または実現可能性の現状確認に必要な場合だけ補助的に参照する。これらを要件の正本や新しい根拠にはしない。
 - docs/knowledgeや公式資料は、技術的前提・法務・security・相互運用性の確認に不可欠な場合だけ読む。
 - 資料間の競合は、対象、network、version、資料の役割、影響を未決定事項へ記録する。
 

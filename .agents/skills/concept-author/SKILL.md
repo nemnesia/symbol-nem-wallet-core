@@ -12,7 +12,7 @@ description: symbol-nem-wallet-core のアイデア、会話、既存資料を�
 1. `AGENTS.md`
 2. ../author-common/author-playbook.md
 3. ユーザーが明示した資料
-4. `docs/consept/` の既存コンセプトと、対象に直接関係する承認済み資料
+4. `docs/consept/` の既存コンセプト
 
 ## 対象と出力
 
@@ -53,6 +53,7 @@ description: symbol-nem-wallet-core のアイデア、会話、既存資料を�
 
 - ユーザー依頼、会話、明示資料、承認済みのプロジェクト範囲を主な根拠とする。
 - 既存のコンセプトを更新する場合、変更前の記載、今回の依頼、維持・変更・削除の理由を照合する。
+- Requirements、Design、Specification、Implementation、テストは通常参照しない。既存の責任境界・前提・成立性の確認に必要な場合またはユーザーが明示した場合だけ補助的に参照し、コンセプトの新しい根拠や内容を下流資料から逆生成しない。
 - docs/knowledge や詳細技術資料は原則として参照しない。コンセプトの成立性や責任境界の確認に不可欠な場合だけ、確認した事実を追加せず補助的に使う。
 - Symbol / NEM、Mainnet / Testnet、Rust Core / Native C ABI / WASM binding の区別は明示資料にある境界を保つ。存在しない binding やアプリケーションを実装済みと記載しない。
 - 課題仮説、数値、実現可能性、法務・security上の前提を確認済み事実へ昇格させない。

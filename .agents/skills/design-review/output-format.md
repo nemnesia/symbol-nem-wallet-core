@@ -7,8 +7,8 @@
 - Formal finding prefix: `DR`
 - Severity: `Critical` / `Major` / `Minor`
 - Review Result: `READY` / `REVISE DESIGN`
-- Required Changes: `Critical` または `Major` の New / Open / Reopened
-- Optional Improvements: `Minor` の New / Open / Reopened
+- Required Changes: `Critical` の New / Open / Reopened（Gate 不合格に対応する差戻し事項）
+- Optional Improvements: `Major` / `Minor` の New / Open / Reopened（Critical がなければ `READY` のまま引継ぎ可能）
 - Deferred Findings: 下位仕様・実装・運用へ引き継ぐ指摘
 - Domain Checks: システムコンテキスト、責務、依存方向、trust boundary、データ所有、主要フロー、運用、下流実装可能性、設計判断
 - Scope and Traceability: 要件・仕様・既存設計判断と設計箇所の対応

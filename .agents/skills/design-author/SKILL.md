@@ -1,6 +1,6 @@
 ---
 name: design-author
-description: symbol-nem-wallet-core の承認済み要件・仕様・既存判断を、責務境界、コンポーネント、依存方向、trust boundary、主要フロー、データ所有、運用前提、検証方針を含む基本設計へ整理する。設計判断は docs/design に統合し、API・wire format・暗号パラメータ・実装コードは必要以上に決めない。
+description: symbol-nem-wallet-core の承認済み要件・既存設計判断を、責務境界、コンポーネント、依存方向、trust boundary、主要フロー、データ所有、運用前提、検証方針を含む基本設計へ整理する。設計判断は docs/design に統合し、API・wire format・暗号パラメータ・実装コードは必要以上に決めない。
 ---
 
 # Design Author
@@ -11,11 +11,18 @@ description: symbol-nem-wallet-core の承認済み要件・仕様・既存判�
 
 1. `AGENTS.md`
 2. `../author-common/author-playbook.md`
-3. 対象機能の `docs/consept/` と `docs/requirements/`
-4. 対象の `docs/specifications/`
-5. `docs/design/` の既存設計・判断
-6. 必要なコード、テスト、fixture、公式資料
-7. `output-format.md`
+3. 対象機能の Concept
+4. 承認済み Requirements
+5. 既存の関連 `docs/design/`
+6. `output-format.md`
+
+通常の基本設計では、`docs/specifications/`、コード、テスト、fixture を必須参照にしない。
+
+### 下流資料の条件付き参照
+
+Specification、コード、テスト、fixture は、既存システムの再設計・変更で回帰確認が必要な場合、既存の外部契約との互換性確認が必要な場合、設計の実現可能性を確認する必要がある場合、またはユーザーが明示的に要求した場合だけ補助的に参照する。
+
+Specification や既存 Implementation の挙動を、新しい Design の規範的根拠として扱わない。既存下流資料との競合を発見した場合は、Design を下流に合わせて黙って変更せず、競合または未決定事項として扱う。
 
 `docs/design/` は設計と設計判断を統合する現行正本である。設計資料間に競合がある場合は、根拠と影響を本文の未決定事項へ残し、黙って統合しない。
 
@@ -58,7 +65,7 @@ description: symbol-nem-wallet-core の承認済み要件・仕様・既存判�
 
 ## 根拠と判断
 
-根拠の優先順位は、ユーザー依頼、承認済み要件、承認済み仕様、既存 `docs/design/` の判断、公式資料、実装・テストの順とする。既存コードやSDK APIの存在だけで設計を正当化しない。
+根拠の優先順位は、ユーザー依頼 → 承認済み Concept / Requirements → 既存の適用可能な Design 判断 → 適用可能な公式資料とする。Specification / Implementation は、上記の条件付き補助参照に限り、既存の外部契約・実現可能性・回帰の確認に使う。既存コードやSDK APIの存在だけで設計を正当化しない。
 
 複数の合理的な選択肢から判断する場合は、選択肢、採用理由、棄却理由、影響、見直し条件を記録する。要件や仕様を設計上の都合で変更しない。資料間の競合や重要な未決定事項は、対象・影響・判断時期とともに残す。
 
@@ -67,7 +74,7 @@ description: symbol-nem-wallet-core の承認済み要件・仕様・既存判�
 ## 作成手順と自己確認
 
 1. 対象、出力先、上流根拠および既存設計を確定する。
-2. 要件・仕様から責務、外部主体、境界、依存、lifecycle、失敗条件を抽出する。
+2. コンセプト・要件・既存設計から責務、外部主体、境界、依存、lifecycle、失敗条件を抽出する。下流資料を参照した場合も、確認した事実と設計の規範的根拠を分ける。
 3. 候補となる設計判断を比較し、必要な判断だけを `docs/design/` に記録する。
 4. コンポーネント、データ所有、主要フロー、検証境界を記述する。
 5. 仕様で決める事項と未決定事項を下流へ引き渡す。

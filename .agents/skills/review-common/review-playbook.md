@@ -47,6 +47,12 @@ Chair は候補の重複を除き、根拠、影響、必要条件、対象工�
 4. 共通 `output-format.md` と対象 Skill 固有の形式で、新規成果物を作成する。既存成果物を移動・削除・上書きしない。
 5. 実行していない検証を成功扱いにせず、未確認範囲へ記録する。
 
+### Requirements / Design / Specification Review の Gate と Severity
+
+Requirements Review、Design Review、Specification Review では、品質 Gate を不合格にする正式指摘を `Critical` とする。`Critical` が1件以上存在する場合は、それぞれ `REVISE REQUIREMENTS`、`REVISE DESIGN`、`REVISE SPECIFICATION` とする。`Critical` がなく `Major` / `Minor` のみの場合は `READY` とし、指摘を次工程への引継ぎまたは改善として記録する。
+
+この3種類のレビューでは、対象フェーズの上流資料と同一フェーズの対象・既存成果物を主な根拠とする。下流資料は、既存下流成果物との回帰・互換性・委譲・実現可能性の確認またはユーザーの明示要求がある場合だけ補助的に参照し、下流の詳細不足だけを上流フェーズの Gate 不合格や新しい上流要求・設計として扱わない。他の Review Skill が異なる Severity 体系を定める場合は、その Skill 固有の規則を適用する。
+
 ## 境界と根拠
 
 - 一般論、個人的好み、将来の機能、未要求の API / field / error / fallback、対象外のリファクタリングは指摘にしない。

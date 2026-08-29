@@ -7,8 +7,8 @@
 - Formal finding prefix: `SR`
 - Severity: `Critical` / `Major` / `Minor`
 - Review Result: `READY` / `REVISE SPECIFICATION`
-- Required Changes: `Critical` または `Major` の New / Open / Reopened
-- Optional Improvements: `Minor` の New / Open / Reopened
+- Required Changes: `Critical` の New / Open / Reopened（Gate 不合格に対応する差戻し事項）
+- Optional Improvements: `Major` / `Minor` の New / Open / Reopened（Critical がなければ `READY` のまま引継ぎ可能）
 - Deferred Findings: 実装・検証以降へ引き継ぐ未決定事項・確認事項
 - Domain Checks: API・データ契約、validation、error、状態、処理、security、相互運用性、検証可能性
 - Scope and Traceability: 要件・コンセプト・設計・前段レビューと仕様箇所の対応

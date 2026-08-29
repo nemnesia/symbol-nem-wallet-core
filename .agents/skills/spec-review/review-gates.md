@@ -1,6 +1,6 @@
 # Review Gates
 
-不合格ゲートは Critical の正式指摘へ対応付ける。
+Gate を不合格にする finding は `Critical` の正式指摘へ対応付ける。`Critical` が1件以上存在する場合は `REVISE SPECIFICATION`、`Critical` がなく `Major` / `Minor` のみの場合は `READY` とする。
 
 1. 目的と範囲: 要件を満たす対象、対象外、利用者、責任を一意に理解できる。
 2. 契約: 入力、出力、データ、validation、error、状態、禁止事項を確認できる。
@@ -10,4 +10,4 @@
 6. 安全性と相互運用性: 必要な秘密情報、認証、完全性、chain、network、encoding、署名・暗号文境界が外部から判定できる。
 7. 上流整合性: コンセプト、要件、前段レビューのブロック判定や未解決 Critical と矛盾しない。
 
-すべて合格なら READY、1つ以上不合格なら REVISE SPECIFICATION とする。上流資料やフィードバックがないことだけでは不合格にせず、未確認として記録する。
+上流資料やフィードバックがないことだけでは Gate 不合格にせず、未確認として記録する。Gate 不合格に対応する Critical がない場合、Major / Minor のみを理由に差し戻さない。
