@@ -8,7 +8,7 @@ description: symbol-nem-wallet-core の基本設計を、上流要求との追�
 基本設計を実装・仕様・書き直しの代わりにせず、下位仕様と実装へ安全に進める品質かを判定する。作業開始時に次の順で全文を読む。
 
 1. `AGENTS.md`
-2. ../review-common/review-playbook.md
+2. `../review-common/review-playbook.md`
 3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
 4. reviewers.md
 5. security-checklist.md
@@ -74,7 +74,7 @@ Specification は具体的な外部契約、API、validation、error、serializa
 
 ## 実行と判定
 
-review-playbook.md の Phase 0〜3 を適用する。Reviewer A〜D の独立パスで確認し、Reviewer B は `security-checklist.md` の適用可能な観点を使う。候補を根拠・影響・完了条件で反証してからゲートを適用する。サブエージェントを使った場合だけ識別子と完了状態を記録し、使わない場合は自己レビューの4パスを記録する。
+`../review-common/review-playbook.md` の Phase 0〜3 を適用する。Reviewer A〜D の独立パスで確認し、Reviewer B は Security primary reviewer として `security-checklist.md` の適用可能な観点を使う。Reviewer A / C / D は構造と責務、フローと運用、追跡と下流実装可能性の各担当領域に現れる security implication だけを cross-check し、全件の checklist を再適用しない。候補を根拠・影響・完了条件で反証し、Security の重複候補は Chair が統合してからゲートを適用する。Requirements の不足・曖昧さ・矛盾は `Design Review → Requirements` の `Upstream Feedback` に記録し、Design で新しい Requirement を確定しない。サブエージェントを使った場合だけ識別子と完了状態を記録し、使わない場合は自己レビューの4パスを記録する。
 
 Phase Context を使う場合でも、Context 単独で Critical / Major、Gate failure または Security finding を確定しない。正式な根拠は Design 本文、Requirements、Concept、既存の適用可能な Design Decision またはユーザー提供の正式資料へ追跡する。
 

@@ -8,7 +8,7 @@ description: symbol-nem-wallet-core の要件定義を、根拠追跡、範囲�
 要件定義書を設計・実装・書き直すのではなく、仕様設計を安全に開始できる品質かを判定する。作業開始時に次の順で全文を読む。
 
 1. `AGENTS.md`
-2. ../review-common/review-playbook.md
+2. `../review-common/review-playbook.md`
 3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
 4. reviewers.md
 5. security-checklist.md
@@ -52,7 +52,7 @@ Security checklist の各項目は、要求・責任・保護対象の確認漏�
 
 ## 実行と判定
 
-review-playbook.md の Phase 0〜3 を適用する。Reviewer A、B、C を独立した観点で確認し、各候補を根拠、影響、必要条件で反証する。
+`../review-common/review-playbook.md` の Phase 0〜3 を適用する。Reviewer A、B、C を独立した観点で確認し、Reviewer A / B は自分の担当領域に現れる security implication だけを cross-check し、Reviewer C は Security primary reviewer として適用可能な `security-checklist.md` を確認する。全 Reviewer が checklist 全件を再適用しない。各候補を根拠、影響、必要条件で反証し、Security / clarity / scope の重複候補は Chair が統合する。Requirements Review の Upstream Feedback は通常なく、仕様設計以降への引継ぎは `Deferred Findings` に分離する。
 
 判定は READY または REVISE REQUIREMENTS とする。品質 Gate を不合格にする finding は Critical とし、Critical が1件以上存在する場合だけ後者とする。Critical がなく Major / Minor のみの場合は READY とし、次工程へ引き継ぐ。Major を自動的に Gate failure として扱わない。protected asset の認識、秘密情報の責任主体、signing authority、秘密情報を外部へ公開してよい範囲など、下流設計の安全性を成立させられない欠落は、実際の外部影響と追跡根拠に照らして Critical になり得るが、チェックリストの項目だけで自動的に Critical へ分類しない。
 

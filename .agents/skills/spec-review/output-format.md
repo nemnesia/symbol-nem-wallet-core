@@ -9,6 +9,7 @@
 - Review Result: `READY` / `REVISE SPECIFICATION`
 - Required Changes: `Critical` の New / Open / Reopened（Gate 不合格に対応する差戻し事項）
 - Optional Improvements: `Major` / `Minor` の New / Open / Reopened（Critical がなければ `READY` のまま引継ぎ可能）
-- Deferred Findings: 実装・検証以降へ引き継ぐ未決定事項・確認事項
+- Upstream Feedback: `Specification Review → Design` を通常とし、問題の発生源が Requirements の場合だけ `Specification Review → Requirements` とする。common format の必須項目を記録し、feedback から新しい Design Decision、Requirement、Specification contract を確定しない
+- Deferred Findings: 実装・検証、対象範囲外、または後続確認へ引き継ぐ未決定事項・確認事項。上流の正式資料への feedback は含めない
 - Domain Checks: API・データ契約、validation、error、状態、処理、security、相互運用性、検証可能性。Security は適用した protected asset exposure、authentication / authorization、signing authority、signing target / canonical bytes、chain / network binding、cryptographic contract、nonce / salt / randomness、AAD / domain separation、Wallet Store / persistence、serialization、malformed / tampered input、fail-closed、atomic visible result、Native C ABI、WASM、unknown / version、interoperability、security testability を必要な範囲で確認する。
 - Scope and Traceability: 要件・コンセプト・設計・前段レビューと仕様箇所の対応

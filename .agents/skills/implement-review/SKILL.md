@@ -52,7 +52,7 @@ Implementation Review は、`Specification: what exact behavior must be observed
 
 ## 実行と検証
 
-`review-common/review-playbook.md` の Phase 0〜3 を適用する。Reviewer A〜D を別パスで確認し、各候補を根拠・影響・完了条件で反証してからゲートを適用する。Reviewer B は4フェーズ中で最も深く secret、crypto、memory、attack surface を確認し、変更から attack surface と secret path を先に特定して `security-checklist.md` の該当項目だけを適用する。ただし Security の責任を B だけに集中させない。Reviewer C は canonical bytes、chain / network、Symbol / NEM、protocol interoperability、Reviewer D は negative test、fuzz、differential、known vector、独立 oracle、`unsafe` の品質で重複確認してよい。重複 finding は Chair が統合する。サブエージェントを使った場合だけ実際の識別子と完了状態を監査情報へ記録し、使わない場合は自己レビューの4パスを記録する。
+`../review-common/review-playbook.md` の Phase 0〜3 を適用する。Reviewer A〜D を別パスで確認し、各候補を根拠・影響・完了条件で反証してからゲートを適用する。Reviewer B は4フェーズ中で最も深く secret、crypto、memory、attack surface を確認し、変更から attack surface と secret path を先に特定して `security-checklist.md` の該当項目だけを適用する。ただし Security の責任を B だけに集中させない。Reviewer C は canonical bytes、chain / network、Symbol / NEM、protocol interoperability、Reviewer D は negative test、fuzz、differential、known vector、独立 oracle、`unsafe` の品質で重複確認してよい。重複 finding は Chair が統合する。仕様・設計・要件の不足や曖昧さは、発生源に応じた `Implementation Review → Specification / Design / Requirements` の `Upstream Feedback` に記録し、`Deferred Findings` と混在させない。サブエージェントを使った場合だけ実際の識別子と完了状態を監査情報へ記録し、使わない場合は自己レビューの4パスを記録する。
 
 レビュー成果物の `Domain Checks` には、適用した主要な security checklist 項目、重要な適用外項目とその理由、未確認範囲だけを記録する。全項目を機械的なチェックボックスや新しい製品要求の一覧として出力しない。protected asset に触れない変更へ不要な secret checklist を適用しない。
 

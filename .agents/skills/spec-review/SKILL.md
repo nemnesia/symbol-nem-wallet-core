@@ -8,7 +8,7 @@ description: symbol-nem-wallet-core の仕様書を、要求適合、API・デ�
 仕様書を設計・実装・書き直すのではなく、実装者が推測せずに安全に実装・検証できる品質かを判定する。作業開始時に次の順で全文を読む。
 
 1. `AGENTS.md`
-2. ../review-common/review-playbook.md
+2. `../review-common/review-playbook.md`
 3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
 4. reviewers.md
 5. security-checklist.md
@@ -73,7 +73,7 @@ Security checklist の項目があるだけでは finding にしない。正式 
 
 ## 実行と判定
 
-review-playbook.md の Phase 0〜3 を適用する。Reviewer A、B、C を独立した観点で確認し、候補を反証してからゲートを適用する。
+`../review-common/review-playbook.md` の Phase 0〜3 を適用する。Reviewer A、B、C を独立した観点で確認し、Reviewer C は Security / Interoperability primary reviewer として `security-checklist.md` の適用可能な観点を使う。Reviewer A / B は契約の明確性・完全性、利用価値・運用適合性の各担当領域に現れる security implication だけを cross-check し、全件の checklist を再適用しない。候補を反証し、contract / operation / security / interoperability の重複候補は Chair が統合してからゲートを適用する。Design の不足・曖昧さ・矛盾は `Specification Review → Design`、問題の発生源が Requirements の場合だけ `Specification Review → Requirements` の `Upstream Feedback` に記録し、Specification で上流を再定義しない。
 
 判定は READY または REVISE SPECIFICATION とする。品質 Gate を不合格にする finding は Critical とし、Critical が1件以上存在する場合だけ後者とする。Critical がなく Major / Minor のみの場合は READY とし、実装前の確認事項または後工程へ整理する。signing target、chain / network binding、secret exposure、cryptographic contract、tampered data、fail-closed、Wallet Store の security-sensitive encoding、Native / WASM ownership など、根拠があり安全かつ相互運用可能な実装を一意に進められない根本欠陥は、既存 Gate の impact / ambiguity / downstream blocking に照らして Critical になり得る。Checklist の項目だけで Critical にせず、Major を自動的に Gate failure にしない。
 
