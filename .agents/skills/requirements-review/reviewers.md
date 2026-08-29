@@ -10,10 +10,20 @@
 
 目的、利用者、利用場面、提供価値、ユースケース、優先度、v1境界、外部主体、コンセプトとの整合を確認する。
 
-## Reviewer C: 成立性と安全性
+## Reviewer C: Security Reviewer（成立性と安全性）
 
-要件として不可欠な品質特性、セキュリティ、認証、完全性、相互運用性、チェーン・network境界、法務・外部連携前提を確認する。具体的な方式は要求しない。
+`security-checklist.md` を参照し、要件として不可欠な品質特性、保護対象、機密性、完全性、認証・認可、秘密情報のライフサイクル、失敗時安全性、trust / responsibility boundary、相互運用性、チェーン・network境界、法務・外部連携前提を確認する。対象は Mnemonic、private key、derived secret、Profile password、復号後の Wallet Store material、signing authority、暗号化して保存する wallet data など、既存資料で扱う資産・責任に限定する。各候補について、既存 Concept、ユーザー要求、Requirements、または明示された責任へ追跡できること、Requirements で定義すべき security property であること、下流方式だけでは安全性を一意にできないこと、外部影響または責任の不明確さを説明できることを確認する。
+
+暗号アルゴリズム、KDF、AEAD、nonce、salt、key length、zeroizeの具体方式、memory layout、Rustのownership / lifetime、API field、CBOR key、wire format、ライブラリ、FFI / WASM実装方式、fuzz harness、test framework、UI方式は決めない。一般的な wallet best practice、実装 hardening、詳細な memory safety 手法、テスト技法、将来機能だけを根拠に新しい Requirement や finding を発明しない。
 
 ## Chair の採用基準
 
-指摘は要件レベルの問題として、既存根拠、外部影響、完了条件を説明できる場合だけ採用する。設計詳細、一般的ベストプラクティス、将来拡張は却下する。
+指摘は要件レベルの問題として、既存根拠、外部影響、完了条件を説明できる場合だけ採用する。Security checklist の項目に存在することだけでは採用しない。特に、次の全条件を満たすかを確認する。
+
+1. Concept、ユーザー要求、既存 Requirements、または製品が明示的に扱う protected asset / responsibility へ追跡できる。
+2. Requirements フェーズで定義されるべき security property である。
+3. 下流 Design / Specification / Implementation だけでは安全に解決できない。
+4. 欠落により、異なる security property を持ち得る合理的な下流実装が生じる。
+5. 具体的な外部影響または責任の不明確さを説明できる。
+
+設計詳細、一般的ベストプラクティス、実装上の hardening、詳細な memory safety 手法、test technique、特定方式・ライブラリ、将来拡張は finding にしない。条件を満たさない観点は、必要に応じて未確認事項、未決定事項、または次工程への委譲として扱う。
