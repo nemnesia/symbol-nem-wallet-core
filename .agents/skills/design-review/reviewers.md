@@ -6,9 +6,11 @@
 
 目的、範囲、コンテキスト、コンポーネント責務、依存方向、境界、循環依存、所有権を確認する。
 
-## Reviewer B: セキュリティと信頼境界
+## Reviewer B: Security Reviewer（成立性と安全性）
 
-秘密情報、trust boundary、認証、完全性、失敗時の安全性、chain / network、Core / Native / WASM 境界を確認する。具体的な暗号方式は要求しない。
+`security-checklist.md` を参照し、protected assets、trust boundaries、secret ownership、responsibility boundaries、secret lifecycle、authentication / authorization、signing authority、failure / rollback / replacement、Core / Native / WASM / Application 境界、attacker-controlled input、chain / network separation、security invariants、downstream security handoff を Design レベルで確認する。秘密情報の生成・保持・使用・破棄・公開範囲と、各境界での validation、ownership、失敗責任が逆流していないかを確認する。
+
+対象 threat は Concept、Requirements、対象 Design、明示された protected asset / trust boundary またはユーザー要求から合理的に追跡できるものに限定する。checklist の項目だけを根拠に新しい Requirement、Design Decision、threat、invariant、finding を発明しない。暗号方式、KDF / AEAD、nonce / salt / tag、key length、wire format、API、具体的 error code、Rust の memory lifetime / zeroization / unsafe、C ABI / WASM の具体形式、parser / fuzz / test の方式は要求しない。
 
 ## Reviewer C: フローと運用
 
@@ -20,4 +22,4 @@
 
 ## Chair の採用基準
 
-基本設計で決めるべき責務、依存、境界、フロー、品質特性、または既存判断との矛盾であり、根拠・影響・完了条件を説明できるものだけを採用する。
+基本設計で決めるべき責務、依存、境界、フロー、品質特性、または既存判断との矛盾であり、根拠・影響・完了条件を説明できるものだけを採用する。Security finding は、既存の正式資料へ追跡でき、Design で決める ownership / responsibility / trust boundary / lifecycle / authorization / failure model / invariant の欠落または矛盾であり、下流方式だけでは安全に解消できず、複数の合理的な security architecture を許す場合に限る。重大度は checklist 項目ではなく、実際の impact と downstream blocking で決める。

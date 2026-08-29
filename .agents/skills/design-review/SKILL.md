@@ -1,6 +1,6 @@
 ---
 name: design-review
-description: symbol-nem-wallet-core の基本設計を、上流要求との追跡、責務・依存方向、trust boundary、データ所有、主要フロー、運用前提、実装可能性、設計判断の整合の観点でレビューする。APIや詳細実装そのものはレビューしない。
+description: symbol-nem-wallet-core の基本設計を、上流要求との追跡、責務・依存方向、trust boundary、秘密情報の所有・ライフサイクル、主要フロー、運用前提、実装可能性、設計判断の整合の観点でレビューする。APIや詳細実装そのものはレビューしない。
 ---
 
 # Design Review Board
@@ -11,8 +11,9 @@ description: symbol-nem-wallet-core の基本設計を、上流要求との追�
 2. ../review-common/review-playbook.md
 3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
 4. reviewers.md
-5. review-gates.md
-6. output-format.md
+5. security-checklist.md
+6. review-gates.md
+7. output-format.md
 
 ## 対象の確定
 
@@ -40,13 +41,42 @@ description: symbol-nem-wallet-core の基本設計を、上流要求との追�
 - 可用性、運用、保持、監査、更新、障害時の前提が対象範囲と整合するか
 - 下位仕様・実装・テストへ一意に引き渡せる設計か、判断理由と未決定事項が残っているか
 
+## Security Review の扱い
+
+Reviewer B は `security-checklist.md` を参照し、秘密鍵・Mnemonic を扱う Wallet Core の security architecture を Design の責務として確認する。対象は、保護対象、trust boundary、secret ownership、lifecycle、認証・認可、signing authority、失敗・置換・再起動、Core / Native / WASM / Application 境界、attacker-controlled input、chain / network separation、security invariant、下流 handoff である。全項目を機械的に成果物へ出力せず、対象へ適用した主要観点と未確認範囲だけを必要に応じて記録する。
+
+checklist はレビューの探索補助であり、新しい Requirement、Design Decision、threat または security invariant の根拠ではない。正式な Security finding は Concept、Requirements、対象 Design、既存の適用可能な Design Decision、またはユーザー要求へ追跡できるものだけを採用する。対象範囲から合理的に追跡できない threat（例: 明示的に対象外の host compromise）を追加しない。
+
+Design Review で確認するのは、何を守るかをどこで守るか、誰が所有・使用・破棄するか、どの境界を越えるか、失敗時に誰が状態と秘密情報を保護するか、どの invariant を Specification へ引き渡すかである。暗号方式、KDF / AEAD、nonce / salt / tag、key length、wire format、API、具体的な error code、Rust の関数・module・memory lifetime、zeroization、unsafe、C ABI / WASM の具体形式、parser / fuzz / test の方式は下流へ委譲する。
+
+## Security finding の境界
+
+Security checklist の観点は、次のすべてを満たす場合だけ正式 finding の候補にする。
+
+1. Concept、Requirements、対象 Design、既存の適用可能な Design Decision、またはユーザー要求へ追跡できる。
+2. Design フェーズで決定すべき ownership、responsibility、trust boundary、lifecycle、authorization boundary、failure responsibility、または invariant の問題である。
+3. Specification / Implementation だけでは安全に修正できない。
+4. 現状の Design のままだと、複数の合理的な下流実装が異なる security architecture を持ち得る。
+5. 具体的な protected asset、trust boundary、failure または authorization への影響を説明できる。
+6. API、algorithm、library、wire format 等の下流方式を固定せず、必要な Design 修正を表現できる。
+
+「AES-GCM を使うべき」「zeroize crate を使うべき」「この ABI / UI / Rust type にすべき」「fuzz test を追加すべき」といった詳細実装、一般的 hardening、将来機能だけでは finding にしない。
+
+Requirements Review が確認する「何を守る必要があるか、どの security property が必要か、誰に責任があるか」に対し、Design Review はそれをどの ownership、trust boundary、lifecycle、responsibility、dependency direction で成立させるかを確認する。Requirements の不足を Design Review で新しい Requirement として確定せず、必要なら upstream gap として報告する。
+
+Specification は具体的な外部契約、API、validation、error、serialization、cryptographic contract を定め、Implementation は memory lifetime、clone / copy、zeroization、unsafe、FFI pointer safety、actual crypto usage、side-channel、parser implementation を定める。Design Review は、これらの下流詳細が安全に一意な契約へ落とせる security architecture かを確認する。
+
 ## 境界テスト
 
 各指摘について、それが基本設計で決めるべき責務・依存・境界・ライフサイクル・不変条件なのか、下位仕様や実装で初めて決める詳細なのかを確認する。後者なら指摘せず、必要な設計原則または委譲先だけを確認する。
 
+特に、API field、wire format、暗号パラメータ、具体的な validation / error、clone / allocation / stack temporary、zeroize の実装、unsafe、FFI pointer safety、実際の crypto usage、side-channel、parser、fuzz harness、unit test case の不足は、Design の責任・境界・invariant が明確で下流へ委譲されている限り Design finding にしない。
+
 ## 実行と判定
 
-review-playbook.md の Phase 0〜3 を適用する。Reviewer A〜D の独立パスで確認し、候補を根拠・影響・完了条件で反証してからゲートを適用する。サブエージェントを使った場合だけ識別子と完了状態を記録し、使わない場合は自己レビューの4パスを記録する。
+review-playbook.md の Phase 0〜3 を適用する。Reviewer A〜D の独立パスで確認し、Reviewer B は `security-checklist.md` の適用可能な観点を使う。候補を根拠・影響・完了条件で反証してからゲートを適用する。サブエージェントを使った場合だけ識別子と完了状態を記録し、使わない場合は自己レビューの4パスを記録する。
+
+Phase Context を使う場合でも、Context 単独で Critical / Major、Gate failure または Security finding を確定しない。正式な根拠は Design 本文、Requirements、Concept、既存の適用可能な Design Decision またはユーザー提供の正式資料へ追跡する。
 
 判定は READY または REVISE DESIGN とする。品質 Gate を不合格にする finding は Critical とし、Critical が1件以上存在する場合だけ後者とする。Critical がなく Major / Minor のみの場合は READY とし、下位仕様への引継ぎや改善として記録する。
 
