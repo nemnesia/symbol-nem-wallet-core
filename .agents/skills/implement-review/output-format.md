@@ -9,8 +9,8 @@
 - Review Result: `READY` / `REVISE IMPLEMENTATION`
 - Required Changes: `CRITICAL` または `HIGH` の New / Open / Reopened。1件以上あれば `Review Result: REVISE IMPLEMENTATION`
 - Optional Improvements: `MEDIUM` / `LOW` の New / Open / Reopened。これらのみであれば `Review Result: READY` とできる。`READY` と `Required Changes: HIGH` の組み合わせは不可
-- Upstream Feedback: `Implementation Review → Specification` を通常とし、問題の発生源が Design / Requirements の場合だけそれぞれへ返す。common format の必須項目を記録し、feedback から新しい Specification contract、Design Decision、Requirement を確定しない
-- Deferred Findings: 現在のレビュー対象外、後続検証、または下流の別工程へ引き継ぐ事項。上流の正式資料の不足・曖昧さ・未決定事項は `Upstream Feedback` に記録し、そこへ混在させない
+- Upstream Feedback: `Implementation Review → Specification` を通常とし、問題の発生源が Design / Requirements の場合だけそれぞれへ返す。Implementation を安全に評価・完了できない場合は Implementation 側の formal finding を別途記録し、既存の Implementation Gate / Severity policy を適用して feedback へ trace する。common format の必須項目を記録し、feedback から新しい Specification contract、Design Decision、Requirement を確定せず、同じ問題を二重計上しない
+- Deferred Findings: 現在のレビュー対象外、後続検証、または別途の運用・release確認等へ分離する事項。上流の正式資料の不足・曖昧さ・未決定事項は `Upstream Feedback` に記録し、そこへ混在させない
 - Domain Checks: Specification Conformance、Test Evaluation、security、相互運用性、異常系、実装品質・memory safety、型・依存・公開互換性。Security では対象に適用した主要な `security-checklist.md` 項目、主要な適用外項目と理由、未確認範囲を記録する。全項目を機械的に列挙しない
 - Scope and Traceability: 差分、承認済み仕様・要件・設計、実装、テスト、fixture の対応
 

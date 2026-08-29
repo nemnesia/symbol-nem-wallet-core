@@ -37,7 +37,11 @@
 - `non-normative status`
 - `解消条件`
 
-`Upstream Feedback` は Requirement / Design / Specification の新しい normative source、Decision、contract ではない。正式資料が変更され、必要な承認を受けるまで、feedback 自体から新しい Requirement、Design Decision、Specification contract を生成してはならない。feedback はそれ自体で Severity、Required Change、Gate failure または Review Result を決めず、現在の対象文書に対する正式 finding が別に成立する場合は分離して記録する。
+`Upstream Feedback` 自体は formal finding ではなく、Severity を持たず、Required Change、Gate failure、Review Result を決めない。Requirement / Design / Specification の新しい normative source、Decision、contract でもない。正式資料が変更され、必要な承認を受けるまで、feedback 自体から新しい Requirement、Design Decision、Specification contract を生成してはならない。下流 Reviewer は上流の不足を推測で補完せず、不足・曖昧さ・矛盾、影響、解消条件だけを記録する。
+
+上流 gap が残っていても現在フェーズを安全に評価・完了できる場合は、`Upstream Feedback` のみを記録し、non-blocking とする。上流 gap により現在フェーズを安全に評価・完了できない場合は、現在フェーズ側の formal finding を別途記録し、その finding から該当する `Upstream Feedback` へ trace する。current-phase finding には「上流欠落によって現在フェーズが成立しない」という影響を記載し、Severity、Required Change、Gate failure、Review Result には現在フェーズの既存 Skill policy を適用する。`Upstream Feedback` 自体には Severity、Required Change、Gate failure、Review Result を付けない。同じ根本問題を feedback と formal finding の二重欠陥として数えず、Chair が両者の trace relationship と状態を管理する。
+
+この関係は、Design Review から Requirements へ返す場合、Specification Review から Design / 必要時 Requirements へ返す場合、Implementation Review から Specification / 必要時 Design・Requirements へ返す場合に同じように適用する。例えば Design の Requirements gap が ownership / trust boundary / signing authority を安全に確定できなくする場合は、Requirements への `Upstream Feedback` と Design 側の formal finding を記録する。安全に確定できる場合は feedback のみとする。
 
 通常の feedback direction は次のとおりとする。問題の発生源が本当に Requirements にある場合だけ Requirements へ返し、機械的に最上流まで遡らせない。
 

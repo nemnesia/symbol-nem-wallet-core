@@ -54,7 +54,7 @@ Phase Context の導入によって、Review Board、severity、Review Gate、�
 
 ### Phase 2: 反証・統合
 
-Chair は候補の重複を除き、根拠、影響、必要条件、対象工程を再確認する。上流の正式資料・decision の不足、曖昧さ、矛盾は `Upstream Feedback` へ、下流への委譲、対象範囲外、後続検証は `Deferred Findings` へ分離する。既存仕様が未決定で正否を判定できないだけなら、実装・文書の欠陥と断定せず、発生方向に応じた lane を使用する。過去指摘は対象一致を確認し、状態だけを追跡する。
+Chair は候補の重複を除き、根拠、影響、必要条件、対象工程を再確認する。上流の正式資料・decision の不足、曖昧さ、矛盾は `Upstream Feedback` へ、下流への委譲、対象範囲外、後続検証は `Deferred Findings` へ分離する。上流 gap が current phase の安全な評価・完了を妨げる場合は、current phase の formal finding を別途記録し、既存の phase-specific Severity / Gate policy を適用したうえで `Upstream Feedback` へ trace する。feedback 自体には formal finding、Severity、Required Change、Gate 判定、Review Result を付けず、同じ問題を二重計上しない。既存仕様が未決定で正否を判定できないだけなら、実装・文書の欠陥と断定せず、発生方向に応じた lane を使用する。過去指摘は対象一致を確認し、状態だけを追跡する。
 
 ### Phase 3: ゲート判定と成果物
 
