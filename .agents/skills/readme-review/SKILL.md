@@ -37,7 +37,7 @@ READMEの誤りを直接生じさせないAPI設計、製品仕様、実装品�
 
 ## 実行と判定
 
-review-playbook.md の Phase 0〜3 を適用する。Reviewer A〜C の独立パスで、事実/API、利用開始、制約/過剰記載を確認し、指摘を反証してからゲートを適用する。README、コード、manifest、仕様、設定をレビュー中に変更しない。
+`../review-common/review-playbook.md` の Phase 0〜3 を適用する。Reviewer A〜C の独立パスで、事実/API、利用開始、制約/過剰記載を確認し、指摘を反証してからゲートを適用する。README、コード、manifest、仕様、設定をレビュー中に変更しない。
 
 判定は READY、READY WITH MINOR FIXES、REVISE README とする。ERROR または WARN があれば REVISE README、NITだけなら READY WITH MINOR FIXES、指摘なしなら READY とする。
 
