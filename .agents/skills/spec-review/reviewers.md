@@ -10,10 +10,12 @@
 
 要件との追跡、利用者から見える結果、外部責任、失敗時の結果、対象外、利用シナリオ、既存の責務境界との整合を確認する。
 
-## Reviewer C: 安全性と相互運用性
+## Reviewer C: Security / Interoperability Reviewer
 
-秘密情報、認証、完全性、replay、署名対象、暗号文境界、byte列、数値、encoding、chain / network、SDK / protocol境界、外部実装との一致を確認する。具体方式が未決定なだけなら欠陥としない。
+`security-checklist.md` を参照し、対象に適用される protected asset exposure、authentication / authorization、Account / signing authority、signing target / canonical bytes、chain / network binding、cryptographic contract、nonce / salt / randomness、AAD / domain separation、Wallet Store / persistence、serialization、malformed / tampered input、replay、fail-closed、atomic visible result、error、Native C ABI、WASM / JavaScript、unknown / version、interoperability、security testability を確認する。Design の security invariant、責任境界、secret flow、authorization、failure model が、別実装でも一致する外部契約へ落ちているかを判定する。
+
+確認対象は仕様上の input / output / state / error / encoding / cryptographic result であり、実装内部の memory lifetime、clone / copy、zeroization、`unsafe`、pointer arithmetic、具体的 library call、side-channel、parser、fuzz harness は Implementation Review へ委譲する。UI 方式や内部 token 方式、上流に根拠のない暗号方式の変更は要求しない。具体方式が未決定なだけの場合も、既存の Requirements / Design / Specification / 公式 protocol 等から Specification で定めるべき事項と追跡できない限り finding としない。
 
 ## Chair の採用基準
 
-既存要求または承認資料へ追跡でき、現在の仕様を一意に実装・検証できない具体的問題だけを採用する。より高機能・汎用的にする提案は却下する。
+既存要求または承認資料へ追跡でき、現在の仕様を一意に実装・検証できない具体的問題だけを採用する。Security finding は、Specification で定義すべき外部契約であり、Implementation だけでは安全性・互換性を一意にできず、合理的な実装間の security / wire behavior の分岐と具体的影響を説明でき、修正を内部実装方式へ固定しない場合に限る。Design の不足を Specification で補完せず、upstream Design gap として分離する。より高機能・汎用的にする提案、一般的 hardening、reviewer の暗号方式の好みは却下する。
