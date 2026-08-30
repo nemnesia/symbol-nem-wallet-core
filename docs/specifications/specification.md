@@ -16,6 +16,9 @@
 - 保存済み Mnemonic / 秘密鍵は、対象指定、利用者の明示的要求、Application / UI の確認および正しい Profile パスワードを伴う個別エクスポートだけで返す。
 - 秘密情報を必要とする処理は毎回 Profile パスワードを要求し、継続的な unlocked state を持たない。
 - signing は、Application / UI の明示的な利用者承認を表す request と、Core の Profile パスワード authorization の両方が成立した場合だけ実行する。
+- Core が Mnemonic を新規生成するすべての Profile creation は、初回 Mnemonic handoff と利用者の受領確認を完了してから最終確定する。既存 Mnemonic の restore は生成時 handoff confirmation の対象外とする。
+- Handoff、export および signing の assertion freshness は Application / UI の責任であり、Core は UI 表示・利用者操作または assertion freshness を独立には証明しない。
+- Wallet Store の current Store authority、successful replacement の適用および stale / historical Store の再適用防止は Application / persistence layer の責任であり、Core は過去の Store history を保持しない。
 - Native / WASM で同じ Core ロジックを使用する。
 
 責務、依存方向、trust boundaryおよび設計判断の正本は `docs/design/architecture.md`、`docs/design/security.md` および `docs/design/bindings.md` とする。
@@ -41,6 +44,7 @@ Core は次を所有する。
 - Profile / Software Key の状態遷移
 - atomic 更新用の新しい保存イメージ生成
 - Mnemonic / Software Key 秘密鍵の個別エクスポート
+- 現在の operation に入力された Store の version、構造、authentication / integrity および consistency の検証
 - Native / WASM へ公開する共通 API 契約
 
 ### 2.2 Core が所有しない責務
@@ -55,12 +59,16 @@ Core は次を行わない。
 - Profile データのバックアップ UI・同期・移行サービス
 - 個別エクスポート結果の表示・保管・紛失防止
 - 署名要求が利用者の意図に沿うかの UI 判定
+- Handoff、export および signing assertion の freshness の独立証明
+- current Store の選択、successful replacement の保存・適用および stale / historical Store の再適用防止
 
 ### 2.3 保存方式
 
 Core は保存先を所有せず、opaque な `WalletStoreBlob` の読み込み・更新を行う。
 
 状態変更 API は既存 blob を受け取り、新しい完全な replacement blob を返す。Application は temporary file + rename、IndexedDB transaction 等、その環境で利用可能な atomic replacement を使用する。
+
+Application / persistence layer は、opaque blob のうちどれを current Store として採用するかを決定し、Core が成功した replacement を保存・適用する。Core は自身が返した過去の Store を保持せず、valid historical Store の currentness または rollback を単独で判定しない。
 
 Core は更新途中の断片を外部へ返さない。
 
@@ -275,6 +283,8 @@ password change は current password で認証・復号した後、新 salt / ne
 
 Wallet Store の CBOR schema、整数 key、enum wire 値、並び順、AAD、重複タグ、unknown field / enum、DecodeWarning、version / migrationおよびresource limitの正確な規則は `docs/specifications/wallet-store-format-v1.md` に従う。
 
+current Store の選択、successful replacement の保存・適用および stale / historical Store の再適用防止は Application / persistence layer の責任であり、Wallet Store の wire schema の責任ではない。v1 Core は Store history を保持せず、valid historical Store の currentness または rollback を単独で検出・拒否しない。この責任境界は、Store format の version、deterministic CBOR、unknown field / enum、AAD、authentication、integrity および consistency の契約を変更しない。
+
 本書では次の動作だけを API 契約として固定する。
 
 - Wallet Store の入力 bytes は、RFC 8949 Core Deterministic Encoding Requirements に従う完全な CBOR item をちょうど 1 個含み、その item が入力 bytes 全体を消費する場合だけ受理する。空入力、truncated CBOR、CBOR decode failure、indefinite-length、integer または length の非最短表現、duplicate map key、v1 が許可しない CBOR 型、trailing bytes、2 個以上の CBOR item の連結および deterministic CBOR 制約違反は `InvalidStore` とする。内部 CBOR parser error は Binding の公開 error codeへそのまま漏らさず、`InvalidStore` へ対応付ける。
@@ -300,7 +310,7 @@ ID 一意性違反は子オブジェクトの選択またはスキップでは�
 
 ### 8.1 新規生成
 
-新規 Mnemonic 生成 Profile は二段階とする。
+Core が Mnemonic を新規生成するすべての Profile creation は、次の二段階を通る。handoff を行わずに新規 Profile を成功させる経路は v1 に存在しない。
 
 ```text
 prepare_generated_profile(...)
@@ -314,7 +324,7 @@ finalize_generated_profile(store, pending_blob, password, handoff_confirmation)
         └─ replacement store
 ```
 
-`prepare_generated_profile` は Store に Profile を追加しない。Application は Mnemonic のバックアップ受渡しを完了した後だけ、`handoff_confirmation.status = Confirmed` を持つ `finalize_generated_profile` を呼ぶ。
+`prepare_generated_profile` は Store に Profile を追加しない。Application は初回 Mnemonic handoff を完了した後だけ、`handoff_confirmation.status = Confirmed` を持つ `finalize_generated_profile` を呼ぶ。
 
 Application は `prepare_generated_profile` が返した正確な Mnemonic 全体を意図した利用者へ提示し、利用者が記録・受領済みであることを明示確認した後だけ、同じ `pending_profile` に対する `handoff_confirmation.status = Confirmed` を作成して `finalize_generated_profile` へ渡さなければならない。表示値の不一致、受渡し失敗・中断または確認未成立の場合は、`status = Unconfirmed` を持つ request として外部から区別できる。UI方式、提示画面、確認文言および利用者本人性の検証方式は Core の契約に含めない。Core は `Confirmed` が UI 操作の暗号学的証明であるとは扱わず、Application が確認成立の事実を正しく伝える責任を持つ。
 
@@ -330,7 +340,7 @@ Application は `prepare_generated_profile` が返した正確な Mnemonic 全�
 
 ### 8.2 復元 Profile
 
-既存 Mnemonic からの復元では UTF-8 bytes を入力として受け取り、正規化・24 words BIP39 validity と Store / 既存 Profile の構造妥当性を確認してから登録する。この重複拒否保証は、Core が生成・維持する、本仕様の整合性を満たした Store を対象とする。候補 Mnemonic と Network から `wallet-store-format-v1.md` §12 の規則で計算した `duplicate_tag` を、構造上正常な既存 Profile の平文 `duplicate_tag` と比較する。一致する Profile があれば `DuplicateProfile` とし、input Store を変更せず replacement Store を返さない。不一致の場合、既存 Profile のパスワードを受け取らないため意味的一致を検証できないことだけを理由に復元を拒否しない。後続の操作で対象 Profile を認証・復号した時点に `duplicate_tag` と復号済み Mnemonic / Network の意味的不一致を検出した場合は `InvalidStore` とし、秘密情報、正常な処理結果または replacement Store を返さない。構造不正、認証失敗または認証済みpayloadとの既知の意味的不一致はこの継続規則の対象外とする。新規生成時の backup confirmation は要求しない。
+既存 Mnemonic からの復元では UTF-8 bytes を入力として受け取り、正規化・24 words BIP39 validity と Store / 既存 Profile の構造妥当性を確認してから登録する。この重複拒否保証は、Core が生成・維持する、本仕様の整合性を満たした Store を対象とする。候補 Mnemonic と Network から `wallet-store-format-v1.md` §12 の規則で計算した `duplicate_tag` を、構造上正常な既存 Profile の平文 `duplicate_tag` と比較する。一致する Profile があれば `DuplicateProfile` とし、input Store を変更せず replacement Store を返さない。不一致の場合、既存 Profile のパスワードを受け取らないため意味的一致を検証できないことだけを理由に復元を拒否しない。後続の操作で対象 Profile を認証・復号した時点に `duplicate_tag` と復号済み Mnemonic / Network の意味的不一致を検出した場合は `InvalidStore` とし、秘密情報、正常な処理結果または replacement Store を返さない。構造不正、認証失敗または認証済みpayloadとの既知の意味的不一致はこの継続規則の対象外とする。既存 Mnemonic からの restore では、生成時の handoff confirmation を要求しない。
 
 ### 8.3 表示名
 
@@ -384,7 +394,7 @@ warning に Mnemonic、private key、Profile password、seed、ciphertext の内
 
 ### 9.1.1 確認・承認 request DTO
 
-UI の方式を固定せずに、Core と Binding が確認・承認の有無を同じ request 条件として扱うため、次の DTO を使用する。`status` は自由な真偽値や password の結果から暗黙に生成してはならない。これらの status は Application が利用者との確認・承認を成立させた事実を表す外部 assertion であり、Core が UI 操作を独立検証する仕組みや暗号学的 token を意味しない。
+UI の方式を固定せずに、Core と Binding が確認・承認の有無を同じ request 条件として扱うため、次の既存 DTO を使用する。`status` は自由な真偽値や password の結果から暗黙に生成してはならない。これらの status は、各 current operation に対して Application が生成する、利用者との確認・承認を表す外部 assertion である。Application / UI は過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用してはならず、assertion の freshness を管理する。Core は status、target、payload および AccountContext 等の request 条件を検証するが、Application が UI を表示し利用者の確認・承認を取得したこと、または assertion が fresh であることを独立には証明しない。これらは新しい field、challenge または暗号学的 token を意味しない。
 
 ```text
 HandoffConfirmation {
@@ -441,13 +451,19 @@ SigningRequest {
 }
 ```
 
+上記の `HandoffConfirmation`、`ExportRequest` および `SigningRequest` の DTO field 構造は v1 で維持し、新しい confirmation nonce、request ID、expiry、target またはその他の freshness 用 field を追加しない。
+
 `HandoffConfirmation.status = Confirmed` は、Application が同じ `pending_profile` から返された完全な Mnemonic を意図した利用者へ提示し、その利用者から明示的な受領確認を取得した後だけ設定する。表示値不一致、提示不能、受領未確認、確認伝達不能または中断時は `Unconfirmed` とするか request を送信しない。
 
 `ExportRequest` の成功条件は、`target`、`user_request.target` および `application_confirmation.target` が同じ構造・識別子として一致し、`user_request.status = Requested`、`application_confirmation.status = Confirmed` であることとする。Mnemonic export の target は `MnemonicTarget`、Software Key private key export の target は `SoftwareKeyTarget` でなければならない。Application / UI は対象を利用者へ提示して明示的な取得要求を確認した後だけ各 status を設定する。
 
+`ExportRequest` の `Requested` および target-specific な `Confirmed` は、現在の export operation に対して Application / UI が生成する assertion である。Application / UI は stale assertion を再利用せず、Core はその freshness または UI 表示・利用者確認の事実を独立には証明しない。Core が行うのは、既存の target、status および password authorization の条件検証である。
+
 上記の全条件を満たす `ExportRequest` を **confirmed export request** と呼ぶ。confirmed export request であることは password authorization とは別の条件であり、Application / Binding は status を省略または password の結果から補完してはならない。
 
 `SigningRequest` の `approval.status = Approved` は、Application / UI が同じ `target` と `payload` を利用者へ提示し、その request に対する明示的な署名承認を取得した後だけ設定する。`NotApproved` は未承認、確認不能、内容不一致または中断を表す。Core は `Approved` の assertion を受け取るが UI を検証せず、password authentication の結果から status を生成しない。
+
+`SigningRequest` は `target`、`payload` および `approval` の既存構造を維持する。`approval.status = Approved` は、その request 内の target / payload に対する現在の signing operation の Application assertion であり、Application / UI は stale assertion を再利用しない。Core は target、payload、AccountContext および approval status を仕様どおり検証するが、approval assertion の freshness または UI 表示・利用者承認の事実を独立には証明しない。
 
 確認・承認 status、target または request field が欠落・未知・不整合の場合、該当 operation は `InvalidArgument` とする。確認・承認 status を理由に Core が Mnemonic、private key または Transaction を解釈・生成してはならない。
 
@@ -724,6 +740,8 @@ Store子オブジェクトの必須 field 欠落、型・長さ・値不正、�
 
 `committed state` は、Core が operation 全体を成功として確定し、成功結果として返した Store が Application によって保存された状態をいう。状態変更 API が返す `MutationResult.store` は保存前の replacement candidate であり、Application が保存に成功するまでは committed state ではない。保存に失敗した場合、直前の committed Store を正本として維持し、未保存 replacement を採用してはならない。
 
+Application / persistence layer は current Store authority として、保存した replacement を current Store として採用するかを選択し、stale / historical Store の再適用を防止し、backup / snapshot の最新版を管理する。Core は stateless な opaque Store processor であり、自身が過去に返した Store history を保持しないため、入力された Store が current Store か historical Store かを自身の履歴から判定しない。
+
 `pending / partial state` は、Profile または Software Key の成功確定前に存在する未確定値であり、正常な Profile、Software Key、`committed state` または次の operation の authorization ではない。`PendingProfileBlob` はこの意味を持つ opaque input / output であり、Wallet Store の `profiles` に含まれる Profile として扱ってはならない。`prepare_generated_profile` の成功は Mnemonic と pending の準備結果であって Profile success ではない。
 
 stale、改ざん、破損、対象 Store と結び付かない、version が未対応または現在の operation の条件を満たさない pending は `PendingProfileInvalid` として拒否する。unconfirmed pending を committed Profile へ自動昇格させたり、pending の受領・保存・再提示だけを Profile success と扱ったりしてはならない。restart 後に外部から再提供された pending は新しい operation の opaque input であり、authorization や confirmation を含む復元済み状態ではない。
@@ -736,7 +754,11 @@ failure、interruption、malformed input、authentication failure、confirmation
 
 各 API 呼出しは独立した operation である。retry は前回 operation の continuation ではなく、新しい operation として、必要な Store、処理入力、target、現在の Profile password authorization および必要な user confirmation / signing approval を再提供・再取得して開始する。前回の password authentication、`Confirmed` / `Approved` status、pending、secret または success result を retry に暗黙継承してはならない。retry で同じ pending を入力する場合も、current operation の Pending validation と新しい確認・authorization 条件を満たさなければならない。
 
-process restart 後は、Core / Binding / Application が processing-unit authorization、unlocked state、user confirmation、signing approval または secret-capable state を自動継続してはならない。restart 前の pending を自動復元・昇格してはならず、再提供された pending を使う場合も上記の新しい operation 条件を適用する。timeout、token、session、rollback および pending の具体的な内部実装は本仕様で定めない。
+process restart 後は、Core / Binding / Application が processing-unit authorization、unlocked state、user confirmation、signing approval または secret-capable state を自動継続してはならない。restart 前の pending を自動復元・昇格してはならず、再提供された pending を使う場合も上記の新しい operation 条件を適用する。timeout、token、session および pending の具体的な内部実装は本仕様で定めない。
+
+rollback については、v1 Core が historical rollback detection を保証しないことを固定する。Core は、structure、version、authentication、integrity および consistency の現在の入力条件を満たす valid historical Store を、historical であるという理由だけで reject してはならない。Core が過去の Store を記憶せず currentness を判定しないことは、Application / persistence layer が current Store を選択し、successful replacement を適用し、stale / historical Store の再適用を防止する責任を負うことを意味する。これは rollback を安全とする保証ではなく、Application / persistence layer に残る residual risk である。
+
+v1 Core は、assertion freshness のための challenge、nonce、expiry または one-shot token を提供しない。これは Application / UI の freshness responsibility と、Core の per-operation authorization、request validation および pending 非昇格の境界を変更しない。
 
 ### 11.3 atomic replacement
 
@@ -757,6 +779,8 @@ Mutation は要求対象 Profile の envelope だけを置換し、他 Profile �
 Software Key の登録・削除では、暗号化 payload の `software_keys` と平文 `software_key_index` を同一 replacement Store で更新する。index は payload の `(key_id, chain)` 射影から生成し、Application が index だけを変更する API は提供しない。index は AAD の一部であるため、対象 Profile を認証・復号して new nonce で再暗号化する。
 
 `registry_key` は Store 更新を通じて変更せず、既存 Profile の `duplicate_tag` も変更しない。これらを含む AAD の認証に失敗した場合、秘密情報処理、重複判定および mutation を実行しない。AAD 認証後に `duplicate_tag` と復号済み Mnemonic / 認証済み Network の意味的不一致を検出した場合も同様とし、正常な read 結果、秘密情報または replacement Store を返さない。
+
+Profile delete または Software Key delete の成功保証は、Core が返した successful replacement Store から対象 Profile / Software Key と対象秘密情報が除去されていること、および Application / persistence layer がその replacement を current Store として正しく保存・採用した状態に適用する。Application が後から削除前の valid historical Store を入力した場合、Core はそれが historical であることだけを理由に reject しない。この historical rollback boundary は Core の deletion guarantee を拡張も縮小もせず、current Store authority を担う Application / persistence layer の責任として扱う。
 
 ---
 
@@ -814,11 +838,19 @@ Binding 側で secret を component state、global state、cache、log、diagnos
 
 WASM memory zeroize および JavaScript `Uint8Array` の上書きは best effort であり、JavaScript runtime / browser process 全体からの完全消去を保証しない。Binding はこの制約を理由に secret の長期保持を許容してはならない。
 
+### 12.4 Side-channel responsibility
+
+Requirements `SEC-023` および `AC-049` に対応し、Core 自身が実装・管理する秘密情報処理では、secret-dependent control flow、secret-dependent timing behavior または secret-dependent data access を不必要に導入してはならない。この contract の責任主体は Core であり、Binding は Core の side-channel responsibility を代替しない。
+
+third-party cryptographic library 内部、compiler、runtime、OS、browser、hardware または CPU microarchitecture 内部における完全な side-channel absence は Core の保証対象外である。また、本仕様は specific constant-time library、assembly inspection、third-party library fork、particular zeroization technique、compiler flag または particular side-channel testing tool を固定しない。SEC-023 に対応する具体的な implementation / release verification は下流へ委譲する。単一の wall-clock threshold だけを security proof として扱ってはならない。
+
 ---
 
 ## 13. Native / WASM Binding
 
-Binding は型変換、byte buffer transfer、error / warning mapping、lifecycle / memory ownership の橋渡しだけを行う。
+Binding は型変換、byte buffer transfer、error / warning mapping、lifecycle / memory ownership の橋渡しだけを行う。Binding は user intent authority、assertion freshness authority または current Store authority ではなく、Application と Core の contract を忠実に伝達するだけである。
+
+Binding は、handoff / export / signing の status を生成せず、password の認証結果から補完せず、stale assertion を cache / retain して別 operation へ再利用せず、target、payload または AccountContext を書き換えない。Binding は Store history DB、rollback detector または current Store selector を持たず、Wallet Store を opaque のまま Application と Core の間で橋渡しする。current Store の選択、successful replacement の適用および stale / historical Store の再適用防止は Application / persistence layer の責任である。
 
 Binding に暗号化、password authentication、Mnemonic validation、key derivation、signing、duplicate detection を再実装しない。
 
@@ -911,6 +943,7 @@ WASM の各 public operation は §9.2 の Core operation と 1 対 1 に対応�
 - `software_key_index` または認証済み payload が、同一または異なる Chain で同じ `key_id` を複数持つ Profile を `InvalidStore` として拒否する
 - 異なる Profile に同じ `key_id` が 1 件ずつ存在する場合は、`profile_id + key_id` で各対象を一意に解決する
 - 初回 Mnemonic の `HandoffConfirmation.status = Unconfirmed`、confirmation 欠落、表示値不一致、確認伝達不能および `Confirmed` の各ケースで、finalize の error、Profile 非作成、replacement 非返却および secret 非開示が規則どおりであること
+- Core が Mnemonic を新規生成するすべての Profile creation が handoff confirmation 必須の二段階 lifecycle を通り、handoff なしの生成成功経路がないこと。既存 Mnemonic の restore は生成時 handoff confirmation を要求しないこと
 - `registry_key` または `duplicate_tag` 改変後の認証失敗
 - 誤った `duplicate_tag` を AAD に含めて正常に暗号化した Profile は、AEAD認証成功後に Mnemonic entropy または Network との意味的不一致を `InvalidStore` として拒否する
 - `duplicate_tag` の意味的不一致時は秘密情報、正常な read 結果または replacement Store を返さず、input Store を変更しない
@@ -935,10 +968,14 @@ WASM の各 public operation は §9.2 の Core operation と 1 対 1 に対応�
 - 別 Profile へ mutation が越境しない
 - 正しい password だけ、`NotRequested`、`NotConfirmed`、target mismatch、対象不存在、復号失敗および処理失敗の各ケースで個別 export が成功せず、secret、normal result、replacement Store を返さないこと。`Requested`、target-specific `Confirmed` および正しい password がそろう場合だけ Mnemonic / Derived / Imported / Generated private key を個別エクスポートできる
 - `password authorization != export confirmation` および `password authorization != signing approval` を確認し、`SigningApproval.status = NotApproved` では署名を生成しない
+- `HandoffConfirmation`、`ExportRequest` および `SigningApproval` の必須 status 欠落、不成立または target 不一致を拒否し、Application が current operation のために生成した assertion と password authorization を別条件として扱うこと。Core の authorization、確認・承認、pending および secret-capable state が operation 間、retry 間または restart 後に暗黙継承されず、Application assertion の freshness 自体は Core の検証対象外であること
 - `get_public_account` / `sign` の正しい context、unsupported context、Profile Network mismatch、Software Key fixed Chain mismatch、invalid Chain / Network combination および wrong Profile-Key combination の result / error / state を確認する
 - Native の NULL / length / fixed-length / malformed input、Core DTO conversion、allocation、ownership / lifecycle failure の error mapping、output zero-initialization、release、secret-containing output の解放を確認する
 - WASM の `Uint8Array` / object representation、malformed input、`Err` mapping、opaque Store / Pending、secret result の caller lifecycle および Native との同一 security meaning を確認する
 - retry が新しい operation として password、confirmation、approval を再取得し、previous result / pending / authorization を暗黙継承しないこと、restart 後に authorization / unconfirmed pending を復元しないことを確認する
+- Core が Store history を保持せず、prior-call history を Store acceptance 条件にしないこと、および structure、version、authentication、integrity、consistency を満たす valid historical Store を historical であるという理由だけで malformed / tampered として拒否しないことを確認する。これは rollback を安全とする検証ではなく、current Store の選択と stale / historical Store の再適用防止が Application / persistence responsibility であることを確認する
+- Core-owned secret processing に不要な secret-dependent control flow、timing behavior または data access を導入しないことを確認する。third-party cryptographic library、compiler、runtime、OS、browser、hardware および CPU microarchitecture の完全な side-channel absence は合格条件に含めず、specific technique を固定せず、単一の wall-clock threshold を唯一の security proof としない
+- Native / WASM Binding が status を生成・補完せず、stale assertion を別 operation へ再利用せず、target / payload / AccountContext を書き換えず、Store history DB、rollback detector または current Store selector を持たないことを確認する
 - 通常 API に Mnemonic / private key が含まれない
 - WASM public API に Mnemonic、Profile password、private key を JavaScript string で受け渡す経路が存在しない
 - WASM の secret 入出力が `Uint8Array` 相当であり、private key が raw 32 bytes である
@@ -963,10 +1000,13 @@ target に未達した場合、verification record に少なくとも uncovered 
 | Encryption / password                         | FR-006, FR-007, FR-010, FR-020, SEC-001..007, SEC-013..015                                         |
 | Signing approval / context / interoperability | FR-009, FR-013, FR-024, UC-006, SEC-022, DR-005, DR-008, AC-009, AC-013, AC-047                    |
 | Delete / atomicity                            | FR-011, FR-012, SEC-005, SEC-008, SEC-009, SEC-018, SEC-019                                        |
+| Current Store authority / historical rollback | FR-012, FR-017, SEC-005, SEC-018, AC-012, AC-018, AC-048                                           |
+| Assertion freshness / Core authorization      | FR-007, FR-009, SEC-002, SEC-007, SEC-014, SEC-021, SEC-022, AC-007, AC-009, AC-031, AC-050        |
 | Binding / Native / WASM                       | FR-019, NFR-001..004, SEC-011, SEC-012, SEC-017, SEC-020, AC-015..016, AC-021..024, AC-040, AC-043 |
 | Initial Mnemonic handoff                      | FR-001, FR-019, SEC-010, SEC-017..018, AC-001, AC-034                                              |
 | Individual secret export                      | FR-022, FR-023, FR-019, SEC-010, SEC-015, SEC-017, SEC-020..021, AC-025..026, AC-041..043          |
 | Pending / failure / retry / restart           | FR-007, FR-019, SEC-003, SEC-005, SEC-017..019, AC-007, AC-037..039, AC-046                        |
+| Side-channel responsibility                   | SEC-023, AC-049                                                                                    |
 | Coverage verification                         | NFR-005, AC-044                                                                                    |
 
 表示名は Core の保存フォーマットおよび API 契約に含めず、Application の責任とする。`software_key_index` は表示名ではなく Core 用の公開識別情報である。
@@ -981,7 +1021,10 @@ target に未達した場合、verification record に少なくとも uncovered 
 | Signing approval と signing authority の分離、Core の raw signing responsibility                | Architecture §6.3; Security Design §6.4; Bindings Design §6.5 → §2.2、§9.1.1、§9.2、§9.5、§10、§13.2、§14.2                                                                                           |
 | Profile Network、Software Key fixed Chain、Account context、fallback / implicit conversion 禁止 | Architecture §5.1、§7; Security Design §7; Bindings Design §7 → §3.2〜§3.3、§9.1.1〜§9.2、§9.5、§10、§14.1〜§14.2                                                                                     |
 | Pending / committed、atomicity、failure、retry、restart および existing state 保護              | Architecture §5.2〜§5.3、§6.1〜§6.2、§6.5、§9.3〜§9.4; Security Design §5.2、§6.5〜§6.6; Bindings Design §5.2、§6.1〜§6.2、§6.6 → §8.1、§10〜§11、§13、§14.2                                          |
+| Current Store authority、stateless Core および historical rollback の保証外範囲                 | Architecture §5.2〜§5.3、§8、§9.3〜§9.4; Security Design §6.5、§9.3; Bindings Design §5.2、§6.6、§9.3 → §2.3、§7、§11、§13、§14.2                                                                     |
+| Application assertion freshness と Core guarantee boundary                                      | Architecture §6.1、§6.3〜§6.5、§9.2; Security Design §3.2、§6.2〜§6.6、§9.2; Bindings Design §6.1〜§6.6、§9.1 → §8、§9.1.1、§9.4〜§9.5、§11.2、§13、§14.2                                             |
 | Native / WASM thin non-authority、opaque Store、ownership / lifecycle / failure mediation       | Architecture §3.3、§4.2、§5.2; Security Design §4.3、§8.2; Bindings Design §3.1〜§3.2、§4.2、§5.2、§8.1〜§8.2、§10.1 → §7、§9.1、§10、§12.3、§13、§14.2                                               |
+| SEC-023 side-channel property と guarantee boundary                                             | Architecture §4.1、§8、§10; Security Design §8.1〜§8.3、§9.4、§10; Bindings Design §10.2 → §12.4、§14.2、§16                                                                                          |
 | Chain-specific cryptographic scheme と下流への Transaction responsibility 委譲                  | Architecture §7、§10; Security Design §7、§10; Bindings Design §7、§10.1 → §4.2、§5、§9.5.1、§14.1、§18                                                                                               |
 
 ---
@@ -995,7 +1038,7 @@ target に未達した場合、verification record に少なくとも uncovered 
 - 上位 Application の filesystem / IndexedDB 保存 API
 - temporary file の名称
 - UI 上の password policy
-- UI 上の Mnemonic backup confirmation 手順
+- UI 上の Mnemonic handoff confirmation の具体的な手順
 
 これらを理由に Core の暗号方式、保存 schema、HD path、API security boundary を変更してはならない。
 
