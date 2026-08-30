@@ -308,7 +308,7 @@ Formal Gate: `READY`（Critical 0 件）。ただし、ユーザー指定の完�
 
 ## Remaining Risks and Open Decisions
 
-- Binding Design-level Open Decision: 6件の New finding が残っており、DR-001〜DR-004 は Design completion blocker、DR-005〜DR-006 は phase / responsibility boundary correction である。具体 API、ABI、wire、memory、Browser API の未決定は Binding Design-level Open Decision ではなく下流委譲事項である。
+- Binding Design-level Open Decision: 0件。未解消の New finding は DR-001〜DR-006 であり、DR-001〜DR-004 は Design completion blocker、DR-005〜DR-006 は phase / responsibility boundary correction である。具体 API、ABI、wire、memory、Browser API の未決定は Binding Design-level Open Decision ではなく下流委譲事項である。
 - 残存リスク: Binding の一般的な thin / non-authoritative 記述だけでは、下流が processing-unit authorization、pending、handoff、export、Store または retry / restart の security meaning を変えないことを誤実装する余地がある。
 - Environment risk: Web の host compromise 非保証は明記されるが、Native / Desktop / Mobile の OS / host process と同じ guarantee boundary が現在明示されていない。
 - Native risk: 任意の無効 pointer を安全に救済する保証と、検証可能な外部入力・変換失敗を安全側へ扱う責務の区別が不十分である。
