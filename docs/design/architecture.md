@@ -2,203 +2,408 @@
 
 ## 1. 目的、対象、対象外
 
-本書は、`symbol-nem-wallet-core` v1 の責務、境界、依存方向、データ所有および主要ライフサイクルを定める基本設計と、その設計判断の現行正本である。
+本書は、`symbol-nem-wallet-core` v1 の責務、境界、依存方向、データ所有、主要ライフサイクルおよび設計判断を定める基本設計の現行正本である。上位の Concept / Requirements を、次工程が実装可能な責務配置と security invariant へつなぐ。
 
-対象は、Desktop / Mobile / Web の Symbol / NEM ウォレットから利用する Rust Wallet Core と、Coreへ接続する Native / WASM binding である。Webには Web Application と Browser Extension を含める。
+対象は、Desktop / Mobile / Web の Symbol / NEM ウォレットから利用する Rust Wallet Core と、Core へ接続する Native / Web WASM Binding である。Web には Web Application と Browser Extension を含める。システムコンテキストには、利用者、各 Application、Browser、OS、host process、persistent storage、Transaction layer および Network layer を含める。
 
-Coreは、Profileを単位として Mnemonic と Software Key の生成、復元、導出、取込み、暗号化保存、署名、個別エクスポートおよび削除を扱う。Profile の Network、Software Key の Chain、Symbol / NEM の違いは明示的に扱い、暗黙に共通化しない。
+Core は、Profile を単位として Mnemonic と Software Key の生成、復元、導出、取込み、暗号化保存、署名、個別エクスポートおよび削除を扱う。Profile の Network、Software Key の Chain、Symbol / NEM の違いは明示的に扱い、暗黙に共通化しない。
 
 次は本設計の対象外である。
 
-- Wallet UI、ユーザー操作、表示名およびウォレット固有設定
+- Wallet UI、表示の具体的な方式、ユーザー操作の具体的な実装およびウォレット固有設定
 - REST / WebSocket / announce、ノード選択および Explorer
-- Transaction の構築、シリアライズ、意味解釈および署名承認UI
+- Transaction の構築、シリアライズ、意味解釈および署名承認 UI
 - Hardware Wallet、External Signer、OS Keychain / Secure Enclave / TPM
-- Profile データの保存先選択、バックアップUI、同期、端末間移行および復旧
+- Profile データの保存先選択、バックアップ UI、同期、端末間データ移行および外部復旧の具体的な方式
+- Store / Profile version migration の具体的な方式。v1 は version migration を提供しない
 
-対象外の具体的な契約は、上位要件および仕様で定めた責任境界に従う。
+端末間データ移行は、Application が opaque な Store を保存・転送する責任を指す。Store schema / version migration とは別の概念であり、Application が Store の内部を解釈・編集する権限を与えない。
 
 ## 2. 上流根拠と用語
 
-### 2.1 上流根拠
+### 2.1 上流根拠と依存方向
 
-- `docs/consept/concept-sheet.md`: 製品目的、v1範囲、対象ユーザーおよび責任境界
-- `docs/requirements/requirements.md`: Profile、Mnemonic、Software Key、Chain / Network、責任、セキュリティおよび受入条件
-- `docs/specifications/specification.md`: Core、状態遷移、暗号利用、API境界および Binding 契約
-- `docs/specifications/wallet-store-format-v1.md`: Wallet Store の wire-level 契約
+Architecture の normative な上流 Source of Truth は次の二つだけである。
 
-本書は、上記の要求・仕様を実装へ配置するための責務と境界を整理する。API、wire format、暗号パラメータおよび protocol constant の正本は本書ではなく、それぞれの要件・仕様である。
+- [`docs/consept/concept-sheet.md`](../consept/concept-sheet.md): 製品目的、v1 範囲、対象環境および上位責任境界
+- [`docs/requirements/requirements.md`](../requirements/requirements.md): Profile、Mnemonic、Software Key、Account、Chain / Network、責任、security property および受入条件
+
+開発フェーズの normative dependency は、次の方向とする。
+
+```text
+Concept → Requirements → Architecture → Specification → Implementation
+```
+
+Concept review や Requirements review は、上流成果物の判定履歴であり、Architecture の規範内容を置き換えない。Architecture が定める責務、ownership、trust boundary、security architecture および lifecycle は Concept / Requirements から導出し、下流の形式や実装の都合から逆生成しない。
+
+[`docs/specifications/specification.md`](../specifications/specification.md) は、Architecture から委譲された API、validation、error、crypto、protocol およびその他の外部契約の下流正本である。[`docs/specifications/wallet-store-format-v1.md`](../specifications/wallet-store-format-v1.md) は Store の具体的な wire / format 契約の下流正本である。これらは Architecture の上流根拠ではなく、Architecture の判断と矛盾しないことを確認する補助資料および下流委譲先として扱う。
+
+[`docs/design/security.md`](security.md) と [`docs/design/bindings.md`](bindings.md) は同一 Design フェーズの関連設計であり、責務の整合確認に用いる。関連設計の具体契約を Architecture の上流根拠として扱わず、競合を見つけた場合は黙って統合しない。
 
 ### 2.2 用語
 
-- **Profile**: Network と1つの Mnemonic、および0個以上の Software Keyを持つ秘密情報管理の単位。
-- **Mnemonic**: Profile のルート秘密情報。Coreは生成、復元、導出および保護を担う。
-- **Software Key**: Derived、Imported または Generated の秘密鍵を、同じ鍵管理ライフサイクルで扱う単位。
-- **Wallet Store**: Coreが読み込み・検証・更新する opaque な保存blob。保存先はCoreの責任外である。
-- **Binding**: CoreとNative / WASMの実行環境の間で型、buffer、errorおよび所有権を橋渡しする薄い境界層。
+- **Profile**: 固定された Network、1 つの Mnemonic、および 0 個以上の Software Key を持つ秘密情報管理の単位。Profile は Chain には固定しない。
+- **Mnemonic**: Profile のルート秘密情報。Core が生成、復元、取込み、保護および継続管理を担う。
+- **Software Key**: Derived、Imported または Generated の秘密鍵を、同じ鍵管理ライフサイクルで扱う単位。Software Key は Chain に固定する。
+- **Account**: Software Key を、その Software Key の固定 Chain と Profile の固定 Network 上で利用する概念。利用する Account の選択・提示は Application が担い、対応関係の検証は Core が担う。
+- **Wallet Store**: Core が読み込み、version、整合性および秘密情報保護を検証する opaque な保存データ。保存先は Application の責任である。
+- **Pending / partial state**: Profile または Software Key の成功確定前に存在し得る未確定状態。正常な committed Profile / Software Key ではなく、具体的表現によらずその意味を Core が管理する。
+- **Binding**: Core と Native / Web WASM の実行環境の間で型、buffer、error および ownership を橋渡しする境界層。
+- **Signing authority**: 指定された Account / Software Key に対応する秘密鍵を使用して署名できる権限。Profile password の正しさや利用者の署名承認とは別の security property とする。
 
 ## 3. システムコンテキストと trust boundary
 
 ```text
-Desktop / Mobile Application       Web Application / Browser Extension
-             │                                  │
-        Native Binding                       WASM Binding
-             │                                  │
-             └──────────────┬───────────────────┘
-                            ▼
-                    Rust Wallet Core
-                     │              │
-             opaque Store       Symbol / NEM crypto rules
-                     │              │
-           Application storage    上位 Transaction / Network 層
+                              ┌──────────────────────────────────────┐
+                              │ host environment                     │
+                              │ Browser / OS / host process          │
+                              │ （侵害防止を Core は保証しない）     │
+                              └──────────────────────────────────────┘
+                                                │
+User / 利用者 ──表示・確認・承認──> Application / UI ──> Binding ──> Rust Wallet Core
+                              │                    │              │
+                              │                    │              └─ signing / key lifecycle
+                              │                    │
+      Desktop Application ───┘              Native Binding       │
+      Mobile Application  ───┘                                  │
+      Web Application / Browser Extension ─ Web / WASM Binding   │
+                                                                 │
+Rust Wallet Core ──replacement Store──> Application / UI ──opaque 保存──> persistent storage
+persistent storage ──opaque Store──> Application / UI ──> Binding ──> Rust Wallet Core
+
+Transaction layer ──内容・payload──> Application / UI
+Application / UI ──承認済み要求──> Binding ──> Rust Wallet Core
+Rust Wallet Core ──署名結果──> Application / Transaction layer ──> Network layer
 ```
 
-### 3.1 Core boundary
+上図の各主体と境界の責任は次のとおりである。
 
-Coreは秘密情報を必要とする処理の意味、認可、検証、暗号化・復号、導出、署名および状態変更を所有する。Coreは処理をまたぐ継続的な Unlocked 状態や Profile password の永続保存・継続キャッシュを持たない。
+- **利用者**: Mnemonic の初回 handoff における受領確認、署名要求の明示承認および秘密情報を外部へ受け取った後の保管責任を持つ。Core は紙への記録や外部保存を独立検証しない。
+- **Desktop Application / Mobile Application / Web Application / Browser Extension**: UI、利用者への表示、利用者意思の確認、Account の選択、opaque Store の保存および外部層との連携を担う。Application は Core 管理下秘密情報の継続的な管理主体にならない。
+- **Native Binding / Web WASM Binding**: Application と Core の間の transport、型変換、ownership および error の橋渡しを担う。意味、認証、暗号、Chain / Network policy および秘密情報 ownership を決めない。
+- **Rust Wallet Core**: Profile、Mnemonic、Software Key、処理単位認証、Chain / Network compatibility、signing primitive、Store の validity および成功状態の最終確定を担う。
+- **Browser / OS / host process**: Application と Binding が動作する host environment であり、Core がその侵害を防止する保証の対象ではない。
+- **persistent storage**: Application が選択・利用する Store の保存先であり、Store の内部意味を決めない。
+- **Transaction layer**: Transaction の構築、内容およびシリアライズを担う。Core は Transaction の意味を説明・解釈しない。
+- **Network layer**: REST、WebSocket、announce などの通信を担う。Core の秘密情報管理を代替しない。
 
-Core管理下の秘密情報は、通常の処理結果としてApplicationへ返さない。初回 Mnemonic backup handoff と、正しい Profile password を伴う明示的な個別エクスポートは、上位仕様で定めた限定的な例外である。返却後の表示、保管および紛失防止は利用者と上位Applicationの責任とする。
+### 3.1 全環境共通の security invariant
 
-### 3.2 Application / storage boundary
+Desktop、Mobile、Web、Native および Web / WASM の経路で、次の invariant を共通に適用する。
 
-Applicationはユーザー操作、公開情報表示、アカウント選択、ウォレット固有設定および Core が返す opaque Store の永続化を担う。保存先が filesystem、IndexedDB その他のどれであるかはApplicationの責任であり、Coreへ移さない。
+- Mnemonic および Software Key 原本の継続的な管理主体は Core である。
+- Binding / Application は、入力や明示的な handoff / export の受渡しを一時的に仲介できるが、Core とは別の継続的な秘密情報管理主体にならない。
+- Core 管理下の秘密情報は、通常処理の結果として Core 外へ返さない。初回 Mnemonic handoff と条件を満たした個別 export だけが明示的な例外である。
+- Desktop / Mobile / Web の違いによって、Core の管理責任、認可責任および通常処理での非開示原則を変えない。Native 経路だから Web より弱い非開示原則にはしない。
+- Application、Browser、OS または host process の compromise 自体を Core が防止する保証はない。
+- host compromise を保証しない場合でも、Core / Binding が不要な秘密情報を返却、共有、継続保持または診断出力することを許容しない責任は維持する。
+- Application / Browser / OS / host process の compromise を理由に、通常処理での秘密情報非開示責任や authorization boundary を弱めない。
 
-Application / Binding は秘密情報を別の継続管理主体にしてはならない。Web実行環境、JavaScript状態およびBrowser固有Storageは恒久的な秘密情報保護境界ではない。
+### 3.2 Core boundary
 
-### 3.3 外部層の境界
+Core は、秘密情報 lifecycle、Profile と Software Key の対応付け、処理単位の Profile password authorization、秘密情報の導出・検証・暗号化・復号・署名利用、Chain / Network compatibility、Store の validity および状態変更を所有する。Core は UI を提供せず、利用者意思を推測せず、Transaction の意味解釈、Transaction の構築または署名承認を担わない。
 
-Network層は通信、Transaction構築層はTransactionの生成・シリアライズを担う。Coreの署名は上位から受け取った payload に対する primitive であり、Transactionの意味解釈や利用者の承認判断を行わない。
+Core は処理をまたぐ継続的な Unlocked state、Profile password の永続保存または継続 cache を持たない。Core 外へ返す秘密情報は、初回 Mnemonic handoff または明示的な個別 export の成功結果に限定する。
+
+### 3.3 Application / Binding / storage boundary
+
+Application と UI は、利用者が何を操作しているかを表示し、必要な利用者の確認・承認を得たうえで Core を呼び出す。Application は Core に代わって password authorization、秘密情報利用可否、Chain / Network compatibility または Store の内部意味を決めない。
+
+Binding は Core の結果を実行環境へ橋渡しするが、unlock session、authorization cache、秘密情報の継続管理または独自の security policy を持たない。
+
+Application は Core が生成した replacement Store を opaque な値として保存する。persistent storage の失敗時に Core の未保存 replacement を committed state と扱わず、既存の committed Store を正本として維持する。
 
 ## 4. コンポーネント責務と依存方向
 
 ### 4.1 Rust Wallet Core
 
-Coreは次を所有する。
+Core は次を所有する。
 
-- Profile、Mnemonic、Software Key の状態とライフサイクル
-- Profile password の処理単位ごとの認可
-- Mnemonic の生成・検証・復元、HD導出および Software Key の生成・取込み
-- Symbol / NEM の Chain、Profile Network、公開情報および署名の処理
-- Store の構造検証、秘密情報の暗号化・復号、重複判定および atomic replacement image の生成
-- 失敗時に既存状態を変更しないこと、対象外 Profileへ越境しないこと
+- Profile、Mnemonic、Software Key、pending / partial state の security responsibility と lifecycle
+- Profile password の処理単位 authorization。認証結果を次の操作へ持ち越さない
+- Mnemonic の生成・検証・復元、HD 導出および Software Key の生成・取込み
+- Account、Software Key、Chain、Network の compatibility 判定と fail-closed な reject
+- Symbol / NEM の Chain 固有の鍵、公開情報、署名および Network 処理
+- Store の version 識別、構造・整合性検証、秘密情報の暗号化・復号、重複判定および replacement 候補の生成
+- Profile / Software Key が正常な committed state になったことの最終確定
+- 失敗時に existing committed state を変更しないこと、対象外 Profile へ越境しないことおよび秘密情報を返さないこと
+
+Core は、利用者の紙への記録、Transaction の意味説明、UI、利用者意思の独立検証または保存先の availability を所有しない。
 
 ### 4.2 Binding
 
-Native / WASM binding は、Coreの共通動作を各実行環境へ公開するための型変換、buffer transfer、error / warning mapping、lifecycle および memory ownership の橋渡しだけを行う。暗号化、認可、Mnemonic validation、導出、署名、重複判定を複製しない。
+Native / Web WASM Binding は、Core の共通動作を各実行環境へ公開するための型変換、raw / opaque data の受渡し、error / warning mapping、lifecycle および ownership の橋渡しだけを行う。
 
-### 4.3 Application
+Binding は暗号化、認証、Mnemonic validation、導出、署名、重複判定、Chain / Network の意味判定、Store / pending state の意味解釈、Transaction の意味解釈を複製しない。Binding の経路差は Core の秘密情報公開範囲、authorization、failure policy または ownership を変更しない。
 
-Applicationは Core が返す公開情報と識別子を表示し、アカウント選択、ユーザーへの Mnemonic backup handoff、秘密情報の明示的な個別エクスポート後の取扱い、Storeの保存・置換および外部通信を担う。Coreが返した秘密情報を通常の状態管理や永続Storageへ移さない。
+### 4.3 Application / UI
 
-### 4.4 依存方向
+Application / UI は次を担う。
 
-依存方向は `Application → Binding → Rust Core` とする。Network / Transaction層はCoreの署名primitiveへ payload を渡すが、Coreの秘密情報管理を代替しない。Binding固有の判断をCoreや別Bindingへ横展開せず、Coreを単一の実装源とする。
+- 利用者操作、公開情報の表示、利用する Account の選択および利用者への提示
+- 初回 Mnemonic handoff における完全な Mnemonic の意図された利用者への提示と、利用者の明示的な受領確認の取得
+- explicit secret export における対象の表示、利用者の取得要求の確認および確認済み要求だけの送信
+- signing における Account の選択、payload / Transaction 内容の提示、利用者が確認できる状態の提供、明示的な署名承認の取得および承認済み要求だけの送信
+- Core が返す opaque Store の保存、置換、バックアップ、同期または端末間転送。これらは Store schema / version migration とは別の外部責任である
+- Core 外へ明示的に渡された秘密情報コピーの表示、保管、利用および紛失防止
+
+Application は、Core 管理下の Mnemonic / Software Key 原本、Core の signing authority または Profile password authorization の正本にならない。
+
+### 4.4 Transaction layer、Network layer、persistent storage、host
+
+- Transaction layer は Transaction の生成、意味、表示に必要な内容およびシリアライズを担い、Core へ署名対象 payload を提供する。
+- Network layer は通信を担い、Chain / Network の暗黙変換や秘密情報管理を行わない。
+- persistent storage は Application が選択し、opaque Store を保存する。Store を正常な秘密情報として解釈する責任は Core にある。
+- Browser、OS および host process は実行環境の安全性を担うが、その compromise 防止は Core の保証範囲外である。Core / Binding の通常処理での非開示責任はこの制限によって変わらない。
+
+### 4.5 依存方向
+
+component の依存方向は次とする。
+
+```text
+Application / UI → Native Binding または Web WASM Binding → Rust Wallet Core
+```
+
+Application、Binding、Transaction layer および Network layer は Core の secret lifecycle、authorization、signing authority または Store validity を代替しない。Core は UI、Browser API、OS policy または host-specific policy に依存しない。Binding 固有の判断を Core や別 Binding へ横展開せず、秘密情報処理の実装源を Core に集約する。
 
 ## 5. データ所有、秘密情報境界、lifecycle
 
-### 5.1 Profile と秘密情報
+### 5.1 Profile、Account および protected assets
 
-Profileは、固定された Mainnet / Testnet Network、Mnemonic、Derived / Imported / Generated Software Keyを所有する。MnemonicとSoftware Keyは同じ Profile password 保護単位に属する。Software Keyの由来によって、Coreの管理・認可・削除・署名利用の責任を分けない。
+Profile と Software Key の関係は次のとおりである。
 
-Mnemonicの具体的な保存表現、seedの生成、導出規則、暗号方式、保存schemaおよび入力・出力形式は仕様の責任とする。本書は、MnemonicがProfileのルート秘密情報であり、Profile lifecycleの対象であるという所有関係だけを定める。
+- Profile は Network を固定する。Profile は Chain には固定しない。
+- Profile は 1 つの Mnemonic と 0 個以上の Derived / Imported / Generated Software Key を持つ。
+- Software Key は Chain に固定する。由来にかかわらず同じ秘密鍵利用 lifecycle で扱う。
+- Account は Software Key を、その固定 Chain と Profile の固定 Network 上で利用する概念である。
+- 同一 Profile・同一 Chain では同一秘密鍵を重複管理せず、異なる Chain では同じ秘密鍵に対応する Software Key を別の利用単位として扱える。
 
-### 5.2 Store
+本設計の protected assets と継続的な security responsibility は次のとおりである。
 
-Coreは保存先を所有せず、opaque な Wallet Store を入力として完全な replacement Store を生成する。Applicationは成功した replacement Storeを環境固有のatomicな方法で保存し、Coreは更新途中の断片を外部へ返さない。
+| protected asset | 継続的な security responsibility | 境界と扱い |
+| --- | --- | --- |
+| Mnemonic | Core | Profile の root secret として Core が生成・保持・利用・破棄する。通常結果には含めず、初回 handoff または条件を満たす個別 export だけを例外とする。 |
+| Software Key private key | Core | Chain 固定の Software Key として Core が保持・利用・破棄する。通常の Application / Binding 結果には含めない。 |
+| derived secret / decrypted secret material | Core | Core が必要な処理中だけ security responsibility を持つ。通常結果、診断、pending の正常状態として返さない。 |
+| Profile password | Core の処理単位 authorization | Core は継続的に保存・cache せず、各 operation の authorization にだけ使用する。Application が一時的に扱う場合も Core の認可を代替しない。 |
+| temporary secret | 生成・利用した境界における Core の security responsibility | handoff、導出、復号、署名、export 等の必要な処理範囲に限定する。成功・失敗・中断・再起動後に継続利用可能な pending、cache または診断として残さない。 |
+| Core 管理下 Store | Core が論理状態・validity・秘密情報保護を管理 | Application は opaque blob の保存先と置換を担う。保存先へ渡された値の内部を Application / Binding が独自解釈・編集しない。 |
+| signing authority | Core | 指定 Account / Software Key に対応する秘密鍵を使う能力を Core が管理する。Application の Account 選択と利用者の署名承認は別の責任である。 |
 
-Storeの wire encoding、version、unknown field、AAD、migrationおよび公開 error は `wallet-store-format-v1.md` と `specification.md` の正本とする。Core外のApplicationは opaque blob の内部意味を解釈して編集しない。
+秘密情報の具体的な memory representation、copy、保持期間、破棄方式および zeroize の詳細は下流へ委譲する。ただし、上表の ownership、通常処理での非開示、明示的アクセスの境界および失敗時の非残留 invariant は変更しない。
 
-### 5.3 Lifecycle と失敗時責任
+### 5.2 Wallet Store の ownership と v1 version policy
 
-主要なmutationは、Profile作成・復元、Software Key登録、Profile password変更、Software Key削除およびProfile削除である。成功時は対象操作を全体として反映した replacement Storeだけを返し、失敗・中断時は既存Storeを成功状態として変更しない。
+Core は、入力された Store の version、構造、整合性および秘密情報保護を検証し、処理結果を反映した replacement Store を生成する。Application はその replacement Store を opaque blob として persistent storage へ保存する。Application が保存できなかった場合、committed old Store が正本として残り、Core の未保存 replacement は committed state ではない。
 
-新規Mnemonic生成では、Applicationによる初回backup handoffとCoreのProfile確定を分離する。handoff未完了・中断・失敗時に正常なProfileを残さず、Applicationと利用者が受渡し後のMnemonicを保管する。Profile削除ではCore管理下のMnemonicとSoftware Keyを破棄するが、削除前から利用者が保持するMnemonicによる新規Profile作成は、削除済みCoreデータの復旧とは扱わない。
+v1 の Store / Profile version policy は次のとおりである。
+
+- Core は Store / Profile version を識別する。
+- v1 Core は、v1 が明示的に対応する version だけを処理する。
+- unsupported version、unknown version、破損・不整合 data および対応できない data は reject する。
+- unsupported data を別 version と推測せず、fallback、黙った解釈・無視、暗黙 migration を行わない。
+- unknown data は意味を推測して処理せず、意味を持たない拡張として安全に保持できない場合は reject する。
+- Application は Store を opaque blob として扱い、内部を独自解釈・編集しない。unsupported version を v1 として読み替えない。
+- reject / failure 時は existing committed state を変更せず、reject された Store を正常な秘密情報として扱わない。
+
+v1 は Store / Profile version migration を提供しない。将来 migration が必要になった場合は、将来 version の Requirements → Design → Specification で source / target、明示的な開始、成功境界、失敗時の existing state 不変および秘密情報非開示を改めて設計する。端末間で opaque Store を転送することは、この schema / version migration 方針を変更しない。
+
+### 5.3 committed state、pending / partial state および lifecycle
+
+Core が Profile または Software Key の論理的な成功状態を最終確定するまで、pending / partial state は正常な committed Profile / Software Key ではない。replacement Store の persistent な committed state は Application の保存成功によって成立し、未保存 replacement は committed state ではない。pending / partial state の security responsibility、成功状態への昇格条件および stale state の拒否意味は Core が所有する。具体的な表現、保存場所および受渡し方式によらず、次を満たす。
+
+- Application は Core が成功確定していない状態を committed Profile / Software Key と扱わない。
+- Binding は pending / partial state の意味や authorization policy を独自に変更しない。
+- stale / unconfirmed pending state を通常状態として採用せず、自動的に成功状態へ昇格させない。
+- failure、interruption または restart によって secret ownership、Profile 間分離または authorization boundary を変更しない。
+- Core は、成功・失敗・中断後に一時秘密情報を通常利用可能な状態、cache または診断として残さない。
+
+主要な lifecycle は Profile 作成・復元、Derived / Imported / Generated Software Key 登録、署名、Profile password 変更、Software Key 削除、Profile 削除、初回 handoff および個別 export である。各 mutation は、成功時だけ対象の全体結果を committed state とし、失敗時には existing committed state を維持する。
 
 ## 6. 主要フロー、失敗、atomicity、再試行・再起動
 
-### 6.1 秘密情報を必要とする処理
+### 6.1 初回 Mnemonic handoff
 
-1. Applicationが対象Profileと処理に必要な入力を指定する。
-2. CoreがStoreを構造検証し、対象を一意に解決する。
-3. Coreが処理ごとのProfile password認可を行う。
-4. Coreが必要な秘密情報を一時利用し、導出・検証・署名・mutationを実行する。
-5. Coreが秘密情報を利用終了し、成功時だけ結果またはreplacement Storeを返す。
+利用者が初回バックアップを明示的に要求した新規 Mnemonic 生成経路では、次の順序と責任を成功境界とする。
 
-認証失敗、入力不正、Store破損、検証失敗または保存bytes生成失敗時は、秘密情報処理を安全側に終了し、秘密情報や部分適用を返さない。
+1. Core が完全な Mnemonic を生成する。
+2. Core がその完全な Mnemonic を意図された呼出し元 Application へ渡す。
+3. Application が完全な Mnemonic を意図された利用者へ提示する。
+4. 利用者が Mnemonic を受領したことを明示的に確認する。
+5. Application が利用者の確認成立を Core へ伝える。
+6. Core がその確認を受けた後だけ、Profile 作成を成功状態として最終確定する。
 
-### 6.2 再試行・再起動
+Application が利用者から確認を得て、その事実を Core へ伝えることが、この handoff の trust boundary である。Core は UI を提供せず、利用者が紙や外部媒体へ正しく記録したこと、または将来紛失しないことを独立検証しない。handoff 後に Core 外へ渡された Mnemonic の表示、保管および紛失防止は Application / 利用者の責任である。
 
-Coreは処理をまたぐ unlocked stateを保持しないため、再試行は入力Storeと処理入力を再提供して行う。Applicationは成功したreplacement Storeを保存できなかった場合、旧Storeを維持し、未確定の途中状態をCoreの成功状態として扱わない。Pending Profileの再利用、期限および具体的な再試行条件は仕様へ委譲する。
+Mnemonic を生成したこと、Core 内で一時保持したこと、Binding を通過したこと、Application が受け取ったこと、または Application が Core を呼び出したことだけでは Profile 作成成功にならない。確認前の状態は正常な Profile として扱わない。受領不能、提示不能、利用者の拒否・確認未成立、Application から Core への確認伝達不能、handoff 中断または Core の最終確定失敗では、新規 Profile または部分状態を成功状態として残さず、stale / unconfirmed state から通常 Profile へ自動昇格させず、Mnemonic を通常結果・失敗結果・診断へ漏らさない。
 
-### 6.3 個別エクスポート
+pending / partial state が存在する場合も、それは Core が管理する未確定状態であり、Application は committed Profile として扱わない。pending state の具体的形式や handoff の具体的な受渡し方式は下流へ委譲する。
 
-MnemonicまたはSoftware Key秘密鍵の個別エクスポートは、正しいProfile passwordを伴う明示的な要求に限定する。返却対象は要求した秘密情報だけであり、失敗時は秘密情報とStore変更を返さない。Applicationは返却後の表示・保管・紛失防止を担う。
+### 6.2 共通の secret-capable mutation
 
-## 7. Symbol / NEM、Mainnet / Testnet、Core / Binding の境界
+Profile 作成・復元、Derived / Imported / Generated Software Key 登録、Profile password 変更、Software Key 削除および Profile 削除は、次の責任分担で扱う。
 
-- Profile Networkは Mainnet / Testnet のいずれかに固定し、作成後に変更しない。
-- Software Keyは指定された Symbol または NEM Chainに固定する。
-- Chainごとの鍵、公開情報、署名およびHD導出の違いはCoreが扱う。Symbolの処理をNEMへ、MainnetをTestnetへ暗黙に流用しない。
-- Native / WASM は同一Coreの責務、認可および秘密情報公開方針を共有する。
-- Bindingはopaque byte列、公開識別情報および仕様で定めるDTOを橋渡しするが、Chain / Networkの意味検証や秘密情報処理の責任を引き取らない。
-- Chain / Network、HD導出、署名対象byte列、Store wire formatおよび error code の具体契約は仕様正本に従う。
+1. Application が対象 Profile、Account / Software Key、Chain / Network および処理入力を選択・提示する。利用者意思の明示確認が要件となる処理では、Application がその確認を成立させる。
+2. Binding は入力を Core へ橋渡しするが、入力の意味、認証、authorization または処理可否を独自に補正しない。
+3. Core が Store の version、構造、整合性、対象 Profile および Chain / Network compatibility を検証する。
+4. Core が当該 operation の Profile password を認証する。
+5. Core が必要な秘密情報を処理単位の範囲で利用し、導出、生成、検証、登録、変更または削除を行う。
+6. Core が操作全体を成功状態として最終確定し、成功した公開結果または replacement Store を返す。通常処理で秘密情報を返さない。
+7. Application が replacement Store を保存し、保存成功を committed state として扱う。保存に失敗した場合は旧 Store を維持し、未保存 replacement を採用しない。
+
+認証失敗、入力不正、unsupported / inconsistent data、Store 破損、Chain / Network mismatch、導出・生成・検証・削除・保存の失敗または中断時は、Profile、既存 Software Key、existing committed Store および秘密情報を変更・返却せず、部分適用や不完全な秘密情報を成功状態として残さない。操作は要求対象 Profile のみに作用し、他 Profile へ越境しない。
+
+### 6.3 Signing authority と署名承認
+
+署名では、Profile password authorization と利用者の署名承認を別の security property とする。
+
+Application / UI は次を担う。
+
+- 利用する Account を選択する。
+- signing payload / Transaction 内容を利用者へ提示する。
+- 利用者が内容を確認可能な状態を提供する。
+- 利用者から、その signing request に対する明示的な署名承認を得る。
+- 承認済みの signing request だけを Core へ送る。
+
+Core は次を担う。
+
+- 処理単位の Profile password authorization を行う。
+- 指定 Account / Software Key と、その Chain / Network compatibility を確認する。
+- 対応する秘密鍵を利用して signing primitive を実行する。
+- 署名結果を返す。
+
+Core は Transaction の意味解釈、内容の説明、確認 UI、利用者意思の推測または Transaction 構築を担わない。正しい Profile password であることだけでは、利用者がその signing request を承認したことにならない。Application / UI の明示承認と Core の password authorization の両方が、それぞれの責任境界で成立する必要がある。
+
+### 6.4 Explicit secret export
+
+Mnemonic または Software Key private key の export は通常処理から分離した、明示的な秘密情報アクセスである。Application / UI は次を担う。
+
+- export 対象を利用者が認識できるようにする。
+- 利用者がその秘密情報取得を明示的に要求したことを確認する。
+- Application / UI が意思を確認した要求だけを Core へ送る。
+
+Core は次を担う。
+
+- 指定された Profile、または Profile と Software Key を処理対象として解決する。
+- 当該 export operation の Profile password authorization を行う。
+- 対象指定、password authorization および確認済み explicit request が成立した場合だけ、要求された対象秘密情報を返す。
+- UI を提供せず、利用者意思を推測せず、通常処理から暗黙に export へ遷移せず、対象外秘密情報を返さない。
+
+単なる API 呼出し、Application が password を保有していること、または通常処理が成功したことだけでは explicit export の成立条件を満たさない。誤認証、意思確認のない要求、対象不存在または処理失敗時は秘密情報を返さず、Profile / Store を変更しない。成功した export の後も Mnemonic / Software Key 原本の継続管理責任は Core に残る。Core 外へ渡されたコピーの表示、保存、利用、紛失防止は Application / 利用者側の責任である。
+
+### 6.5 処理単位 authentication、retry および restart
+
+次の secret-capable operation には、共通して Core による当該 operation 単位の Profile password authorization を適用する。
+
+- signing
+- derivation
+- Imported Software Key の登録
+- Generated Software Key の登録
+- Profile password の変更
+- Mnemonic / Software Key private key の個別 export
+- Software Key の削除
+- Profile の削除
+
+authorization は当該 operation にだけ有効であり、次の operation へ持ち越さない。Core は継続 Unlocked state を持たず、Binding は unlock session / authorization cache を作らず、Application は Core の代わりとなる unlock session を保持しない。Application が以前の認証結果を次回 Core 操作の authorization として利用することもできない。restart 後に unlocked / authorized state を継続しない。
+
+retry は、必要な Store、処理入力、利用者意思の確認および Profile password authorization を改めて提供して、新しい処理として開始する。前回の authentication result、pending state または秘密情報を、次の secret-capable operation の authorization として再利用しない。failure、interruption、retry および restart は、secret ownership、committed state または authorization boundary を変更しない。
+
+## 7. Symbol / NEM、Mainnet / Testnet、Account、Core / Binding の境界
+
+- Profile は Network（Mainnet / Testnet）を固定し、Chain（Symbol / NEM）には固定しない。
+- Software Key は Chain（Symbol / NEM）に固定する。
+- Account は Software Key を、その固定 Chain と Profile の固定 Network 上で利用する概念である。
+- Application は利用 Account を選択し、利用者へ提示する。
+- Core は supported Chain、supported Network、Profile の fixed Network と requested Network、Software Key の fixed Chain と requested Chain、および Account / Software Key / Chain / Network の整合を検証する。
+- unsupported Chain / Network、不一致または不正な組合せは Core が fail-closed に reject する。reject 時は Profile、Software Key、existing committed Store および秘密情報を変更・返却しない。
+- Core は reject 時に別 Chain / Network へ fallback せず、implicit conversion も行わない。Binding はこの意味判定を代替・補正しない。
+- Symbol / NEM の Chain 固有の鍵、公開鍵、アドレス、署名、HD 導出および Network 処理は Core の責任範囲で扱うが、具体的な Chain identifier、Network identifier、byte 表現、derivation path および protocol contract は下流へ委譲する。
+- Native / Web WASM Binding は同一 Core の Chain / Network policy、authorization および秘密情報公開範囲を共有する。
 
 ## 8. 運用前提、resource、検証方針
 
-- CoreのStore入力、Profile数、Software Key数、CBOR構造および秘密情報bufferには、保存フォーマット仕様で定めるresource limitを適用する。
-- Applicationは保存先のatomic replacement、バックアップ、同期、移行および復旧の責任を明示する。
-- Web実行環境ではJavaScript、WASM runtime、Browser process内の全コピー消去を保証しない。これは秘密情報の長期保持を正当化しない。
-- Native / WASMの同一入力・同一fixtureに対する結果一致を検証境界とする。Binding固有の変換・所有権・free契約は `docs/design/bindings.md` と仕様で確認する。
-- Symbol / NEMの互換性、HD導出、Store wire format、error mappingおよび異常系は仕様・fixture・テストで検証する。Coverageだけを仕様適合性やSecurityの単独証拠としない。
+- Core は Store、Profile、Software Key、処理入力および秘密情報を外部入力として扱い、validity と compatibility を検証してから処理する。具体的な parser、validation contract、公開 error および resource limit は下流へ委譲する。
+- Application は opaque Store の保存先、atomic replacement、バックアップ、同期および端末間転送の availability を担う。ただし、その責任は Store schema / version migration の提供を意味しない。
+- v1 は Store / Profile version migration を提供しない。unsupported / unknown / corrupt / inconsistent data を別 version と推測せず、安全に扱えない場合は reject して existing committed state を維持する。
+- Web では JavaScript、WASM runtime、Browser process の全 copy 消去を Core が保証しない。Native / Desktop / Mobile でも OS / host process の compromise 防止を保証しない。いずれも通常処理での秘密情報非開示責任を弱めない。
+- Native / Web WASM の検証では、Core の同じ security invariant、責務、authorization、Chain / Network policy および公開範囲が保たれることを確認する。Binding 固有の変換、ownership、free および具体 ABI / WASM 契約は関連設計・仕様へ委譲する。
+- Handoff、explicit export、signing approval、Store reject、処理単位 authentication、atomicity、retry / restart および fail-closed の外部可視条件を、下流の仕様・実装・テストへ引き渡す。カバレッジだけを仕様適合性または security の単独証拠としない。
 
 ## 9. 採用した設計判断と代替案
 
-### 単一Rust Coreを実装源とする
+### 9.1 単一 Rust Core と全環境共通 policy
 
-- 判断: Desktop / Mobile / Webから同じRust Coreを利用し、秘密情報処理をBindingやApplicationへ複製しない。
-- 根拠: 要件の共通責任境界、同一Core利用および責任分離。
-- 代替案: 実行環境ごとに鍵管理を実装する方式は、処理差異と秘密情報の管理主体を増やすため採用しない。
-- 影響: 各環境の接続方式は異なっても、Coreの秘密情報方針と認可責任は変わらない。
-- 見直し条件: v1の対象環境または上位要件が変更され、単一Coreを維持できない場合は、責任境界と相互運用性を再評価する。
+- 判断: Desktop / Mobile / Web から同じ Rust Core を利用し、秘密情報処理、authorization、Chain / Network policy および signing primitive を Binding / Application へ複製しない。全環境で通常処理の秘密情報非開示原則を共通にする。
+- 根拠: Concept / Requirements が、共通 Core、Core の継続的 secret ownership、Binding / Application の非代替性および環境差によらない責任境界を定めている。
+- 代替案: 実行環境ごとに鍵管理や認証を実装する方式は、責任境界と外部可視動作を分散させるため採用しない。
+- 影響: Host environment の compromise 防止は保証しないが、compromise を理由に Core / Binding の非開示責任を弱めない。Native と Web / WASM の経路差は transport の差に限定する。
+- 見直し条件: v1 の対象環境、Core の責任または全環境共通 security property を変更する上位要求が承認された場合。
 
-### Profileを秘密情報管理の単位とする
+### 9.2 User intent と Core authorization の分離
 
-- 判断: Network、Mnemonic、Software KeyおよびProfile password保護をProfile単位で扱う。
-- 根拠: 要件のProfile管理モデルと、Software Key由来をまたいだ共通ライフサイクル。
-- 代替案: Software Keyごとに独立した保護単位を設ける方式は、v1のProfile password責任と異なるため採用しない。
-- 影響: Profile password変更・削除・復号のatomicityはProfile全体を対象とする。
-- 見直し条件: Profileの秘密情報単位、Network固定またはpassword責任の上位要件が変更された場合。
+- 判断: Handoff の受領確認、explicit export の取得要求、signing の明示承認は Application / UI と利用者の責任とし、Profile password authorization、secret use および成功状態の確定は Core の責任とする。password の正しさだけで user intent を成立させない。
+- 根拠: Requirements の初回 handoff、SEC-021、SEC-022 および処理単位 authentication の要求。
+- 代替案: Core が UI / 利用者行動を推測・検証する方式、または Application が password を根拠に承認を代替する方式は、trust boundary と責任の逆流を生むため採用しない。
+- 影響: Application は確認済み request のみを送信し、Core はその事実を受けて security-sensitive operation を認可・実行する。具体 UI、callback、ACK および API は固定しない。
+- 見直し条件: 上位 Requirements が利用者確認、明示 export または署名承認の責任境界を変更した場合。
 
-### Storeをopaque blobとしてApplicationへ返す
+### 9.3 Store を opaque とし、v1 migration を提供しない
 
-- 判断: Coreが検証とreplacement Store生成を行い、Applicationは保存先とatomic replacementだけを担う。
-- 根拠: Store wire仕様、Applicationへの内部意味解釈の移転禁止および失敗時部分適用禁止。
-- 代替案: ApplicationがStore fieldを直接編集する方式は、認証・AAD・unknown field保持の責任を分散させるため採用しない。
-- 影響: Store mutation、migrationおよびunknown fieldの扱いはCoreの仕様契約に従う。
-- 見直し条件: Store保存責任、wire formatまたはmigration責任の変更時。
+- 判断: Core が Store の version / validity と replacement の security responsibility を所有し、Application は opaque Store を保存・転送する。v1 は明示的に対応する version だけを処理し、migration、fallback、推測による読み替えを行わない。
+- 根拠: Requirements の v1 migration 非提供、unsupported / unknown / corrupt / inconsistent data reject、Application の opaque boundary および existing state 不変の要求。
+- 代替案: Application が Store の内部を編集・読み替えする方式、または v1 が未知 version を暗黙 migration する方式は、Store validity と秘密情報保護の責任を分散させるため採用しない。
+- 影響: Store の具体 wire / schema は下流へ委譲するが、reject、no fallback、no implicit migration、existing state preservation は下流が変更できない invariant とする。将来 migration は将来 version の Requirements → Design → Specification で再設計する。
+- 見直し条件: 将来 version で migration を提供する上位要求が承認された場合。
+
+### 9.4 committed state と fail-closed
+
+- 判断: Core が Profile / Software Key の成功状態を最終確定し、Application はその成功を確認した状態だけを committed と扱う。pending / partial state は正常状態ではなく、failure、interruption、retry、restart で既存 committed state を変更しない。
+- 根拠: Requirements の atomic / fail-closed、初回 handoff、Store replacement、秘密情報非開示および Profile 間分離の要求。
+- 代替案: Application または Binding が途中状態を正常状態へ昇格させる方式は、失敗後の部分適用と security boundary の変更を許すため採用しない。
+- 影響: replacement の具体的な保存・rollback・pending representation は下流へ委譲するが、成功境界、ownership、stale state の非採用および failure safety は一意になる。
+- 見直し条件: committed state または pending state に関する上位 Requirements が変更された場合。
 
 ## 10. 未決定事項と仕様への引継ぎ
 
-次は本書で新たに決定せず、要件・仕様の正本へ引き継ぐ。
+次の事項は、本書で責務、境界、lifecycle および invariant を決定したうえで、具体方式を下流へ引き継ぐ。本書は、下記の具体方式を新たに決定しない。
 
-- 公開 API、DTO、error code、Native ABI、WASM exportおよび所有権の詳細
-- Wallet Store / Pending Profile のwire field、version、canonical encoding、AADおよびmigration
-- Mnemonic、HD導出、Symbol / NEMの暗号・署名・アドレスに関する具体的な方式とprotocol constant
-- KDF、AEAD、salt、nonce、鍵長、署名対象byte列およびzeroizeの細かな契約
-- 対象OS・Browser、package layout、配布方式、保存先APIおよびUI
-- timeout、Pending再利用、resource上限を超えた入力の公開errorおよび個別テストケース
+- 公開 API、DTO、error code、Native C ABI、WASM export、callback、ACK、ownership transfer および外部公開の詳細
+- 初回 Mnemonic handoff の transport、確認伝達、提示方式および pending / partial state の具体形式・保存表現
+- Explicit export と signing approval の具体 UI、要求表現、確認表現および受渡し方式
+- Wallet Store / Profile の wire field、schema、version identifier の具体値、canonical encoding、未知値の表現および保存形式
+- v1 の対応 version を表す具体的な形式、Store parser、validation、公開 error、resource limit、replacement / rollback の具体方式。v1 が migration を提供しない invariant は本書で確定している
+- Mnemonic、HD 導出、Symbol / NEM の鍵・署名・アドレス・Network に関する具体方式、protocol constant、derivation path および署名対象 byte 列
+- KDF、AEAD、salt、nonce、tag、鍵長、署名方式および暗号パラメータ
+- Native / Web WASM の具体的な ABI、JavaScript 境界、byte encoding、memory representation、buffer lifetime、copy、free、zeroize および runtime 制約
+- timeout、expiry、retry count、pending state の再利用条件、rollback algorithm および個別のテストケース
+- 対象 OS / Browser、package layout、build、distribution、保存先 API および UI の具体的な方式
 
-上記が本書の責務境界やtrust boundaryを変更する場合は、先に要件と本書の整合を再確認する。
+上記の下流方式は、Core が最終確定する success boundary、per-operation authorization、全環境共通の秘密情報非開示、Account / Chain / Network compatibility、v1 reject policy、existing state preservation および Binding non-authority を変更してはならない。将来 migration だけは、将来 version の Requirements → Design → Specification で新たに設計する。
 
 ## 11. Traceability と参照資料
 
-| 設計領域 | 上流・下流参照 |
-| --- | --- |
-| 目的、対象、対象外 | `docs/consept/concept-sheet.md` §1〜§13、`docs/requirements/requirements.md` §1〜§2 |
-| Profile / Mnemonic / Software Key | `docs/requirements/requirements.md` §2、§4〜§7、`docs/specifications/specification.md` §1〜§5 |
-| 暗号化、認可、atomicity | `docs/requirements/requirements.md` §7、§10、`docs/specifications/specification.md` §6、§11〜§12 |
-| Store | `docs/specifications/specification.md` §7、`docs/specifications/wallet-store-format-v1.md` §1〜§14 |
-| Binding | `docs/requirements/requirements.md` §2.2、§12.3、`docs/specifications/specification.md` §13、`docs/design/bindings.md` |
-| Security設計 | `docs/requirements/requirements.md` §7、`docs/specifications/specification.md` §12、`docs/design/security.md` |
+### 11.1 Requirements → Architecture traceability
 
-設計判断の背景を含む過去のレビュー記録は `docs/reviews/` に履歴として残る。本書および関連する現行文書が設計・設計判断の正本である。
+| 設計領域 | Concept / Requirements の根拠 | Architecture の配置 |
+| --- | --- | --- |
+| 目的、対象環境、Core 継続管理、通常処理での非開示 | [`concept-sheet.md`](../consept/concept-sheet.md) §1、§3、§7〜§9、Requirements §1〜§2、NFR-001〜NFR-004、SEC-010、SEC-020 | §1、§3.1、§3.2、§4.1〜§4.5 |
+| Profile / Mnemonic / Software Key / Account | Requirements §2.1、DR-001〜DR-005、FR-002、FR-008、FR-013、AC-002、AC-008、AC-013 | §2.2、§5.1、§7 |
+| 初回 Mnemonic handoff の成功境界 | Requirements UC-001、FR-001、FR-019、SEC-010、SEC-017〜SEC-018、AC-001、AC-034 | §3.1、§4.3、§5.3、§6.1 |
+| 処理単位 authentication と no unlock session | Requirements FR-007、UC-005、SEC-002、SEC-007、SEC-014、AC-007、AC-027、AC-031 | §3.2、§4.2、§6.2、§6.5 |
+| Explicit secret export | Requirements UC-011、FR-022〜FR-023、SEC-010、SEC-021、AC-025〜AC-026、AC-041〜AC-043 | §3.1、§4.3、§5.1、§6.4 |
+| Signing authority と user approval | Requirements FR-009、UC-006、SEC-022、AC-009 | §2.2、§3、§4.3、§5.1、§6.3 |
+| Store ownership、atomicity、v1 migration policy | Requirements FR-017、DR-009、SEC-004、SEC-018、AC-018、AC-038、AC-045 | §1、§4.1、§4.3、§5.2〜§5.3、§6.2、§8、§9.3〜§9.4 |
+| Account / Chain / Network compatibility | Requirements FR-013、FR-024、DR-005、AC-013、AC-019、AC-020、AC-047 | §2.2、§4.1、§5.1、§6.2、§7 |
+| Failure、pending、retry、restart、Profile 間分離 | Requirements SEC-005、SEC-018〜SEC-019、AC-037〜AC-039、AC-046 | §5.3、§6.1〜§6.2、§6.5、§9.4 |
+| Binding responsibility と環境共通境界 | Requirements §2.2〜§2.4、FR-019、NFR-001〜NFR-004、SEC-011〜SEC-012、AC-015〜AC-016、AC-023〜AC-024、AC-040、AC-043 | §3、§4.2〜§4.5、§8、§9.1 |
+
+### 11.2 Source of Truth と下流参照の区分
+
+| 区分 | 資料 | 本書での扱い |
+| --- | --- | --- |
+| 上流 normative source | [`docs/consept/concept-sheet.md`](../consept/concept-sheet.md)、[`docs/requirements/requirements.md`](../requirements/requirements.md) | Architecture の目的、責任、security property、成功境界および制約を導出する根拠 |
+| 同一 Design の関連資料 | [`docs/design/security.md`](security.md)、[`docs/design/bindings.md`](bindings.md) | 責務・境界の整合確認先。Architecture の上流根拠ではない |
+| 下流委譲先・整合確認先 | [`docs/specifications/specification.md`](../specifications/specification.md)、[`docs/specifications/wallet-store-format-v1.md`](../specifications/wallet-store-format-v1.md) | API、wire、crypto、parser、具体 validation、error、Store format 等を定める下流の正本。Architecture の responsibility / ownership / trust boundary を決める根拠にはしない |
+| 履歴資料 | [`docs/reviews/`](../reviews/) | Concept / Requirements / Design の判定履歴。現行の normative source ではない |
+
+本書の設計・設計判断の正本は `docs/design/` にある。上流の Concept / Requirements と本書の dependency を維持し、Specification が先に定めた形式や実装上の都合を理由に、本書の責務・ownership・trust boundary・security architecture を変更しない。
