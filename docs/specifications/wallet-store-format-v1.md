@@ -21,6 +21,37 @@ CBOR 型その他の deterministic CBOR 違反は受理しない。これらの�
 code はすべて `InvalidStore` とする。内部 parser の error 型や decode error はこの公開契約を
 変更しない。
 
+未知 field の value は、現行 schema version の wire object 内で次の CBOR data item type
+だけを許可する。これは unknown field value の型境界であり、既知 field の schema type を
+拡張するものではない。
+
+- unsigned integer（major type 0）
+- byte string（major type 2）
+- text string（major type 3）
+- array（major type 4）
+- map（major type 5）
+
+array の各要素および map の各 value は、この許可 type 集合に再帰的に属さなければならない。
+unknown field value 内の map key も、既存 v1 規則どおり unsigned integer のみとする。
+したがって、negative integer（major type 1）、CBOR tag（major type 6）、floating-point
+value（major type 7）、simple value（major type 7）およびその他の上記集合に含まれない
+CBOR item は、unknown field の value であっても受理せず `InvalidStore` とする。boolean、null、undefined は
+simple value の具体例であり、simple value とは別の追加分類ではないため、いずれもこの拒否に含まれる。
+
+unknown field value 自体と、その array / map 内の nested value は complete CBOR item とし、
+§2 の deterministic encoding 規則をそのまま満たさなければならない。map key の並び順も、
+RFC 8949 Core Deterministic Encoding Requirements が定める各 key の deterministic encoding
+の bytewise lexicographic order に従う。すなわち、indefinite-length、integer または length
+の非最短表現、duplicate map key および同 Requirements に反する表現を許可しない。type boundary、complete item、
+deterministic encoding または後述の resource limit に違反する unknown field は warning や
+skip の対象にせず、Store 全体を `InvalidStore` とする。
+
+この許可集合は current schema version 内の unknown field value に限る。unknown field の
+意味解釈、arbitrary CBOR extension の受理、future Store / Profile schema version の受理、
+automatic migration、fallback または implicit conversion を保証しない。既知 enum field の
+未割当 unsigned integer は unknown field ではなく unknown enum として、従来どおり
+`InvalidStore` とする。
+
 次を必須とする。
 
 - map key は unsigned integer とする。
@@ -58,6 +89,12 @@ Profile / Software Key などの子オブジェクトについて、次のいず
 - 配列要素の重複または規定された canonical order 違反
 - index と payload の対応不一致
 
+unknown field の value、array / map の nested value または nested map key が §2 の許可 type
+境界、deterministic encoding 規則または resource limit に違反する場合も、unknown field を
+skip または warning 付きで受理せず、Store 操作全体を `InvalidStore` とする。これは既知 enum
+field の unknown enum とは別の type validation であり、unknown field の opaque 保持規則を
+unknown enum に適用してはならない。
+
 その他の構造不正は `InvalidStore` とする。上記の構造検証を通過した unsigned integer の
 `WalletStore.version` が未対応の場合は `UnsupportedStoreVersion`、同じ条件の
 `ProfileEnvelope.schema_version` が未対応の場合は `UnsupportedProfileSchemaVersion` とする。
@@ -87,6 +124,10 @@ decoder の error が発生した場合を含め、公開 error code `InvalidSto
 | CBOR nesting depth | 32 |
 
 上限値はlengthを読み取った後の`Vec`、`String`またはciphertext cloneの開始前に検査する。
+unknown field value の nested array / map 内にも同じ上限を再帰的に適用する。すなわち、
+unknown field であることを理由に byte / text の長さ、array / map の要素数、nesting depth
+または Store 全体の raw bytes 上限を bypass してはならない。unknown field のための新しい
+limit 値は定義せず、この表の既定値を再利用する。
 Pending ProfileはWallet Store v1のCBORではなく、既存の固定長opaque envelopeとして扱う。
 
 入力StoreまたはProfile payloadが上限を超えた場合は、子要素をskipせず`InvalidStore`とする。
@@ -294,6 +335,11 @@ SoftwareKeyIndexEntryV1 {
 `key_id` は raw 16 bytes、`chain` は §4.2 の wire 値を使用する。配列は `key_id` の raw bytes を bytewise に比較した狭義昇順で保存する。同じ Profile 内では `key_id` は Chain にかかわらず一意とし、同じ `key_id` を同一または異なる Chain の複数 entry に使用してはならない。
 
 index entry 内の未定義 map key は論理的には無視し、`key_id` と `chain` の有限写像、一覧結果および重複検証へ含めない。ただし、再出力する場合は未知 map key の key/value を lossless に保持する。既存 Profile の `software_key_index` は未知 map key を含む受信 wire 値を AAD 入力および保存値として保持する。対象 Profile を保持する mutation（Software Key 登録・削除または password change）でも、既知 field を canonical に再生成しつつ未知 map keyを保持できない場合は `InvalidStore` として mutation 全体を拒否し、replacement Store を返してはならない。Profile delete では対象 envelope を除去する。
+
+index entry 内の未定義 map key に対応する value と、その中の nested array / map value は、§2
+の unknown field value の許可 type 集合、unsigned integer map key、deterministic encoding
+および resource limit に従わなければならない。これらに違反する場合は index entry または
+unknown field を無視せず、Store 全体を `InvalidStore` とする。
 
 decode 時、`software_key_index` は `key_id` の raw bytes を bytewise に比較した狭義昇順でなければならない。順序違反、`key_id` の重複または型・長さ・値の不正は Profile 全体を `InvalidStore` として拒否する。認証・復号後、`software_key_index` と暗号化 `ProfilePayloadV1.software_keys` は同一の有限写像 `key_id -> chain` を表さなければならない。両者の要素数は等しく、各 `key_id` は双方にちょうど 1 回存在し、対応する `chain` が一致しなければならない。不一致も `InvalidStore` とする。
 
@@ -537,7 +583,7 @@ Profile encryption の AAD は次の値を **RFC 8949 Core Deterministic Encodin
 
 `registry_key` は `WalletStoreV1` key `2` の raw `bytes[32]`、`duplicate_tag` は `ProfileEnvelopeV1` key `2` の raw `bytes[32]` とする。これらの値は、StoreまたはProfileのmanifestが改変された場合に、Profile payloadのAEAD認証へ反映される。
 
-既存 Profile を decode する場合、`software_key_index` は `ProfileEnvelopeV1` key `6` の受信 wire 値を、未知 map keyを含めて同じ要素順序・整数 key・空配列表現で AAD の最後の要素として使用する。logical modelから既知 fieldだけを再構築してAADを生成してはならない。新規 Profile または対象 Profile を保持する成功 mutationでは、既知 fieldをcanonicalに再生成し、既存の未知 fieldをlosslessに保持した `software_key_index` を使用する。未知 fieldを保持できない場合は mutation を失敗させる。Profile delete では対象 envelope を除去する。いずれの場合も、別の正規化表現、`null` または省略表現へ変換してはならない。
+既存 Profile を decode する場合、`software_key_index` は `ProfileEnvelopeV1` key `6` の受信 wire 値を、未知 map key / value とその nested value を含めて、同じ要素順序・整数 key・空配列表現で AAD の最後の要素として使用する。受信 wire 値は §2 の unknown field value の型境界、deterministic encoding および resource limit を満たして受理されたものに限る。logical modelから既知 fieldだけを再構築してAADを生成してはならない。受理済み unknown field を別の type、正規化表現、`null` または省略表現へ変換してはならない。新規 Profile または対象 Profile を保持する成功 mutationでは、既知 fieldをcanonicalに再生成し、既存の未知 fieldをlosslessに保持した `software_key_index` を使用する。未知 fieldを保持できない場合は mutation を失敗させる。Profile delete では対象 envelope を除去する。
 
 これにより `software_key_index` の `key_id` または `chain` の改変を、`registry_key`、`duplicate_tag` とともに AES-256-GCM の認証によって検知する。認証・復号後は、§7.1 に従って index と暗号化 payload が同一の `key_id -> chain` 写像を表すことを検証し、不一致の場合は `InvalidStore` とする。
 
@@ -565,7 +611,7 @@ AAD により暗号文を別 Profile、Network、schema、algorithm または So
 Mutation における保存規則は次のとおりとする。
 
 - 対象外 Profile は再認証・再暗号化せず、Profile envelope と `software_key_index` の未知 fieldを含む受信 wire 値を lossless に保持して、変更前と同じ AAD を再構成できるようにする。
-- 対象 Profile を保持する成功 mutation（Software Key 登録・削除または password change）は、既知 fieldをcanonicalに再生成し、既存の未知 fieldをlosslessに保持した上で、新しい nonce と AAD で再暗号化する。未知 fieldを保持できない場合は `InvalidStore` として mutation 全体を拒否し、replacement Store を返してはならない。Profile delete では対象 envelope を除去する。
+- 対象 Profile を保持する成功 mutation（Software Key 登録・削除または password change）は、既知 fieldをcanonicalに再生成し、既存の未知 fieldをlosslessに保持した上で、新しい nonce と AAD で再暗号化する。未知 fieldを保持できない場合は `InvalidStore` として mutation 全体を拒否し、replacement Store を返してはならない。この失敗では partial mutation、unknown field の削除・normalize・別 type への変換を行わず、既存の committed state も変更しない。Profile delete では対象 envelope を除去する。
 - 対象外 Profile または対象 Profile の未知 fieldを、意味解釈せずに保存するための wire-preservation は、現行 schema version の wire object 内に限る opaque extension field の保持規則であり、将来 Store version または Profile schema version に対する一般的な forward compatibility を保証するものではない。
 
 これらは、対象 Profile のみを置換する atomicity と、対象外 Profile の ciphertext / tag / AAD を変更しない契約を同時に満たすための v1 規則である。unknown field の意味解釈、自動 migration、unsupported version の受理は提供しない。unknown enum は引き続き fatal error とする。
