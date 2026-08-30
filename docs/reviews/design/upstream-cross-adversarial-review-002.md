@@ -300,8 +300,8 @@ Applicable Design Review Skill の標準8 Gate と、今回の横断 Gate を対
 - 実施: Core ownership、Application responsibility、Binding non-authority、Profile model、Chain / Network、Store fail-closed、secret lifecycle、handoff、assertion、failure path を確認した。
 - 実施: Malicious Application、Compromised Binding、Attacker-controlled Store、Replay attacker、Confused deputy、Cross-chain / cross-network、Secret lifecycle、Failure path の8シナリオを再実行した。
 - 実施: Specification の generated / restore、confirmation / approval、retry / restart、current Store / rollback、SEC-023 handoff への影響を、Wallet Store Format の version / schema / migration / currentness 影響と分離して分類した。
-- 実施: Review artifact 作成後に Markdown の標準章順、relative link、DR finding ID の一意性、status、severity / gate consistency、traceability、adversarial coverage、scope を機械的に確認する。
-- 実施予定: artifact 作成後に `git diff --check` および `git diff --cached --check` を実行する。未 staged 状態でも後者を実行し、結果を区別する。
+- 実施: Review artifact 作成後に Markdown の標準章順、relative link、DR finding ID の一意性、status、severity / gate consistency、traceability、adversarial coverage、scope を機械的に確認し、すべて通過した。
+- 実施: `git diff --check` および `git diff --cached --check` を実行し、両方とも通過した。未 staged 状態と staged 状態を区別して確認した。
 - 未実施: Rust formatter、clippy、cargo test、WASM check、Native / WASM 実行検証。コード変更がなく、今回の依頼でも対象外である。
 - 未実施: Specification Review、Wallet Store Format Review、Implementation Review。downstream consistency の抽出に限定した。
 
