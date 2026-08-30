@@ -68,15 +68,15 @@ Implementation
 | Actor / boundary | Security responsibility | Core との関係 |
 | --- | --- | --- |
 | 利用者 | 初回 Mnemonic handoff の受領確認、署名承認、明示的 export の要求、および Core 外へ受け取った秘密情報 copy の保管 | Core は利用者の UI 操作、紙・外部媒体への保存または将来の紛失を独立検証しない |
-| Desktop Application / Mobile Application | UI、利用者への表示、Account 選択、handoff、export、signing の確認・承認取得、opaque Store の保存・置換 | Core 管理下 secret の継続 owner、Core authorization または signing authority にはならない |
-| Web Application / Browser Extension | Web 固有の UI / state、利用者確認、opaque Store の保存および Web 実行環境との連携 | Browser / host の安全性は別責任であり、Core の通常非開示 invariant を弱めない |
+| Desktop Application / Mobile Application | UI、利用者への表示、Account 選択、handoff、export、signing の確認・承認取得、opaque Store の current-state selection、保存・置換および stale / historical Store の再適用防止 | Core 管理下 secret の継続 owner、Core authorization または signing authority にはならない。assertion freshness と current Store authority は Application / persistence layer の責任である |
+| Web Application / Browser Extension | Web 固有の UI / state、利用者確認、opaque Store の current-state selection、保存・置換および Web 実行環境との連携 | Browser / host の安全性は別責任であり、Core の通常非開示 invariant を弱めない。assertion freshness と historical Store rollback prevention は Application / persistence layer の責任である |
 | Native Binding | Application と Core の間の値・ownership・lifecycle の橋渡し | Core の security decision、認証、暗号、導出、署名意味、Store 意味を代替しない |
 | Web / WASM Binding | Web Application / Browser Extension と Core の間の値・ownership・lifecycle の橋渡し | JavaScript / Browser と同じ実行 context でも、Native と異なる secret policy を持たない |
-| Rust Core | secret ownership、processing-unit authentication、Store validity、Chain / Network compatibility、signing primitive、成功状態の確定および失敗時保護 | 秘密情報とその security meaning の継続 owner。UI、Transaction 意味、host security を担わない |
+| Rust Core | secret ownership、processing-unit authentication、入力 Store の validity、Chain / Network compatibility、signing primitive、成功状態の確定および失敗時保護 | 秘密情報とその security meaning の継続 owner。UI、Transaction 意味、Application assertion freshness、Store currentness または host security を担わない。過去に返した Store を永続記憶しない stateless processor である |
 | Browser | Web の実行環境およびその安全性 | Core の秘密情報隔離境界または host compromise 防止保証ではない |
 | OS | Desktop / Mobile の実行環境およびその安全性 | Core の host compromise 防止保証ではない |
 | host process | Application と Binding の実行・保持環境 | 侵害防止は Core の保証外。ただし Core / Binding の非開示責任は維持する |
-| persistent storage | Application が選択する opaque Store の保存先 | Store の内部を解釈せず、Core の validity 判断を代替しない。読み込み値は attacker-controlled input になり得る |
+| persistent storage | Application が選択する opaque Store の保存先および current Store の保持先 | Store の内部を解釈せず、Core の validity 判断を代替しない。Application / persistence layer は current Store の選択、replacement の適用、stale / historical Store の再適用防止を担う。読み込み値は attacker-controlled input になり得る |
 | Transaction layer | Transaction の構築、内容の提示に必要な情報およびシリアライズ | Core の署名 authority、意味判断または利用者承認を代替しない |
 | Network layer | REST、WebSocket、announce 等の通信 | Core の秘密情報管理、Chain / Network policy または署名承認を代替しない |
 
@@ -88,6 +88,9 @@ Desktop、Mobile、Web、Native および Web / WASM のすべてで、次を共
 - Application / Binding は input、初回 handoff または明示的 export の受渡しを一時的に mediation できるが、Core とは別の継続的な secret authority にならない。
 - Core 管理下の secret は通常処理の結果として返さない。初回 Mnemonic handoff と条件を満たす個別 export の成功結果だけが明示的な例外である。
 - Profile password authorization は Core が operation ごとに担う。Binding / Application は security decision、unlock session または authorization cache により代替しない。
+- Handoff confirmation、export confirmation および signing approval の freshness は Application / UI が担う。Core は Application が実際に表示・確認・承認を取得したこと、または assertion が fresh であることを独立には証明しない。
+- Core は過去の operation の authorization、pending または秘密情報を次の operation へ暗黙に持ち越さず、pending を confirmation なしに committed へ昇格させない。
+- Core は stateless な opaque Store processor として、現在の operation に入力された Store の validity、integrity、consistency および mutation を処理する。過去に返した Store を記憶せず、valid historical Store の freshness または rollback を単独では検出・拒否しない。
 - Application、Browser、OS または host process の compromise 自体を Core が防止する保証はない。
 - host compromise を保証しない場合でも、Core / Binding の通常処理における非開示、authorization boundary、failure safety および non-authority の責任は弱まらない。
 
@@ -105,20 +108,21 @@ Core は次を所有する。
 - Profile / Software Key が正常な committed state になったことの成功確定
 - failure、interruption、保存失敗および不正入力時の existing committed state 保護、Profile isolation および秘密情報非開示
 
-Core は UI を提供せず、利用者の intent を推測せず、Transaction を構築・説明・解釈せず、保存先の availability を所有しない。
+Core は UI を提供せず、利用者の intent または Application assertion の freshness を推測・独立検証せず、Transaction を構築・説明・解釈せず、保存先の availability を所有しない。
 
 ### 4.2 Application / UI
 
 Application / UI は次を担う。
 
 - 利用者操作、公開情報の表示、Account の選択および利用者への提示
-- 初回 Mnemonic handoff の提示と、利用者の明示的な受領確認の取得
+- 初回 Mnemonic handoff の提示と、利用者の明示的な受領確認の取得。新規 Mnemonic 生成では常に handoff confirmation を完了させる
 - explicit export の対象表示、秘密情報取得要求の確認および確認済み request だけの送信
 - signing payload / Transaction 内容の提示、利用者が確認できる状態の提供、明示的な signing approval の取得および approved request だけの送信
-- Core が返す opaque Store の保存、置換、バックアップ、同期および端末間 transfer
+- Core が返す opaque Store の current Store としての選択、保存、replacement の適用、バックアップ、同期および端末間 transfer。stale / historical Store の再適用防止と最新版 snapshot の管理を含む
+- handoff、export および signing における現在の operation の利用者確認・承認 assertion の freshness 管理。過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用しない
 - handoff / export により Core 外へ渡った秘密情報 copy の表示、保管、利用および紛失防止
 
-Application / UI は Core 管理下の secret、signing authority、Profile password authorization または Store の内部意味の正本にならない。
+Application / UI は Core 管理下の secret、signing authority、Profile password authorization または Store の内部意味の正本にならない。Application が current Store の選択と freshness を担うことは、Core の Store validity 判断を代替することを意味しない。
 
 ### 4.3 Binding と依存方向
 
@@ -141,7 +145,7 @@ Binding は暗号、認証、Mnemonic validation、導出、署名、Store / pen
 | derived secret / decrypted secret material | Core が必要な処理中だけ security responsibility を持つ | 導出、復号、署名、保存更新等の処理に限定する | 不可 | 通常の明示 export の対象そのものとして仕様上許可される場合を除き不可 | pending、cache、診断または通常利用可能状態へ残さない | 目的の処理が終了または失敗した後、継続利用可能な状態として保持しない |
 | Profile password | Core が各 operation の authorization を担う。password を継続保存・cache しない | 利用者、Application または Binding が入力を一時的に mediation できる | Core から返さない。診断・結果にも含めない | authorization のために要求された operation へ入力する場合のみ | 認証失敗・中断時に authorization を成立させず、以前の結果を再利用しない | operation の authorization 終了後に、次 operation の権限または継続 Unlocked state として残さない |
 | temporary secret | 生成・利用した処理に対する Core の security responsibility。Binding は自身の境界内の一時値を管理する | handoff、導出、復号、署名、export 等の必要範囲だけ | 不可 | 明示 handoff / export の成功結果に含まれる対象 secret のみ | failure、interruption、retry または restart 後に通常利用可能状態、cache、診断へ残さない | Core / Binding が自身の責任範囲で lifecycle 終了を扱い、継続 owner や永続 copy を作らない |
-| Core 管理下 Wallet Store | Core が logical state、version、validity、integrity、consistency および秘密情報保護を管理 | Application が opaque blob を保存・転送・置換する | 内部 secret または復元可能表現を通常結果・診断へ出さない | Core が成功した replacement を Application が opaque に保存する場合のみ | reject / 保存失敗時に existing committed state を維持し、未対応入力を正常な secret として扱わない | Core の committed state として確定した値だけを正本とし、Application の独自解釈・編集を許さない |
+| Core 管理下 Wallet Store | Core が入力 Store の logical state、version、validity、integrity、consistency および秘密情報保護を管理 | Application / persistence layer が opaque blob の current Store authority として保存・転送・replacement 適用・stale / historical Store の再適用防止を担う | 内部 secret または復元可能表現を通常結果・診断へ出さない | Core が成功した replacement を Application が opaque に current Store として適用する場合のみ | reject / 保存失敗時に existing committed state を維持し、未対応入力を正常な secret として扱わない | Core は過去 Store を記憶せず、valid historical Store の freshness / rollback を単独で保証しない。Application の独自解釈・編集は許さない |
 | signing authority | Core が指定 Account / Software Key に対応する署名能力を管理 | Application が Account と signing request を選択・提示し、Binding が受渡しを mediation する | private key を公開せず、通常結果は署名結果に限定する | Core が authorization、compatibility、承認済み request の条件を満たして署名結果を返す場合 | account / chain / network 不整合、認証失敗または署名失敗時に署名能力・秘密鍵・既存状態を変更しない | Software Key / Profile の削除後に signing authority を再利用しない |
 | pending / partial state に含まれ得る秘密情報 | Core が security meaning、success promotion 条件および失敗時の扱いを管理 | Application / Binding は未確定値を受渡し・保存する場合も opaque に扱う | committed state、通常結果または診断として公開しない | 成功境界を満たした後に Core が committed state として確定する場合のみ | stale / unconfirmed state を自動昇格せず、failure / interruption / restart 後に秘密情報を通常利用可能にしない | 未確定状態を次 operation の authorization、秘密情報または committed state として再利用しない |
 
@@ -151,7 +155,7 @@ Mnemonic / Software Key の原本について、Application / Binding の input�
 
 ### 5.2 共通 lifecycle 原則
 
-generation、restoration、import、derivation、use、signing、persistence、replacement、deletion のすべてで、secret の security meaning と owner を Core から外さない。成功時だけ対象の全体結果を committed state とし、failure / interruption 時は既存の committed state、Profile isolation および authorization boundary を維持する。
+generation、restoration、import、derivation、use、signing、persistence、replacement、deletion のすべてで、secret の security meaning と owner を Core から外さない。成功時だけ対象の全体結果を committed state とし、failure / interruption 時は既存の committed state、Profile isolation および authorization boundary を維持する。Application / persistence layer が current Store を選択・保持することは、Core の Store validity / integrity 判断を代替しない。
 
 Profile パスワード変更、Software Key 削除および Profile 削除も同じ Core ownership と processing-unit authentication の境界で扱う。削除前から利用者が保持する Mnemonic による新しい Profile 作成は、削除済み Core data の復旧・再利用とは別の外部入力であり、本書はその Core 外 copy の保護責任を利用者 / Application に置く。
 
@@ -171,13 +175,13 @@ Profile パスワード変更、Software Key 削除および Profile 削除も�
 - Software Key deletion
 - Profile deletion
 
-Core は operation ごとに Profile password を認証し、authorization をその operation だけに有効とする。次の operation へ持ち越さない。Core に継続 Unlocked state を持たせず、Binding は unlock session / authorization cache を作らず、Application は Core の代替 unlock session を保持しない。previous authentication result を次の operation の authorization として使わない。retry は再認証であり、restart 後に authorization state を継続しない。
+Core は operation ごとに Profile password を認証し、authorization をその operation だけに有効とする。次の operation へ持ち越さない。Core に継続 Unlocked state を持たせず、Binding は unlock session / authorization cache を作らず、Application は Core の代替 unlock session を保持しない。previous authentication result を次の operation の authorization として使わない。retry は再認証であり、restart 後に authorization state を継続しない。Handoff、export および signing の confirmation / approval assertion は現在の operation に結び付いたものを Application / UI が fresh に取得し、過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用しない。Core は assertion freshness を独立には証明しない。
 
 具体的な token、session API、password の memory representation は下流へ委譲する。authorization の責任主体と持続範囲は下流の方式によって変更できない。
 
 ### 6.2 初回 Mnemonic handoff
 
-利用者が初回バックアップを明示的に要求した新規 Mnemonic 生成経路では、次の 6 段階を handoff の成功境界とする。
+すべての新規 Mnemonic 生成では、次の 6 段階を handoff の成功境界とする。handoff を行わない新規生成経路は v1 で提供しない。既存 Mnemonic の restore はこの生成時 handoff confirmation の対象外とし、Mnemonic validity、password、Store、duplicate 等の通常 restore 条件に従う。
 
 1. Core が完全な Mnemonic を生成する。
 2. Core が意図された Application へ完全な Mnemonic を渡す。
@@ -190,7 +194,7 @@ Mnemonic の生成、Core 内での一時保持、Binding の通過、Applicatio
 
 受領不能、提示不能、利用者の拒否・未確認、Application から Core への確認伝達不能、handoff の中断または最終確定失敗では、Core は partial Profile を成功状態として残さず、stale / unconfirmed state を自動昇格させず、Mnemonic を通常結果、失敗結果または診断へ漏らさない。既存の committed state は壊さない。
 
-Core は UI を担当せず、利用者が紙・外部媒体へ保存したことまたは将来紛失しないことを独立検証しない。handoff 後の Core 内 Mnemonic 原本は Core が継続管理し、Core 外 copy の表示・保管・紛失防止は Application / 利用者が担う。callback、ACK、Pending Profile、transport および具体的な確認表現は下流へ委譲する。
+Core は UI を担当せず、利用者が紙・外部媒体へ保存したことまたは将来紛失しないことを独立検証しない。handoff confirmation の freshness は Application / UI が管理し、過去に保存した確認済み assertion を新しい利用者意思として再利用しない。Core は Application が実際に Mnemonic を提示し、利用者が確認したこと、または assertion が fresh であることを独立には証明しない。handoff 後の Core 内 Mnemonic 原本は Core が継続管理し、Core 外 copy の表示・保管・紛失防止は Application / 利用者が担う。callback、ACK、Pending Profile、transport および具体的な確認表現は下流へ委譲する。
 
 ### 6.3 Explicit secret export
 
@@ -199,8 +203,9 @@ Mnemonic および Software Key private key の export は、通常処理とは�
 #### Application / UI と利用者
 
 - export 対象を明示する。
-- 利用者が秘密情報取得を明示的に要求したことを確認する。
-- Application / UI が user intent を確認し、confirmed request だけを Core へ送る。
+    - 利用者が現在の export operation について秘密情報取得を明示的に要求したことを確認する。
+    - 過去に保存した `Confirmed` / `Requested` assertion を新しい利用者意思として再利用せず、assertion freshness を管理する。
+    - Application / UI が user intent を確認し、fresh な confirmed request だけを Core へ送る。
 
 #### Core
 
@@ -209,7 +214,7 @@ Mnemonic および Software Key private key の export は、通常処理とは�
 - target、user intent、confirmed request および authorization が成立した場合だけ対象 secret を返す。
 - UI を持たず、user intent を推測せず、通常処理から暗黙に export へ遷移せず、対象外 secret を返さない。
 
-**Profile password authorization != user intent confirmation** である。password が正しいこと、Application が password を保持していること、または通常 operation が成功したことだけでは export の成立条件にならない。
+**Profile password authorization != user intent confirmation** である。password が正しいこと、Application が password を保持していること、または通常 operation が成功したことだけでは export の成立条件にならない。Core は target、payload、AccountContext および渡された assertion を仕様どおり検証するが、Application が表示・確認を取得したことや assertion の freshness を独立には証明しない。v1 Core に challenge、nonce、expiry または one-shot token による freshness 機構は追加しない。
 
 成功時も Core 内原本の継続 owner は Core であり、Core 外 copy の表示・保管・利用・紛失防止は Application / 利用者の責任である。誤認証、意思確認のない要求、対象不存在または処理失敗時は secret を返さず、Profile / Store を変更しない。具体的な UI、request field、export buffer および受渡し方式は下流へ委譲する。
 
@@ -221,6 +226,7 @@ Mnemonic および Software Key private key の export は、通常処理とは�
 - signing payload / Transaction 内容を利用者へ提示する。
 - 利用者が内容を確認可能な状態を提供する。
 - 利用者から明示的な signing approval を得る。
+- 過去に保存した `Approved` assertion を新しい利用者意思として再利用せず、現在の signing operation に対する approval assertion の freshness を管理する。
 - approved request だけを Core へ送信する。
 
 #### Core
@@ -230,15 +236,19 @@ Mnemonic および Software Key private key の export は、通常処理とは�
 - 対応する private key を利用して signing primitive を実行する。
 - 署名結果を返す。
 
-**Profile password authorization != signing approval** である。Core は Transaction の意味判断、内容説明、UI、user intent の推測または Transaction 構築を担わない。ただし raw payload に対する signing primitive であることは、Application が利用者承認なしに任意 payload を Core へ送ってよいことを意味しない。Application の明示承認と Core の password authorization は、それぞれの責任境界で成立しなければならない。
+**Profile password authorization != signing approval** である。Core は Transaction の意味判断、内容説明、UI、user intent の推測または Transaction 構築を担わない。ただし raw payload に対する signing primitive であることは、Application が利用者承認なしに任意 payload を Core へ送ってよいことを意味しない。Application の明示承認と Core の password authorization は、それぞれの責任境界で成立しなければならない。Core は Application が実際に提示・承認を取得したことや approval assertion の freshness を独立には証明しない。
 
 ### 6.5 Store security、version および migration
 
 Wallet Store は attacker-controlled input になり得る境界として扱う。
 
-Core は、Store / Profile version を識別し、validity、integrity および consistency を検証する。v1 は明示的に対応する version だけを処理する。unsupported version、unknown version、corrupt data、不整合 data および安全に対応できない data は fail-closed に reject する。Core は意味を推測せず、別 version と読み替えず、fallback、黙った解釈・無視または implicit migration を行わない。reject された data から秘密情報処理を成功させない。
+Core は、現在の operation に入力された Store / Profile version を識別し、validity、integrity および consistency を検証する。v1 は明示的に対応する version だけを処理する。unsupported version、unknown version、corrupt data、不整合 data および安全に対応できない data は fail-closed に reject する。Core は意味を推測せず、別 version と読み替えず、fallback、黙った解釈・無視または implicit migration を行わない。reject された data から秘密情報処理を成功させない。
 
-reject / failure 時は既存の committed state を変更せず、secret を外へ返さず、reject data を正常な秘密情報として扱わない。Application / Binding は Store を opaque として保存・転送するだけであり、内部を独自解釈・編集せず、unsupported version を v1 と読み替えず、Core の Store security policy を代替しない。
+reject / failure 時は既存の committed state を変更せず、secret を外へ返さず、reject data を正常な秘密情報として扱わない。Application / Binding は Store を opaque として保存・転送するだけであり、内部を独自解釈・編集せず、unsupported version を v1 と読み替えず、Core の Store security policy を代替しない。Application / persistence layer は current Store authority として、Core が成功した replacement の適用、stale / historical Store の再適用防止および最新版 snapshot の管理を担う。
+
+Core は過去に返した Store snapshot を永続記憶しないため、authentication / integrity に成功する valid historical Store が削除・変更前の snapshot であることを単独で知ることができず、valid historical Store の freshness または rollback を検出・拒否する保証を持たない。これは malformed、tampered、authentication failure、unsupported version または inconsistent Store を fail-closed に reject する責任を弱めない。削除成功時の replacement Store と Application が current Store として正しく適用した committed state における削除済み秘密情報の non-reuse は SEC-005 の範囲で維持する。
+
+脅威モデル上、Application または persistent storage を操作できる攻撃者が、削除・変更前に取得した正当な Store snapshot を current Store として再提示する valid historical rollback を想定する。この snapshot は暗号認証・構造検証に成功し得るため、Core 単独では malformed / tampered Store と区別できない。rollback の再適用防止、current Store の最新版選択および rollback protection が必要な場合の上位機構は Application / persistence layer の責任であり、v1 Core の保証対象外である。
 
 v1 は Store / Profile version migration を提供しない。将来 migration を提供する場合は、将来 version の Requirements → Design → Specification で source / target、明示的な開始、成功境界、失敗時の existing committed state 不変および秘密情報非開示を改めて定義する。具体的な parser、serialization、field、version 表現、error および migration 手順は下流へ委譲する。
 
@@ -253,7 +263,9 @@ failure または interruption の後は、次を維持する。
 - temporary / decrypted secret を通常利用可能状態、diagnostic または cache に残さない。
 - partial Profile、partial Software Key または未保存 replacement を成功状態として扱わない。
 
-retry は新しい operation とする。必要な Store、入力、利用者確認および Profile password authorization を再提供・再取得し、previous authentication result、stale pending または temporary secret を次 operation の authorization として再利用しない。
+retry は新しい operation とする。必要な Store、入力、現在の operation に対する fresh な利用者確認および Profile password authorization を再提供・再取得し、previous authentication result、stale pending または temporary secret を次 operation の authorization として再利用しない。Core は再提出された assertion の freshness を独立には証明せず、Application が過去に保存した確認・承認を新しい利用者意思として再利用しないことを要求する。
+
+脅威モデル上、悪意ある Application が過去 operation の `Approved`、`Confirmed` または `Requested` assertion を現在の operation のものとして再提出する replay を想定する。Core は UI 表示、実際の利用者操作または Application 内での保存・再利用を独立に証明しないため、この Application compromise を完全に防止する保証は持たない。Core が保証するのは、内部の authorization / pending state を operation 間で暗黙に持ち越さないこと、request の target / payload / AccountContext と渡された assertion を仕様どおり検証すること、および confirmation なしで pending を committed に昇格させないことである。
 
 restart 後は unlocked state、authorization state または未確認 pending を復元しない。pending の具体的な形式、timeout、rollback、再利用条件および memory lifetime は下流へ委譲する。
 
@@ -276,14 +288,11 @@ Symbol / NEM、Mainnet / Testnet の Chain 固有処理、鍵、公開情報、�
 
 ### 8.1 Side-channel に関する Design-level invariant
 
-- secret-dependent behavior による不要な timing / side-channel exposure を避ける責任を持つ。
-- secret-dependent control flow、memory access その他の処理形状が side-channel risk を生む可能性を Implementation で考慮する。
-- cryptographic secret handling の side-channel responsibility は Core 実装にある。Binding は Core の responsibility を代替しない。
-- Design が保証する security intent と、compiler、target、dependency、runtime、OS、host process 等の保証外範囲を区別する。
-- Specification、Implementation および release verification は、本書の side-channel invariant と保証境界を受け取り、具体的な検証責任を定める。
-- 単純な wall-clock threshold だけを security guarantee の唯一の根拠にしない。
-
-特定の関数、byte-array arithmetic、固定 loop、mask、carry / borrow、intermediate value、stack / register、machine code または assembly inspection の具体方式は本書で固定しない。
+- Requirements `SEC-023` に基づき、Core 自身が実装・管理する秘密情報処理では、secret-dependent control flow、secret-dependent timing behavior または secret-dependent data access を不必要に導入しない。
+- この invariant の責任主体は Core である。Binding は Core の side-channel responsibility を代替せず、Application compromise を完全に防止する責任も負わない。
+- 本設計の保証範囲は Core 自身が導入する不要な秘密依存の処理形状を対象とする。third-party cryptographic library の内部、compiler、runtime、OS、browser、hardware または CPU microarchitecture における完全な side-channel absence は保証対象外である。
+- Specification、Implementation および release verification は、SEC-023 と本保証境界を受け取り、具体的な実装・依存関係・target ごとの検証責任を定める。
+- 特定の constant-time library、assembly inspection、third-party library fork、zeroize technique、compiler option または side-channel test tool は本書で固定しない。単純な wall-clock threshold だけを security guarantee の唯一の根拠にもしない。
 
 ### 8.2 Zeroization、secret lifetime および memory responsibility
 
@@ -317,24 +326,24 @@ v1 では、第三者暗号ライブラリ内部の temporary の完全消去だ
 
 ### 9.2 User intent と Core authorization を分離する
 
-- 判断: handoff の受領確認、explicit export の取得要求および signing approval は Application / UI と利用者、Profile password authorization と secret use は Core の責任とする。
-- 根拠: Requirements の handoff、explicit export、signing approval および processing-unit authentication、Architecture の user intent / authorization boundary。
+- 判断: handoff の受領確認、explicit export の取得要求、signing approval および assertion freshness は Application / UI と利用者、Profile password authorization と secret use は Core の責任とする。Core は Application の表示・確認・承認を独立検証せず、過去 operation の authorization / pending state を暗黙に再利用しない。
+- 根拠: Requirements の handoff、explicit export、signing approval、AC-050 および processing-unit authentication、Architecture の user intent / authorization boundary。
 - 代替案: password 所有だけで利用者意思を推定する方式、または Core が UI / 人間の行動を独立検証する方式は、責任境界を混同するため採用しない。
-- 影響: export と signing の両方で、利用者側の確認と Core 側の authorization を別々に引き継げる。
+- 影響: export と signing の両方で、利用者側の fresh な確認・承認と Core 側の per-operation authorization を別々に引き継げる。Core は assertion の freshness を独立には証明せず、v1 に challenge、nonce、expiry または one-shot token を追加しない。
 - 見直し条件: 利用者確認または Core authorization の責任を変更する上位 Requirements が承認された場合。
 
-### 9.3 Store を opaque とし、v1 migration を提供しない
+### 9.3 Store を opaque とし、current Store authority を Application に置く
 
-- 判断: Core が Store security responsibility と reject policy を所有し、Application / Binding は opaque data を保存・転送する。v1 は version migration を提供しない。
-- 根拠: Requirements の Store version、fail-closed、no fallback、no guessed interpretation、no implicit migration および existing state preservation、Architecture の Store boundary。
-- 代替案: Application の独自解釈または v1 の暗黙 migration は、attacker-controlled input に対する trust transition と責任を分散させるため採用しない。
-- 影響: 将来 migration は将来 version の Requirements → Design → Specification で改めて定義し、現行 v1 の reject invariant を維持する。
+- 判断: Core が入力 Store の security responsibility と reject policy を所有し、Application / persistence layer は opaque data の current Store authority、replacement の適用、stale / historical Store の再適用防止および最新版 snapshot の管理を担う。v1 は version migration を提供しない。Core は過去に返した Store を永続記憶せず、valid historical Store の freshness または rollback を単独で検出・拒否しない。
+- 根拠: Requirements の Store version、fail-closed、no fallback、no guessed interpretation、no implicit migration、SEC-005、AC-048、Application の current Store responsibility および existing state preservation、Architecture の Store boundary。
+- 代替案: Core に monotonic counter、trusted persistent generation、rollback database、revocation list、external trusted anchor または server dependency を追加する方式は、stateless な Core 方針と v1 の責任境界を変更するため採用しない。Application の独自解釈または v1 の暗黙 migration も、attacker-controlled input に対する trust transition と責任を分散させるため採用しない。
+- 影響: 将来 migration は将来 version の Requirements → Design → Specification で改めて定義し、現行 v1 の reject invariant を維持する。current-state selection、successful replacement の適用および historical rollback prevention は Application / persistence layer に引き継ぐ。Core の削除 guarantee は、Application が current Store として正しく選択した committed state と successful replacement の状態に限る。
 - 見直し条件: 将来 version の migration を提供する上位 Requirements が承認された場合。
 
 ### 9.4 Design invariant と Implementation technique を分離する
 
-- 判断: side-channel、secret lifetime、不要 retention、failure 後非残留および guarantee boundary を本書で定め、具体的な crypto / memory technique は下流へ委譲する。
-- 根拠: Requirements の下流委譲および Architecture の security invariant。
+- 判断: Requirements `SEC-023` に対応する side-channel property、secret lifetime、不要 retention、failure 後非残留および guarantee boundary を本書で定め、具体的な crypto / memory technique は下流へ委譲する。
+- 根拠: Requirements `SEC-003`、`SEC-012`、`SEC-015`、`SEC-017`、`SEC-023` および Architecture の security invariant。
 - 代替案: 特定の arithmetic、buffer、pointer、zeroize 手法を本書に固定する方式は、別の安全な実装方式を不必要に排除するため採用しない。
 - 影響: 下流が具体方式を選択・検証できる一方、Core ownership、非開示、authorization、failure safety および side-channel intent は変更できない。
 - 見直し条件: 上位 Requirements または Architecture が具体的な保証範囲を変更した場合。
@@ -345,23 +354,23 @@ v1 では、第三者暗号ライブラリ内部の temporary の完全消去だ
 
 ### Specification へ引き継ぐもの
 
-- 初回 Mnemonic handoff の 6 段階、確認前非 committed、失敗時非開示および既存状態保護
-- explicit export の target、user intent、confirmed request、processing-unit authorization、対象外非返却および状態不変
-- signing の Application approval、Core authorization、Account / Software Key / Chain / Network compatibility および raw signing primitive の責任分界
-- Store の version 識別、対応 version 限定、unsupported / unknown / corrupt / inconsistent reject、no fallback、no guessed interpretation、no implicit migration および existing state preservation
+- 初回 Mnemonic handoff の 6 段階、全新規生成への適用、restore の対象外化、確認前非 committed、失敗時非開示および既存状態保護
+- explicit export の target、fresh な user intent、confirmed request、processing-unit authorization、対象外非返却および状態不変
+- signing の Application approval、approval assertion freshness、Core authorization、Account / Software Key / Chain / Network compatibility および raw signing primitive の責任分界。Application が実際に提示・承認したことや assertion の freshness は Core が独立証明しない
+- Store の version 識別、対応 version 限定、unsupported / unknown / corrupt / inconsistent reject、no fallback、no guessed interpretation、no implicit migration および existing state preservation。Core は stateless で valid historical Store の freshness / rollback を保証せず、current Store authority、replacement 適用および stale / historical Store の再適用防止は Application / persistence layer が担う
 - Account / Chain / Network の固定関係、Core の compatibility reject、fallback / implicit conversion 禁止
 - pending / partial の非 committed 性、stale 非昇格、failure / retry / restart の authorization・ownership・state invariant
-- 全環境共通の secret non-disclosure、Binding non-authority、processing-unit authentication および user intent 分離
+- 全環境共通の secret non-disclosure、Binding non-authority、processing-unit authentication、user intent 分離および SEC-023 side-channel property とその保証外範囲
 
 ### Implementation / release verification へ引き継ぐもの
 
-- side-channel risk を避ける具体的な crypto implementation と対象 target / compiler / dependency / runtime の保証確認
+- SEC-023 に適合する side-channel risk 回避の具体的な crypto implementation と対象 target / compiler / dependency / runtime の保証確認。third-party cryptographic library、compiler、runtime、OS、browser、hardware および CPU microarchitecture の完全な side-channel absence は Core の保証外として扱う
 - secret lifetime、unnecessary retention、zeroization、copy、allocator、FFI、pointer および ownership の具体的実現
 - parser、validation、resource limit、error、fuzz、test、fixture および assembly / release verification の具体方式
 
 ### 本書で決めない事項
 
-API / ABI、DTO、request field、callback / ACK、wire / schema、version identifier、error code、KDF、AEAD、nonce、salt、key length、署名対象 byte 列、derivation path、buffer type、copy count、free semantics、memory layout、zeroize API、timeout、rollback、UI、Browser 固有 API および保存先 API は本書で固定しない。
+API / ABI、DTO、request field、callback / ACK、wire / schema、version identifier、error code、KDF、AEAD、nonce、salt、key length、署名対象 byte 列、derivation path、buffer type、copy count、free semantics、memory layout、zeroize API、timeout、UI、Browser 固有 API および保存先 API は本書で固定しない。Application / persistence layer における current Store の選択、replacement の適用、stale / historical Store の再適用防止および上位 rollback protection の具体方式も固定しない。Core に challenge、nonce、expiry、one-shot token、rollback counter または trusted anchor を追加する方式は v1 で採用しない。
 
 ## 11. Traceability と参照資料
 
@@ -373,13 +382,13 @@ API / ABI、DTO、request field、callback / ACK、wire / schema、version ident
 | Profile / Mnemonic / Software Key / Account | Requirements §2.1、DR-001〜DR-007、FR-013、AC-013、AC-020 | Architecture §2.2、§5.1、§7 | §2.2、§5.1、§7 |
 | Processing-unit authentication | Requirements FR-007、UC-005、SEC-002、SEC-007、SEC-014、AC-007、AC-027、AC-031 | Architecture §3.2、§4.1〜§4.3、§6.5 | §3.2、§6.1 |
 | 初回 Mnemonic handoff | Requirements UC-001、FR-001、FR-019、SEC-010、SEC-017〜SEC-018、AC-001、AC-034 | Architecture §3.1、§4.3、§6.1 | §5.1、§6.2 |
-| Explicit export | Requirements UC-011、FR-022〜FR-023、SEC-010、SEC-021、AC-025〜AC-026、AC-041〜AC-043 | Architecture §3.1、§4.3、§6.4 | §3.2、§5.1、§6.3 |
-| Signing authority と user approval | Requirements UC-006、FR-009、SEC-022、AC-009 | Architecture §3、§5.1、§6.3 | §3.1、§6.4、§7 |
-| Store / version / migration | Requirements DR-009、SEC-004、SEC-018、AC-018、AC-045 | Architecture §5.2、§6.2、§8、§9.3 | §5.1、§6.5 |
+| Explicit export と assertion freshness | Requirements UC-011、FR-022〜FR-023、SEC-010、SEC-021、AC-025〜AC-026、AC-041〜AC-043、AC-050 | Architecture §3.1、§4.3、§6.4〜§6.5 | §3.2、§5.1、§6.1、§6.3、§6.6 |
+| Signing authority、user approval と assertion freshness | Requirements UC-006、FR-009、SEC-022、AC-009、AC-050 | Architecture §3、§5.1、§6.3、§6.5 | §3.1、§6.4、§7 |
+| Store / version / migration / currentness boundary | Requirements FR-012、DR-009、SEC-004〜SEC-005、SEC-018、AC-012、AC-018、AC-045、AC-048 | Architecture §3.1、§3.3、§4.1、§4.3〜§4.4、§5.1〜§5.2、§6.2、§8、§9.3〜§9.4 | §3.2、§4、§5.1、§6.5 |
 | Pending / failure / retry / restart | Requirements SEC-003、SEC-005、SEC-017〜SEC-019、AC-037〜AC-039、AC-046 | Architecture §5.3、§6.1〜§6.2、§6.5、§9.4 | §5.1、§5.2、§6.6 |
 | Chain / Network separation | Requirements FR-013、FR-024、DR-005、AC-013、AC-047 | Architecture §5.1、§6.2、§7 | §6.4、§7 |
 | Binding non-authority と全環境境界 | Requirements §2.2〜§2.4、NFR-001〜NFR-004、SEC-011〜SEC-012、AC-015、AC-024、AC-040、AC-043 | Architecture §3〜§4、§8、§9.1 | §3、§4、§8 |
-| Side-channel / memory guarantee boundary | Requirements SEC-003、SEC-012、SEC-015、SEC-017、AC-028、AC-032、AC-037、§12.2〜§12.3 | Architecture §4.2、§8、§10 | §8、§9.4、§10 |
+| Side-channel / memory guarantee boundary | Requirements SEC-003、SEC-012、SEC-015、SEC-017、SEC-023、AC-028、AC-032、AC-037、AC-049、§12.2〜§12.3 | Architecture §4.2、§8、§10 | §8.1〜§8.3、§9.4、§10 |
 
 ### 11.2 参照資料の役割
 
