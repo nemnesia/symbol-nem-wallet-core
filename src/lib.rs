@@ -32,10 +32,13 @@ mod wasm;
 
 pub use error::{ErrorCode, WalletError, WalletResult};
 pub use types::{
-    Chain, DecodeWarning, MnemonicExport, MutationResult, Network, PendingProfileBlob,
-    PreparedProfile, PrivateKeyExport, ProfileId, ProfileInfo, PublicAccountInfo, ReadResult,
-    Signature, SoftwareKeyId, SoftwareKeyInfo, SoftwareKeyListItem, SoftwareKeyOrigin,
-    WalletStoreBlob,
+    AccountContext, Chain, DecodeWarning, ExportApplicationConfirmation,
+    ExportApplicationConfirmationStatus, ExportRequest, ExportTarget, ExportUserRequest,
+    ExportUserRequestStatus, HandoffConfirmation, HandoffConfirmationStatus, MnemonicExport,
+    MutationResult, Network, PendingProfileBlob, PreparedProfile, PrivateKeyExport, ProfileId,
+    ProfileInfo, PublicAccountInfo, ReadResult, Signature, SigningApproval, SigningApprovalStatus,
+    SigningRequest, SigningTarget, SoftwareKeyId, SoftwareKeyInfo, SoftwareKeyListItem,
+    SoftwareKeyOrigin, WalletStoreBlob,
 };
 
 pub use store::{

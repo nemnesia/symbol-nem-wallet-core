@@ -22,9 +22,12 @@ use symbol_nem_wallet_core::{
     change_profile_password, create_empty_store, delete_profile, delete_software_key,
     derive_software_key, export_mnemonic, export_private_key, finalize_generated_profile,
     generate_software_key, get_public_account, import_software_key, list_profiles,
-    list_software_keys, prepare_generated_profile, restore_profile, sign, Chain, DecodeWarning,
-    ErrorCode, MutationResult, Network, ProfileInfo, PublicAccountInfo, ReadResult,
-    SoftwareKeyInfo, SoftwareKeyListItem, SoftwareKeyOrigin, WalletError,
+    list_software_keys, prepare_generated_profile, restore_profile, sign, AccountContext, Chain,
+    DecodeWarning, ErrorCode, ExportApplicationConfirmation, ExportApplicationConfirmationStatus,
+    ExportRequest, ExportTarget, ExportUserRequest, ExportUserRequestStatus, HandoffConfirmation,
+    HandoffConfirmationStatus, MutationResult, Network, ProfileInfo, PublicAccountInfo, ReadResult,
+    SigningApproval, SigningApprovalStatus, SigningRequest, SigningTarget, SoftwareKeyInfo,
+    SoftwareKeyListItem, SoftwareKeyOrigin, WalletError,
 };
 
 /// C callerから借用するbyte slice。Bindingは所有権を取得しない。
@@ -32,6 +35,7 @@ use symbol_nem_wallet_core::{
 /// `len == 0`の場合は`ptr`がNULLでも空sliceとして扱う。`len != 0`の場合、
 /// `ptr`は呼び出し中に読み取り可能な範囲を指していなければならない。
 #[repr(C)]
+#[derive(Clone, Copy, Default)]
 pub struct SnwcBytes {
     /// 入力byte列の先頭。所有権はC callerに残る。
     pub ptr: *const u8,
@@ -52,13 +56,22 @@ pub struct SnwcUuid {
 /// Coreから返された所有権付きbyte buffer。
 ///
 /// 成功した関数が返したbufferは、内容を必要な範囲で使用した後に
-/// [`snwc_free_bytes`]へ値渡しして解放する。
+/// [`snwc_free_bytes`]へmutable pointerで渡して解放する。
 #[repr(C)]
 pub struct SnwcOwnedBytes {
     /// Bindingが所有するbufferの先頭。
     pub ptr: *mut u8,
     /// `ptr`から読み取るbyte数。
     pub len: usize,
+}
+
+impl Default for SnwcOwnedBytes {
+    fn default() -> Self {
+        Self {
+            ptr: ptr::null_mut(),
+            len: 0,
+        }
+    }
 }
 
 /// warning配列の所有権付きbuffer。
@@ -70,6 +83,109 @@ pub struct SnwcWarnings {
     pub ptr: *mut SnwcWarning,
     /// 配列要素数。
     pub len: usize,
+}
+
+impl Default for SnwcWarnings {
+    fn default() -> Self {
+        Self {
+            ptr: ptr::null_mut(),
+            len: 0,
+        }
+    }
+}
+
+/// 初回Mnemonic handoff confirmationのC表現。`0`=Unconfirmed、`1`=Confirmed。
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct SnwcHandoffConfirmation {
+    /// `0`=Unconfirmed、`1`=Confirmed。
+    pub status: u8,
+}
+
+/// Export targetのC表現。`0`=Mnemonic、`1`=Software Key。
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct SnwcExportTarget {
+    /// `0`=Mnemonic、`1`=Software Key。
+    pub kind: u8,
+    /// 対象Profileのraw UUID。
+    pub profile_id: SnwcUuid,
+    /// Software Key対象時のraw UUID。Mnemonic対象時は未使用。
+    pub key_id: SnwcUuid,
+}
+
+/// Export user requestのC表現。`0`=NotRequested、`1`=Requested。
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct SnwcExportUserRequest {
+    /// 利用者が要求した対象。
+    pub target: SnwcExportTarget,
+    /// `0`=NotRequested、`1`=Requested。
+    pub status: u8,
+}
+
+/// Export Application confirmationのC表現。`0`=NotConfirmed、`1`=Confirmed。
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct SnwcExportApplicationConfirmation {
+    /// Applicationが確認した対象。
+    pub target: SnwcExportTarget,
+    /// `0`=NotConfirmed、`1`=Confirmed。
+    pub status: u8,
+}
+
+/// 明示的export requestのC表現。
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct SnwcExportRequest {
+    /// 操作対象。
+    pub target: SnwcExportTarget,
+    /// 利用者要求。
+    pub user_request: SnwcExportUserRequest,
+    /// Application confirmation。
+    pub application_confirmation: SnwcExportApplicationConfirmation,
+}
+
+/// Account contextのC表現。Chainは`0`=NEM / `1`=Symbol、Networkは`0`=Testnet / `1`=Mainnet。
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct SnwcAccountContext {
+    /// `0`=NEM、`1`=Symbol。
+    pub chain: u8,
+    /// `0`=Testnet、`1`=Mainnet。
+    pub network: u8,
+}
+
+/// 署名対象のC表現。
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct SnwcSigningTarget {
+    /// 対象Profile。
+    pub profile_id: SnwcUuid,
+    /// 対象Software Key。
+    pub key_id: SnwcUuid,
+    /// 要求されたChain / Network。
+    pub context: SnwcAccountContext,
+}
+
+/// 署名承認のC表現。`0`=NotApproved、`1`=Approved。
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct SnwcSigningApproval {
+    /// `0`=NotApproved、`1`=Approved。
+    pub status: u8,
+}
+
+/// 署名requestのC表現。payloadはcaller-ownedの借用buffer。
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct SnwcSigningRequest {
+    /// 署名対象。
+    pub target: SnwcSigningTarget,
+    /// caller-ownedで借用する署名対象byte列。
+    pub payload: SnwcBytes,
+    /// Application approval。
+    pub approval: SnwcSigningApproval,
 }
 
 /// 秘密情報を含まないDecodeWarningのC表現。
@@ -128,6 +244,7 @@ pub struct SnwcSoftwareKeyListItem {
 
 /// 公開アカウント情報のC表現。addressはUTF-8の所有権付き文字列。
 #[repr(C)]
+#[derive(Default)]
 pub struct SnwcPublicAccountInfo {
     /// Software Key IDのraw 16 bytes。
     pub key_id: [u8; 16],
@@ -160,7 +277,9 @@ fn error_name(code: ErrorCode) -> *const c_char {
         ErrorCode::RandomSourceFailure => c"RandomSourceFailure".as_ptr(),
         ErrorCode::SerializationFailure => c"SerializationFailure".as_ptr(),
         ErrorCode::PendingProfileInvalid => c"PendingProfileInvalid".as_ptr(),
-        _ => c"InvalidArgument".as_ptr(),
+        ErrorCode::BindingFailure => c"BindingFailure".as_ptr(),
+        // 未知のCore errorを入力エラーへ偽装せず、Binding mapping failureとして扱う。
+        _ => c"BindingFailure".as_ptr(),
     }
 }
 
@@ -202,8 +321,26 @@ unsafe fn require_output<T>(value: *mut T) -> Result<(), WalletError> {
     }
 }
 
+unsafe fn reset_output<T: Default>(value: *mut T) {
+    if let Some(value) = value.as_mut() {
+        *value = T::default();
+    }
+}
+
+unsafe fn reset_array_output<T>(values: *mut *mut T, len: *mut usize) {
+    if let Some(values) = values.as_mut() {
+        *values = ptr::null_mut();
+    }
+    if let Some(len) = len.as_mut() {
+        *len = 0;
+    }
+}
+
 fn owned_bytes(value: Vec<u8>) -> SnwcOwnedBytes {
     // Vecの所有権をC callerへ移す。解放は必ずsnwc_free_bytesで行う。
+    if value.is_empty() {
+        return SnwcOwnedBytes::default();
+    }
     let boxed = value.into_boxed_slice();
     let len = boxed.len();
     let ptr = Box::into_raw(boxed).cast();
@@ -247,6 +384,9 @@ fn warning(value: DecodeWarning) -> SnwcWarning {
 }
 
 fn warnings(values: Vec<DecodeWarning>) -> SnwcWarnings {
+    if values.is_empty() {
+        return SnwcWarnings::default();
+    }
     let values = values.into_iter().map(warning).collect::<Vec<_>>();
     let boxed = values.into_boxed_slice();
     let len = boxed.len();
@@ -326,7 +466,7 @@ macro_rules! ffi_call {
             Ok(Ok(value)) => value,
             Ok(Err(err)) => error(err),
             Err(_) => error(WalletError {
-                code: ErrorCode::CryptoFailure,
+                code: ErrorCode::BindingFailure,
             }),
         }
     }};
@@ -339,6 +479,7 @@ macro_rules! ffi_call {
 /// `out`は、結果を書き込める有効なポインターでなければならない。
 #[no_mangle]
 pub unsafe extern "C" fn snwc_create_empty_store(out: *mut SnwcOwnedBytes) -> *const c_char {
+    reset_output(out);
     ffi_call!({
         require_output(out)?;
         let out = output(out)?;
@@ -362,6 +503,9 @@ pub unsafe extern "C" fn snwc_prepare_generated_profile(
     out_pending: *mut SnwcOwnedBytes,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_mnemonic);
+    reset_output(out_pending);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_mnemonic)?;
         require_output(out_pending)?;
@@ -390,8 +534,11 @@ pub unsafe extern "C" fn snwc_prepare_generated_profile(
         // 未移動のDTO fieldはDropでzeroizeし、移動したbufferはC callerの
         // snwc_free_bytesでzeroizeして解放する。
         let mut value = value;
-        *out_mnemonic = owned_bytes(std::mem::take(&mut value.mnemonic_utf8));
-        *out_pending = owned_bytes(std::mem::take(&mut value.pending_profile));
+        // すべてのallocationをassignment前に完了させ、途中失敗でpartial outputを残さない。
+        let mnemonic = owned_bytes(std::mem::take(&mut value.mnemonic_utf8));
+        let pending = owned_bytes(std::mem::take(&mut value.pending_profile));
+        *out_mnemonic = mnemonic;
+        *out_pending = pending;
         *out_warnings = warnings_value;
         Ok(success())
     })
@@ -407,10 +554,14 @@ pub unsafe extern "C" fn snwc_finalize_generated_profile(
     store: SnwcBytes,
     pending_profile: SnwcBytes,
     password_utf8: SnwcBytes,
+    handoff_confirmation: SnwcHandoffConfirmation,
     out_store: *mut SnwcOwnedBytes,
     out_profile: *mut SnwcProfileInfo,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_store);
+    reset_output(out_profile);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_store)?;
         require_output(out_profile)?;
@@ -419,10 +570,14 @@ pub unsafe extern "C" fn snwc_finalize_generated_profile(
             input(store)?,
             input(pending_profile)?,
             input(password_utf8)?,
+            parse_handoff_confirmation(handoff_confirmation)?,
         )?;
         let (store, profile_value, warnings_value) = mutation_warnings(value);
-        *output(out_store)? = owned_bytes(store);
-        *output(out_profile)? = profile(&profile_value);
+        // conversion / allocationを先に済ませてからoutput全体を公開する。
+        let store = owned_bytes(store);
+        let profile = profile(&profile_value);
+        *output(out_store)? = store;
+        *output(out_profile)? = profile;
         *output(out_warnings)? = warnings_value;
         Ok(success())
     })
@@ -443,19 +598,14 @@ pub unsafe extern "C" fn snwc_restore_profile(
     out_profile: *mut SnwcProfileInfo,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_store);
+    reset_output(out_profile);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_store)?;
         require_output(out_profile)?;
         require_output(out_warnings)?;
-        let network = match network_value {
-            0 => Network::Testnet,
-            1 => Network::Mainnet,
-            _ => {
-                return Err(WalletError {
-                    code: ErrorCode::InvalidArgument,
-                })
-            }
-        };
+        let network = parse_network_value(network_value)?;
         let value = restore_profile(
             input(store)?,
             input(mnemonic_utf8)?,
@@ -478,17 +628,19 @@ pub unsafe extern "C" fn snwc_restore_profile(
 #[no_mangle]
 pub unsafe extern "C" fn snwc_export_mnemonic(
     store: SnwcBytes,
-    profile_id: SnwcUuid,
+    request: SnwcExportRequest,
     password_utf8: SnwcBytes,
     out_mnemonic: *mut SnwcOwnedBytes,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_mnemonic);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_mnemonic)?;
         require_output(out_warnings)?;
         let value = export_mnemonic(
             input(store)?,
-            uuid::Uuid::from_bytes(profile_id.bytes),
+            parse_export_request(request)?,
             input(password_utf8)?,
         )?;
         let (value, warnings_value) = read_warnings(value);
@@ -507,19 +659,19 @@ pub unsafe extern "C" fn snwc_export_mnemonic(
 #[no_mangle]
 pub unsafe extern "C" fn snwc_export_private_key(
     store: SnwcBytes,
-    profile_id: SnwcUuid,
-    key_id: SnwcUuid,
+    request: SnwcExportRequest,
     password_utf8: SnwcBytes,
     out_private_key: *mut SnwcOwnedBytes,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_private_key);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_private_key)?;
         require_output(out_warnings)?;
         let value = export_private_key(
             input(store)?,
-            uuid::Uuid::from_bytes(profile_id.bytes),
-            uuid::Uuid::from_bytes(key_id.bytes),
+            parse_export_request(request)?,
             input(password_utf8)?,
         )?;
         let (value, warnings_value) = read_warnings(value);
@@ -542,12 +694,20 @@ pub unsafe extern "C" fn snwc_list_profiles(
     out_len: *mut usize,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_array_output(out_profiles, out_len);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_profiles)?;
         require_output(out_len)?;
         require_output(out_warnings)?;
         let value = list_profiles(input(store)?)?;
         let (values, warnings_value) = read_warnings(value);
+        if values.is_empty() {
+            *output(out_profiles)? = ptr::null_mut();
+            *output(out_len)? = 0;
+            *output(out_warnings)? = warnings_value;
+            return Ok(success());
+        }
         let values = values
             .iter()
             .map(profile)
@@ -575,12 +735,20 @@ pub unsafe extern "C" fn snwc_list_software_keys(
     out_len: *mut usize,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_array_output(out_keys, out_len);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_keys)?;
         require_output(out_len)?;
         require_output(out_warnings)?;
         let value = list_software_keys(input(store)?, uuid::Uuid::from_bytes(profile_id.bytes))?;
         let (values, warnings_value) = read_warnings(value);
+        if values.is_empty() {
+            *output(out_keys)? = ptr::null_mut();
+            *output(out_len)? = 0;
+            *output(out_warnings)? = warnings_value;
+            return Ok(success());
+        }
         let values = values
             .iter()
             .map(software_key_list_item)
@@ -605,6 +773,109 @@ fn parse_chain_value(value: u8) -> Result<Chain, WalletError> {
     }
 }
 
+fn parse_network_value(value: u8) -> Result<Network, WalletError> {
+    match value {
+        0 => Ok(Network::Testnet),
+        1 => Ok(Network::Mainnet),
+        _ => Err(WalletError {
+            code: ErrorCode::InvalidArgument,
+        }),
+    }
+}
+
+fn parse_handoff_confirmation(
+    value: SnwcHandoffConfirmation,
+) -> Result<HandoffConfirmation, WalletError> {
+    let status = match value.status {
+        0 => HandoffConfirmationStatus::Unconfirmed,
+        1 => HandoffConfirmationStatus::Confirmed,
+        _ => {
+            return Err(WalletError {
+                code: ErrorCode::InvalidArgument,
+            })
+        }
+    };
+    Ok(HandoffConfirmation { status })
+}
+
+fn parse_export_target(value: SnwcExportTarget) -> Result<ExportTarget, WalletError> {
+    match value.kind {
+        0 => Ok(ExportTarget::MnemonicTarget {
+            profile_id: uuid::Uuid::from_bytes(value.profile_id.bytes),
+        }),
+        1 => Ok(ExportTarget::SoftwareKeyTarget {
+            profile_id: uuid::Uuid::from_bytes(value.profile_id.bytes),
+            key_id: uuid::Uuid::from_bytes(value.key_id.bytes),
+        }),
+        _ => Err(WalletError {
+            code: ErrorCode::InvalidArgument,
+        }),
+    }
+}
+
+fn parse_export_request(value: SnwcExportRequest) -> Result<ExportRequest, WalletError> {
+    let user_status = match value.user_request.status {
+        0 => ExportUserRequestStatus::NotRequested,
+        1 => ExportUserRequestStatus::Requested,
+        _ => {
+            return Err(WalletError {
+                code: ErrorCode::InvalidArgument,
+            })
+        }
+    };
+    let confirmation_status = match value.application_confirmation.status {
+        0 => ExportApplicationConfirmationStatus::NotConfirmed,
+        1 => ExportApplicationConfirmationStatus::Confirmed,
+        _ => {
+            return Err(WalletError {
+                code: ErrorCode::InvalidArgument,
+            })
+        }
+    };
+    Ok(ExportRequest {
+        target: parse_export_target(value.target)?,
+        user_request: ExportUserRequest {
+            target: parse_export_target(value.user_request.target)?,
+            status: user_status,
+        },
+        application_confirmation: ExportApplicationConfirmation {
+            target: parse_export_target(value.application_confirmation.target)?,
+            status: confirmation_status,
+        },
+    })
+}
+
+fn parse_account_context(value: SnwcAccountContext) -> Result<AccountContext, WalletError> {
+    Ok(AccountContext {
+        chain: parse_chain_value(value.chain)?,
+        network: parse_network_value(value.network)?,
+    })
+}
+
+fn parse_signing_request(value: SnwcSigningRequest) -> Result<SigningRequest, WalletError> {
+    if value.approval.status > 1 {
+        return Err(WalletError {
+            code: ErrorCode::InvalidArgument,
+        });
+    }
+    let payload = unsafe { input(value.payload)? }.to_vec();
+    Ok(SigningRequest {
+        target: SigningTarget {
+            profile_id: uuid::Uuid::from_bytes(value.target.profile_id.bytes),
+            key_id: uuid::Uuid::from_bytes(value.target.key_id.bytes),
+            context: parse_account_context(value.target.context)?,
+        },
+        payload,
+        approval: SigningApproval {
+            status: match value.approval.status {
+                0 => SigningApprovalStatus::NotApproved,
+                1 => SigningApprovalStatus::Approved,
+                _ => unreachable!(),
+            },
+        },
+    })
+}
+
 /// MnemonicからSoftware Keyを導出して保存する。
 ///
 /// # Safety
@@ -621,6 +892,9 @@ pub unsafe extern "C" fn snwc_derive_software_key(
     out_key: *mut SnwcSoftwareKeyInfo,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_store);
+    reset_output(out_key);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_store)?;
         require_output(out_key)?;
@@ -656,6 +930,9 @@ pub unsafe extern "C" fn snwc_import_software_key(
     out_key: *mut SnwcSoftwareKeyInfo,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_store);
+    reset_output(out_key);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_store)?;
         require_output(out_key)?;
@@ -690,6 +967,9 @@ pub unsafe extern "C" fn snwc_generate_software_key(
     out_key: *mut SnwcSoftwareKeyInfo,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_store);
+    reset_output(out_key);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_store)?;
         require_output(out_key)?;
@@ -718,10 +998,13 @@ pub unsafe extern "C" fn snwc_get_public_account(
     store: SnwcBytes,
     profile_id: SnwcUuid,
     key_id: SnwcUuid,
+    requested_context: SnwcAccountContext,
     password_utf8: SnwcBytes,
     out_account: *mut SnwcPublicAccountInfo,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_account);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_account)?;
         require_output(out_warnings)?;
@@ -729,6 +1012,7 @@ pub unsafe extern "C" fn snwc_get_public_account(
             input(store)?,
             uuid::Uuid::from_bytes(profile_id.bytes),
             uuid::Uuid::from_bytes(key_id.bytes),
+            parse_account_context(requested_context)?,
             input(password_utf8)?,
         )?;
         let (value, warnings_value) = read_warnings(value);
@@ -746,22 +1030,20 @@ pub unsafe extern "C" fn snwc_get_public_account(
 #[no_mangle]
 pub unsafe extern "C" fn snwc_sign(
     store: SnwcBytes,
-    profile_id: SnwcUuid,
-    key_id: SnwcUuid,
+    request: SnwcSigningRequest,
     password_utf8: SnwcBytes,
-    payload: SnwcBytes,
     out_signature: *mut SnwcOwnedBytes,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_signature);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_signature)?;
         require_output(out_warnings)?;
         let value = sign(
             input(store)?,
-            uuid::Uuid::from_bytes(profile_id.bytes),
-            uuid::Uuid::from_bytes(key_id.bytes),
+            parse_signing_request(request)?,
             input(password_utf8)?,
-            input(payload)?,
         )?;
         let (value, warnings_value) = read_warnings(value);
         *output(out_signature)? = owned_bytes(value.signature.to_vec());
@@ -784,6 +1066,8 @@ pub unsafe extern "C" fn snwc_change_profile_password(
     out_store: *mut SnwcOwnedBytes,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_store);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_store)?;
         require_output(out_warnings)?;
@@ -814,6 +1098,8 @@ pub unsafe extern "C" fn snwc_delete_software_key(
     out_store: *mut SnwcOwnedBytes,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_store);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_store)?;
         require_output(out_warnings)?;
@@ -843,6 +1129,8 @@ pub unsafe extern "C" fn snwc_delete_profile(
     out_store: *mut SnwcOwnedBytes,
     out_warnings: *mut SnwcWarnings,
 ) -> *const c_char {
+    reset_output(out_store);
+    reset_output(out_warnings);
     ffi_call!({
         require_output(out_store)?;
         require_output(out_warnings)?;
@@ -858,64 +1146,101 @@ pub unsafe extern "C" fn snwc_delete_profile(
     })
 }
 
-/// `SnwcOwnedBytes`を解放し、内容を可能な範囲でzeroizeする。
+/// `SnwcOwnedBytes`を解放し、内容を可能な範囲でzeroizeしてhandleを空にする。
 ///
 /// # Safety
 ///
-/// `value`はこのBindingが返した未解放のbufferでなければならない。
+/// `value`はこのBindingが返した未解放のbufferへのmutable pointerでなければならない。
 #[no_mangle]
-pub unsafe extern "C" fn snwc_free_bytes(value: SnwcOwnedBytes) {
-    if value.ptr.is_null() || value.len == 0 {
+pub unsafe extern "C" fn snwc_free_bytes(value: *mut SnwcOwnedBytes) {
+    let Some(value) = value.as_mut() else {
         return;
+    };
+    if !value.ptr.is_null() && value.len != 0 {
+        let mut buffer = Box::from_raw(ptr::slice_from_raw_parts_mut(value.ptr, value.len));
+        zeroize::Zeroize::zeroize(&mut buffer);
     }
-    let mut value = Box::from_raw(ptr::slice_from_raw_parts_mut(value.ptr, value.len));
-    zeroize::Zeroize::zeroize(&mut value);
+    value.ptr = ptr::null_mut();
+    value.len = 0;
 }
 
 /// warning配列を解放する。
 ///
 /// # Safety
 ///
-/// `value`はこのBindingが返した未解放のwarning配列でなければならない。
+/// `value`はこのBindingが返した未解放のwarning配列へのmutable pointerでなければならない。
 #[no_mangle]
-pub unsafe extern "C" fn snwc_free_warnings(value: SnwcWarnings) {
-    if value.ptr.is_null() || value.len == 0 {
+pub unsafe extern "C" fn snwc_free_warnings(value: *mut SnwcWarnings) {
+    let Some(value) = value.as_mut() else {
         return;
+    };
+    if !value.ptr.is_null() && value.len != 0 {
+        drop(Box::from_raw(ptr::slice_from_raw_parts_mut(
+            value.ptr, value.len,
+        )));
     }
-    drop(Box::from_raw(ptr::slice_from_raw_parts_mut(
-        value.ptr, value.len,
-    )));
+    value.ptr = ptr::null_mut();
+    value.len = 0;
 }
 
 /// Profile一覧配列を解放する。
 ///
 /// # Safety
 ///
-/// `ptr`と`len`は、このBindingが返した未解放のProfile一覧配列に対応しなければならない。
+/// `values_ptr`と`len`は、このBindingが返した未解放のProfile一覧配列のhandleへのmutable
+/// pointerでなければならない。正常解放後、両方をNULL / 0へ更新する。
 #[no_mangle]
-pub unsafe extern "C" fn snwc_free_profiles(values_ptr: *mut SnwcProfileInfo, len: usize) {
-    if values_ptr.is_null() || len == 0 {
+pub unsafe extern "C" fn snwc_free_profiles(
+    values_ptr: *mut *mut SnwcProfileInfo,
+    len: *mut usize,
+) {
+    let (Some(values_ptr), Some(len)) = (values_ptr.as_mut(), len.as_mut()) else {
         return;
+    };
+    if !(*values_ptr).is_null() && *len != 0 {
+        drop(Box::from_raw(ptr::slice_from_raw_parts_mut(
+            *values_ptr,
+            *len,
+        )));
     }
-    drop(Box::from_raw(ptr::slice_from_raw_parts_mut(
-        values_ptr, len,
-    )));
+    *values_ptr = ptr::null_mut();
+    *len = 0;
 }
 
 /// Software Key一覧配列を解放する。
 ///
 /// # Safety
 ///
-/// `ptr`と`len`は、このBindingが返した未解放のSoftware Key一覧配列に対応しなければならない。
+/// `values_ptr`と`len`は、このBindingが返した未解放のSoftware Key一覧配列のhandleへの
+/// mutable pointerでなければならない。正常解放後、両方をNULL / 0へ更新する。
 #[no_mangle]
 pub unsafe extern "C" fn snwc_free_software_key_list(
-    values_ptr: *mut SnwcSoftwareKeyListItem,
-    len: usize,
+    values_ptr: *mut *mut SnwcSoftwareKeyListItem,
+    len: *mut usize,
 ) {
-    if values_ptr.is_null() || len == 0 {
+    let (Some(values_ptr), Some(len)) = (values_ptr.as_mut(), len.as_mut()) else {
         return;
+    };
+    if !(*values_ptr).is_null() && *len != 0 {
+        drop(Box::from_raw(ptr::slice_from_raw_parts_mut(
+            *values_ptr,
+            *len,
+        )));
     }
-    drop(Box::from_raw(ptr::slice_from_raw_parts_mut(
-        values_ptr, len,
-    )));
+    *values_ptr = ptr::null_mut();
+    *len = 0;
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+
+    #[test]
+    fn ffi_panic_maps_to_binding_failure() {
+        let result: *const c_char = ffi_call!({
+            std::panic::panic_any(());
+        });
+        let code = unsafe { std::ffi::CStr::from_ptr(result) };
+        assert_eq!(code.to_bytes(), b"BindingFailure");
+    }
 }

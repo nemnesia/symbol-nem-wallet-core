@@ -100,6 +100,133 @@ pub enum SoftwareKeyOrigin {
     Generated,
 }
 
+/// 初回Mnemonic handoffの確認状態。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HandoffConfirmationStatus {
+    /// 利用者への提示・受領確認が成立していない。
+    Unconfirmed,
+    /// Applicationが利用者の受領確認を伝達した。
+    Confirmed,
+}
+
+/// 初回Mnemonic handoffのApplication assertion。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HandoffConfirmation {
+    /// handoffの確認状態。
+    pub status: HandoffConfirmationStatus,
+}
+
+/// 明示的exportの対象。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExportTarget {
+    /// ProfileのMnemonic。
+    MnemonicTarget {
+        /// 対象Profile。
+        profile_id: ProfileId,
+    },
+    /// Profile内のSoftware Key private key。
+    SoftwareKeyTarget {
+        /// 対象Profile。
+        profile_id: ProfileId,
+        /// 対象Software Key。
+        key_id: SoftwareKeyId,
+    },
+}
+
+/// 利用者によるexport要求の状態。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExportUserRequestStatus {
+    /// exportを要求していない。
+    NotRequested,
+    /// exportを要求した。
+    Requested,
+}
+
+/// 明示的exportにおける利用者要求。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExportUserRequest {
+    /// 要求対象。
+    pub target: ExportTarget,
+    /// 要求状態。
+    pub status: ExportUserRequestStatus,
+}
+
+/// Applicationによるexport確認の状態。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExportApplicationConfirmationStatus {
+    /// Application確認が成立していない。
+    NotConfirmed,
+    /// Application確認が成立した。
+    Confirmed,
+}
+
+/// 明示的exportにおけるApplication confirmation。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExportApplicationConfirmation {
+    /// 確認対象。
+    pub target: ExportTarget,
+    /// 確認状態。
+    pub status: ExportApplicationConfirmationStatus,
+}
+
+/// 明示的export request。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExportRequest {
+    /// 操作対象。
+    pub target: ExportTarget,
+    /// 利用者要求。
+    pub user_request: ExportUserRequest,
+    /// Application confirmation。
+    pub application_confirmation: ExportApplicationConfirmation,
+}
+
+/// AccountのChain / Network context。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AccountContext {
+    /// Accountへ固定されたChain。
+    pub chain: Chain,
+    /// Profileへ固定されたNetwork。
+    pub network: Network,
+}
+
+/// 署名対象Account。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SigningTarget {
+    /// 対象Profile。
+    pub profile_id: ProfileId,
+    /// 対象Software Key。
+    pub key_id: SoftwareKeyId,
+    /// 要求されたAccount context。
+    pub context: AccountContext,
+}
+
+/// 署名承認の状態。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SigningApprovalStatus {
+    /// 利用者承認が成立していない。
+    NotApproved,
+    /// 利用者承認が成立した。
+    Approved,
+}
+
+/// Applicationによる署名承認。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SigningApproval {
+    /// 承認状態。
+    pub status: SigningApprovalStatus,
+}
+
+/// 署名request。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SigningRequest {
+    /// 対象Account。
+    pub target: SigningTarget,
+    /// Coreが書き換えずに署名するraw payload。
+    pub payload: Vec<u8>,
+    /// Application assertion。
+    pub approval: SigningApproval,
+}
+
 /// Store読み取り時に返す構造化warning。
 ///
 /// v1の不正なProfileやSoftware Keyはwarning付きでskipせず、Store全体を

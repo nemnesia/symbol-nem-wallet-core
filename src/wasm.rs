@@ -12,7 +12,7 @@
 
 use js_sys::{Array, Object, Reflect, Uint8Array};
 use uuid::Uuid;
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{prelude::*, JsCast};
 use zeroize::Zeroizing;
 
 use crate::store::MAX_WALLET_STORE_BYTES;
@@ -27,10 +27,13 @@ use crate::{
     get_public_account as core_get_public_account, import_software_key as core_import_software_key,
     list_profiles as core_list_profiles, list_software_keys as core_list_software_keys,
     prepare_generated_profile as core_prepare_generated_profile,
-    restore_profile as core_restore_profile, sign as core_sign, Chain, DecodeWarning, ErrorCode,
-    MnemonicExport, MutationResult, Network, PreparedProfile, PrivateKeyExport, ProfileInfo,
-    PublicAccountInfo, Signature, SoftwareKeyInfo, SoftwareKeyListItem, SoftwareKeyOrigin,
-    WalletError,
+    restore_profile as core_restore_profile, sign as core_sign, AccountContext, Chain,
+    DecodeWarning, ErrorCode, ExportApplicationConfirmation, ExportApplicationConfirmationStatus,
+    ExportRequest, ExportTarget, ExportUserRequest, ExportUserRequestStatus, HandoffConfirmation,
+    HandoffConfirmationStatus, MnemonicExport, MutationResult, Network, PreparedProfile,
+    PrivateKeyExport, ProfileInfo, PublicAccountInfo, Signature, SigningApproval,
+    SigningApprovalStatus, SigningRequest, SigningTarget, SoftwareKeyInfo, SoftwareKeyListItem,
+    SoftwareKeyOrigin, WalletError,
 };
 
 fn binding_error(error: WalletError) -> JsValue {
@@ -39,7 +42,22 @@ fn binding_error(error: WalletError) -> JsValue {
 }
 
 fn conversion_error() -> JsValue {
-    JsValue::from_str(ErrorCode::SerializationFailure.as_str())
+    JsValue::from_str(ErrorCode::BindingFailure.as_str())
+}
+
+fn invalid_argument() -> JsValue {
+    JsValue::from_str(ErrorCode::InvalidArgument.as_str())
+}
+
+fn field(value: &JsValue, name: &str) -> Result<JsValue, JsValue> {
+    if !value.is_object() || value.is_null() {
+        return Err(invalid_argument());
+    }
+    Reflect::get(value, &JsValue::from_str(name)).map_err(|_| conversion_error())
+}
+
+fn string_field(value: &JsValue, name: &str) -> Result<String, JsValue> {
+    field(value, name)?.as_string().ok_or_else(invalid_argument)
 }
 
 fn set(object: &Object, key: &str, value: JsValue) -> Result<(), JsValue> {
@@ -128,6 +146,96 @@ fn parse_uuid(value: &str) -> Result<Uuid, WalletError> {
     }
     Uuid::parse_str(value).map_err(|_| WalletError {
         code: ErrorCode::InvalidArgument,
+    })
+}
+
+fn parse_handoff_confirmation(value: &JsValue) -> Result<HandoffConfirmation, JsValue> {
+    let status = match string_field(value, "status")?.as_str() {
+        "unconfirmed" => HandoffConfirmationStatus::Unconfirmed,
+        "confirmed" => HandoffConfirmationStatus::Confirmed,
+        _ => return Err(invalid_argument()),
+    };
+    Ok(HandoffConfirmation { status })
+}
+
+fn parse_export_target(value: &JsValue) -> Result<ExportTarget, JsValue> {
+    let profile_id = parse_uuid(&string_field(value, "profile_id")?).map_err(binding_error)?;
+    match string_field(value, "kind")?.as_str() {
+        "mnemonic" => Ok(ExportTarget::MnemonicTarget { profile_id }),
+        "software_key" => Ok(ExportTarget::SoftwareKeyTarget {
+            profile_id,
+            key_id: parse_uuid(&string_field(value, "key_id")?).map_err(binding_error)?,
+        }),
+        _ => Err(invalid_argument()),
+    }
+}
+
+fn parse_export_request(value: &JsValue) -> Result<ExportRequest, JsValue> {
+    let target = parse_export_target(&field(value, "target")?)?;
+    let user_value = field(value, "user_request")?;
+    let user_request = ExportUserRequest {
+        target: parse_export_target(&field(&user_value, "target")?)?,
+        status: match string_field(&user_value, "status")?.as_str() {
+            "not_requested" => ExportUserRequestStatus::NotRequested,
+            "requested" => ExportUserRequestStatus::Requested,
+            _ => return Err(invalid_argument()),
+        },
+    };
+    let confirmation_value = field(value, "application_confirmation")?;
+    let application_confirmation = ExportApplicationConfirmation {
+        target: parse_export_target(&field(&confirmation_value, "target")?)?,
+        status: match string_field(&confirmation_value, "status")?.as_str() {
+            "not_confirmed" => ExportApplicationConfirmationStatus::NotConfirmed,
+            "confirmed" => ExportApplicationConfirmationStatus::Confirmed,
+            _ => return Err(invalid_argument()),
+        },
+    };
+    Ok(ExportRequest {
+        target,
+        user_request,
+        application_confirmation,
+    })
+}
+
+fn parse_account_context(value: &JsValue) -> Result<AccountContext, JsValue> {
+    let chain = match string_field(value, "chain")?.as_str() {
+        "nem" => Chain::Nem,
+        "symbol" => Chain::Symbol,
+        _ => return Err(invalid_argument()),
+    };
+    let network = match string_field(value, "network")?.as_str() {
+        "testnet" => Network::Testnet,
+        "mainnet" => Network::Mainnet,
+        _ => return Err(invalid_argument()),
+    };
+    Ok(AccountContext { chain, network })
+}
+
+fn parse_signing_request(value: &JsValue) -> Result<SigningRequest, JsValue> {
+    let target_value = field(value, "target")?;
+    let target = SigningTarget {
+        profile_id: parse_uuid(&string_field(&target_value, "profile_id")?)
+            .map_err(binding_error)?,
+        key_id: parse_uuid(&string_field(&target_value, "key_id")?).map_err(binding_error)?,
+        context: parse_account_context(&field(&target_value, "context")?)?,
+    };
+    let payload_value = field(value, "payload")?;
+    let payload = payload_value
+        .dyn_into::<Uint8Array>()
+        .map_err(|_| invalid_argument())?
+        .to_vec();
+    let approval_value = field(value, "approval")?;
+    let approval = SigningApproval {
+        status: match string_field(&approval_value, "status")?.as_str() {
+            "not_approved" => SigningApprovalStatus::NotApproved,
+            "approved" => SigningApprovalStatus::Approved,
+            _ => return Err(invalid_argument()),
+        },
+    };
+    Ok(SigningRequest {
+        target,
+        payload,
+        approval,
     })
 }
 
@@ -342,12 +450,19 @@ pub fn finalize_generated_profile(
     store: &Uint8Array,
     pending_profile: &Uint8Array,
     password_utf8: &Uint8Array,
+    handoff_confirmation: &JsValue,
 ) -> Result<JsValue, JsValue> {
     let store_bytes = store_bytes(store).map_err(binding_error)?;
     let pending_bytes = bytes(pending_profile);
     let password = bytes(password_utf8);
-    let result = core_finalize_generated_profile(&store_bytes, &pending_bytes, &password)
-        .map_err(binding_error)?;
+    let handoff_confirmation = parse_handoff_confirmation(handoff_confirmation)?;
+    let result = core_finalize_generated_profile(
+        &store_bytes,
+        &pending_bytes,
+        &password,
+        handoff_confirmation,
+    )
+    .map_err(binding_error)?;
     let value = profile_info(&result.value)?;
     mutation_result(result, value)
 }
@@ -380,14 +495,13 @@ pub fn restore_profile(
 #[wasm_bindgen(js_name = export_mnemonic)]
 pub fn export_mnemonic(
     store: &Uint8Array,
-    profile_id: &str,
+    request: &JsValue,
     password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
-    let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
+    let request = parse_export_request(request)?;
     let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
-    let result =
-        core_export_mnemonic(&store_bytes, profile_id, &password).map_err(binding_error)?;
+    let result = core_export_mnemonic(&store_bytes, request, &password).map_err(binding_error)?;
     read_result(mnemonic_export(result.value)?, result.warnings)
 }
 
@@ -398,16 +512,14 @@ pub fn export_mnemonic(
 #[wasm_bindgen(js_name = export_private_key)]
 pub fn export_private_key(
     store: &Uint8Array,
-    profile_id: &str,
-    key_id: &str,
+    request: &JsValue,
     password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
-    let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
-    let key_id = parse_uuid(key_id).map_err(binding_error)?;
+    let request = parse_export_request(request)?;
     let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
-    let result = core_export_private_key(&store_bytes, profile_id, key_id, &password)
-        .map_err(binding_error)?;
+    let result =
+        core_export_private_key(&store_bytes, request, &password).map_err(binding_error)?;
     read_result(private_key_export(result.value)?, result.warnings)
 }
 
@@ -520,14 +632,22 @@ pub fn get_public_account(
     store: &Uint8Array,
     profile_id: &str,
     key_id: &str,
+    requested_context: &JsValue,
     password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let key_id = parse_uuid(key_id).map_err(binding_error)?;
     let store_bytes = store_bytes(store).map_err(binding_error)?;
+    let requested_context = parse_account_context(requested_context)?;
     let password = bytes(password_utf8);
-    let result = core_get_public_account(&store_bytes, profile_id, key_id, &password)
-        .map_err(binding_error)?;
+    let result = core_get_public_account(
+        &store_bytes,
+        profile_id,
+        key_id,
+        requested_context,
+        &password,
+    )
+    .map_err(binding_error)?;
     read_result(public_account(&result.value)?, result.warnings)
 }
 
@@ -538,18 +658,13 @@ pub fn get_public_account(
 #[wasm_bindgen(js_name = sign)]
 pub fn sign(
     store: &Uint8Array,
-    profile_id: &str,
-    key_id: &str,
+    request: &JsValue,
     password_utf8: &Uint8Array,
-    payload: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
-    let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
-    let key_id = parse_uuid(key_id).map_err(binding_error)?;
+    let request = parse_signing_request(request)?;
     let store_bytes = store_bytes(store).map_err(binding_error)?;
     let password = bytes(password_utf8);
-    let payload = bytes(payload);
-    let result =
-        core_sign(&store_bytes, profile_id, key_id, &password, &payload).map_err(binding_error)?;
+    let result = core_sign(&store_bytes, request, &password).map_err(binding_error)?;
     read_result(signature(&result.value)?, result.warnings)
 }
 

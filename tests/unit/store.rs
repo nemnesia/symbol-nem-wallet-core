@@ -4,9 +4,75 @@
 //! `Zeroizing`で保持し、テスト失敗時にも秘密値を通常のログへ出さない。
 
 use super::*;
+use crate::{
+    AccountContext, ExportApplicationConfirmation, ExportApplicationConfirmationStatus,
+    ExportRequest, ExportTarget, ExportUserRequest, ExportUserRequestStatus, HandoffConfirmation,
+    HandoffConfirmationStatus, SigningApproval, SigningApprovalStatus, SigningRequest,
+    SigningTarget,
+};
 
 const MNEMONIC: &[u8] = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
 const PASSWORD: &[u8] = b"correct horse battery staple";
+
+fn confirmed_handoff() -> HandoffConfirmation {
+    HandoffConfirmation {
+        status: HandoffConfirmationStatus::Confirmed,
+    }
+}
+
+fn mnemonic_export_request(profile_id: Uuid) -> ExportRequest {
+    let target = ExportTarget::MnemonicTarget { profile_id };
+    ExportRequest {
+        target,
+        user_request: ExportUserRequest {
+            target,
+            status: ExportUserRequestStatus::Requested,
+        },
+        application_confirmation: ExportApplicationConfirmation {
+            target,
+            status: ExportApplicationConfirmationStatus::Confirmed,
+        },
+    }
+}
+
+fn private_key_export_request(profile_id: Uuid, key_id: Uuid) -> ExportRequest {
+    let target = ExportTarget::SoftwareKeyTarget { profile_id, key_id };
+    ExportRequest {
+        target,
+        user_request: ExportUserRequest {
+            target,
+            status: ExportUserRequestStatus::Requested,
+        },
+        application_confirmation: ExportApplicationConfirmation {
+            target,
+            status: ExportApplicationConfirmationStatus::Confirmed,
+        },
+    }
+}
+
+fn account_context(chain: Chain, network: Network) -> AccountContext {
+    AccountContext { chain, network }
+}
+
+fn signing_request(
+    profile_id: Uuid,
+    key_id: Uuid,
+    chain: Chain,
+    network: Network,
+    payload: &[u8],
+) -> SigningRequest {
+    SigningRequest {
+        target: SigningTarget {
+            profile_id,
+            key_id,
+            context: account_context(chain, network),
+        },
+        payload: payload.to_vec(),
+        approval: SigningApproval {
+            status: SigningApprovalStatus::Approved,
+        },
+    }
+}
 
 fn bytes<const N: usize>(hex: &str) -> [u8; N] {
     hex::decode(hex).unwrap().try_into().unwrap()
@@ -287,7 +353,7 @@ fn add_unknown_index_field_with_matching_aad(store: &[u8]) -> Vec<u8> {
 
     let mut updated_profile = profile.clone();
     match updated_profile.aad_software_key_index.first_mut().unwrap() {
-        Value::Map(entries) => entries.push((99, Value::Simple(42))),
+        Value::Map(entries) => entries.push((99, Value::Text("index extension".to_owned()))),
         _ => panic!("テストfixtureのindex entryがmapではありません"),
     }
     let new_aad = profile_aad_from_parts(&wallet.registry_key, &updated_profile).unwrap();
@@ -338,19 +404,25 @@ fn add_unknown_manifest_fields(store: &[u8]) -> Vec<u8> {
         Value::Map(entries) => entries,
         _ => unreachable!(),
     };
-    map.push((99, Value::Simple(23)));
+    map.push((99, Value::UInt(23)));
     let profile = first_profile_map_mut(&mut value);
-    profile.push((99, Value::Simple(42)));
+    profile.push((99, Value::Bytes(vec![42])));
     let kdf = match map_value_mut(profile, 4) {
         Value::Map(entries) => entries,
         _ => unreachable!(),
     };
-    kdf.push((99, Value::Simple(43)));
+    kdf.push((
+        99,
+        Value::Array(vec![
+            Value::UInt(43),
+            Value::Map(vec![(0, Value::Text("nested extension".to_owned()))]),
+        ]),
+    ));
     let cipher = match map_value_mut(profile, 5) {
         Value::Map(entries) => entries,
         _ => unreachable!(),
     };
-    cipher.push((99, Value::Simple(44)));
+    cipher.push((99, Value::Map(vec![(0, Value::Bytes(vec![44]))])));
     cbor::encode(&value).unwrap()
 }
 
@@ -375,7 +447,7 @@ fn add_unknown_payload_fields(store: &[u8]) -> Vec<u8> {
         Value::Map(entries) => entries,
         _ => unreachable!(),
     };
-    payload_map.push((99, Value::Simple(23)));
+    payload_map.push((99, Value::Text("payload extension".to_owned())));
     let keys = match map_value_mut(payload_map, 1) {
         Value::Array(values) => values,
         _ => unreachable!(),
@@ -384,12 +456,12 @@ fn add_unknown_payload_fields(store: &[u8]) -> Vec<u8> {
         Value::Map(entries) => entries,
         _ => unreachable!(),
     };
-    key_map.push((99, Value::Simple(45)));
+    key_map.push((99, Value::Bytes(vec![45])));
     let origin = match map_value_mut(key_map, 3) {
         Value::Map(entries) => entries,
         _ => unreachable!(),
     };
-    origin.push((99, Value::Simple(23)));
+    origin.push((99, Value::Array(vec![Value::UInt(23)])));
     let payload_bytes = zeroize::Zeroizing::new(cbor::encode(&payload).unwrap());
     let (ciphertext, tag) =
         crypto::encrypt(&key, &profile.cipher.nonce, &aad, &payload_bytes).unwrap();
@@ -532,8 +604,13 @@ fn public_store_paths_are_exercised_in_unit_build() {
     let empty = create_empty_store().unwrap();
     let prepared = prepare_generated_profile(&empty, PASSWORD, Network::Testnet).unwrap();
     assert!(!prepared.value.mnemonic_utf8.is_empty());
-    let finalized =
-        finalize_generated_profile(&empty, &prepared.value.pending_profile, PASSWORD).unwrap();
+    let finalized = finalize_generated_profile(
+        &empty,
+        &prepared.value.pending_profile,
+        PASSWORD,
+        confirmed_handoff(),
+    )
+    .unwrap();
     assert_eq!(list_profiles(&finalized.store).unwrap().value.len(), 1);
 
     let (store, profile_id) = wallet_with_one_profile();
@@ -572,39 +649,68 @@ fn public_store_paths_are_exercised_in_unit_build() {
         2
     );
 
-    let exported_mnemonic = export_mnemonic(&imported.store, profile_id, PASSWORD).unwrap();
+    let exported_mnemonic = export_mnemonic(
+        &imported.store,
+        mnemonic_export_request(profile_id),
+        PASSWORD,
+    )
+    .unwrap();
     assert!(exported_mnemonic.value.mnemonic_utf8 == MNEMONIC);
-    let exported_private =
-        export_private_key(&imported.store, profile_id, derived.value.key_id, PASSWORD).unwrap();
+    let exported_private = export_private_key(
+        &imported.store,
+        private_key_export_request(profile_id, derived.value.key_id),
+        PASSWORD,
+    )
+    .unwrap();
     assert_eq!(exported_private.value.private_key.len(), 32);
     let missing_key_id = Uuid::from_bytes([0; 16]);
     assert_eq!(
-        export_private_key(&imported.store, profile_id, missing_key_id, PASSWORD)
-            .unwrap_err()
-            .code,
+        export_private_key(
+            &imported.store,
+            private_key_export_request(profile_id, missing_key_id),
+            PASSWORD,
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::SoftwareKeyNotFound
     );
     assert_eq!(
-        get_public_account(&imported.store, profile_id, derived.value.key_id, PASSWORD)
-            .unwrap()
-            .value
-            .public_key
-            .len(),
+        get_public_account(
+            &imported.store,
+            profile_id,
+            derived.value.key_id,
+            account_context(Chain::Symbol, Network::Mainnet),
+            PASSWORD,
+        )
+        .unwrap()
+        .value
+        .public_key
+        .len(),
         32
     );
     assert_eq!(
-        get_public_account(&imported.store, profile_id, missing_key_id, PASSWORD)
-            .unwrap_err()
-            .code,
+        get_public_account(
+            &imported.store,
+            profile_id,
+            missing_key_id,
+            account_context(Chain::Symbol, Network::Mainnet),
+            PASSWORD,
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::SoftwareKeyNotFound
     );
     assert_eq!(
         sign(
             &imported.store,
-            profile_id,
-            derived.value.key_id,
+            signing_request(
+                profile_id,
+                derived.value.key_id,
+                Chain::Symbol,
+                Network::Mainnet,
+                b"unit fixture",
+            ),
             PASSWORD,
-            b"unit fixture"
         )
         .unwrap()
         .value
@@ -615,10 +721,14 @@ fn public_store_paths_are_exercised_in_unit_build() {
     assert_eq!(
         sign(
             &imported.store,
-            profile_id,
-            missing_key_id,
+            signing_request(
+                profile_id,
+                missing_key_id,
+                Chain::Symbol,
+                Network::Mainnet,
+                b"missing key",
+            ),
             PASSWORD,
-            b"missing key",
         )
         .unwrap_err()
         .code,
@@ -651,7 +761,7 @@ fn public_store_paths_are_exercised_in_unit_build() {
 fn generated_software_key_failure_paths_are_atomic() {
     let (store, profile_id) = wallet_with_one_profile();
     let before = store.clone();
-    let random_error = generate_software_key_with(
+    let random_error = generate_software_key_public_boundary_for_test(
         &store,
         profile_id,
         PASSWORD,
@@ -665,7 +775,7 @@ fn generated_software_key_failure_paths_are_atomic() {
 
     let private_key =
         bytes::<32>("575DBB3062267EFF57C970A336EBBC8FBCFE12C5BD3ED7BC11EB0481D7704CED");
-    let save_error = generate_software_key_with(
+    let save_error = generate_software_key_public_boundary_for_test(
         &store,
         profile_id,
         PASSWORD,
@@ -676,6 +786,19 @@ fn generated_software_key_failure_paths_are_atomic() {
     .unwrap_err();
     assert_eq!(save_error.code, ErrorCode::SerializationFailure);
     assert_eq!(store, before);
+
+    let mut candidates = vec![[0u8; 32], private_key].into_iter();
+    let retried = generate_software_key_public_boundary_with_rng_for_test(
+        &store,
+        profile_id,
+        PASSWORD,
+        Chain::Symbol,
+        || Ok(candidates.next().expect("test candidates exhausted")),
+        encode_store,
+    )
+    .unwrap();
+    assert_eq!(retried.value.origin, SoftwareKeyOrigin::Generated);
+    assert_ne!(retried.store, store);
 }
 
 #[test]
@@ -704,6 +827,7 @@ fn error_code_strings_and_display_are_stable() {
         (ErrorCode::RandomSourceFailure, "RandomSourceFailure"),
         (ErrorCode::SerializationFailure, "SerializationFailure"),
         (ErrorCode::PendingProfileInvalid, "PendingProfileInvalid"),
+        (ErrorCode::BindingFailure, "BindingFailure"),
     ];
     for (code, expected) in cases {
         assert_eq!(code.as_str(), expected);
@@ -756,9 +880,13 @@ fn malformed_profiles_and_unknown_enums_are_fatal_store_errors() {
 
     let before = restored.store.clone();
     assert_eq!(
-        export_mnemonic(&tamper_ciphertext(&restored.store), profile_id, PASSWORD,)
-            .unwrap_err()
-            .code,
+        export_mnemonic(
+            &tamper_ciphertext(&restored.store),
+            mnemonic_export_request(profile_id),
+            PASSWORD,
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::AuthenticationFailed
     );
     assert_eq!(restored.store, before);
@@ -771,7 +899,12 @@ fn authenticated_semantic_mismatch_and_aad_tamper_are_atomic() {
 
     let duplicate_tag_mismatch = replace_duplicate_tag_with_authenticated_value(&restored_store);
     let before_duplicate_tag_mismatch = duplicate_tag_mismatch.clone();
-    let error = export_mnemonic(&duplicate_tag_mismatch, profile_id, PASSWORD).unwrap_err();
+    let error = export_mnemonic(
+        &duplicate_tag_mismatch,
+        mnemonic_export_request(profile_id),
+        PASSWORD,
+    )
+    .unwrap_err();
     assert_eq!(error.code, ErrorCode::InvalidStore);
     assert_eq!(duplicate_tag_mismatch, before_duplicate_tag_mismatch);
     assert_eq!(restored_store, before);
@@ -780,8 +913,12 @@ fn authenticated_semantic_mismatch_and_aad_tamper_are_atomic() {
         derive_software_key(&restored_store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
     let mismatch = replace_index_chain_with_authenticated_value(&derived.store);
     let before_mismatch = mismatch.clone();
-    let error =
-        export_private_key(&mismatch, profile_id, derived.value.key_id, PASSWORD).unwrap_err();
+    let error = export_private_key(
+        &mismatch,
+        private_key_export_request(profile_id, derived.value.key_id),
+        PASSWORD,
+    )
+    .unwrap_err();
     assert_eq!(error.code, ErrorCode::InvalidStore);
     assert_eq!(mismatch, before_mismatch);
 
@@ -795,7 +932,12 @@ fn authenticated_semantic_mismatch_and_aad_tamper_are_atomic() {
         _ => unreachable!(),
     }
     let registry_tampered = cbor::encode(&registry_tampered).unwrap();
-    let error = export_mnemonic(&registry_tampered, profile_id, PASSWORD).unwrap_err();
+    let error = export_mnemonic(
+        &registry_tampered,
+        mnemonic_export_request(profile_id),
+        PASSWORD,
+    )
+    .unwrap_err();
     assert_eq!(error.code, ErrorCode::AuthenticationFailed);
 
     let mut tag_tampered = cbor::decode(&restored_store).unwrap();
@@ -810,7 +952,7 @@ fn authenticated_semantic_mismatch_and_aad_tamper_are_atomic() {
     }
     let tag_tampered = cbor::encode(&tag_tampered).unwrap();
     assert_eq!(
-        export_mnemonic(&tag_tampered, profile_id, PASSWORD)
+        export_mnemonic(&tag_tampered, mnemonic_export_request(profile_id), PASSWORD)
             .unwrap_err()
             .code,
         ErrorCode::AuthenticationFailed
@@ -828,18 +970,36 @@ fn authenticated_semantic_mismatch_rejects_all_secret_and_mutation_paths_atomica
     let key_id = derived.value.key_id;
     let before = mismatch.clone();
 
-    assert_invalid_store(export_mnemonic(&mismatch, profile_id, PASSWORD));
+    assert_invalid_store(export_mnemonic(
+        &mismatch,
+        mnemonic_export_request(profile_id),
+        PASSWORD,
+    ));
     assert_eq!(mismatch, before);
-    assert_invalid_store(export_private_key(&mismatch, profile_id, key_id, PASSWORD));
+    assert_invalid_store(export_private_key(
+        &mismatch,
+        private_key_export_request(profile_id, key_id),
+        PASSWORD,
+    ));
     assert_eq!(mismatch, before);
-    assert_invalid_store(get_public_account(&mismatch, profile_id, key_id, PASSWORD));
-    assert_eq!(mismatch, before);
-    assert_invalid_store(sign(
+    assert_invalid_store(get_public_account(
         &mismatch,
         profile_id,
         key_id,
+        account_context(Chain::Symbol, Network::Mainnet),
         PASSWORD,
-        b"fixture payload",
+    ));
+    assert_eq!(mismatch, before);
+    assert_invalid_store(sign(
+        &mismatch,
+        signing_request(
+            profile_id,
+            key_id,
+            Chain::Symbol,
+            Network::Mainnet,
+            b"fixture payload",
+        ),
+        PASSWORD,
     ));
     assert_eq!(mismatch, before);
     assert_invalid_store(derive_software_key(
@@ -888,9 +1048,13 @@ fn authenticated_malformed_origin_is_rejected_without_secret_result() {
     for case in 0..=3 {
         let malformed = authenticated_payload_with_malformed_origin(&derived.store, case);
         assert_eq!(
-            export_private_key(&malformed, profile_id, derived.value.key_id, PASSWORD)
-                .unwrap_err()
-                .code,
+            export_private_key(
+                &malformed,
+                private_key_export_request(profile_id, derived.value.key_id),
+                PASSWORD,
+            )
+            .unwrap_err()
+            .code,
             ErrorCode::InvalidStore
         );
     }
@@ -926,7 +1090,8 @@ fn authenticated_pending_profile_id_collision_is_pending_invalid() {
     .unwrap();
     let before = store.clone();
 
-    let error = finalize_generated_profile(&store, &pending, PASSWORD).unwrap_err();
+    let error =
+        finalize_generated_profile(&store, &pending, PASSWORD, confirmed_handoff()).unwrap_err();
     assert_eq!(error.code, ErrorCode::PendingProfileInvalid);
     assert_eq!(store, before);
 }
@@ -941,11 +1106,21 @@ fn decoder_preserves_index_wire_value_for_aad_and_rejects_noncanonical_order() {
         derive_software_key(&restored.store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
 
     let with_unknown_field = add_unknown_index_field_with_matching_aad(&derived.store);
-    assert!(export_mnemonic(&with_unknown_field, profile_id, PASSWORD).is_ok());
+    assert!(export_mnemonic(
+        &with_unknown_field,
+        mnemonic_export_request(profile_id),
+        PASSWORD
+    )
+    .is_ok());
 
     let second_profile =
         restore_profile(&with_unknown_field, MNEMONIC, PASSWORD, Network::Testnet).unwrap();
-    assert!(export_mnemonic(&second_profile.store, profile_id, PASSWORD).is_ok());
+    assert!(export_mnemonic(
+        &second_profile.store,
+        mnemonic_export_request(profile_id),
+        PASSWORD
+    )
+    .is_ok());
     assert_eq!(
         list_profiles(&reverse_profiles(&second_profile.store))
             .unwrap_err()
@@ -983,7 +1158,7 @@ fn unknown_wire_fields_survive_non_target_and_target_mutations() {
         Value::Map(entries) => entries,
         _ => unreachable!(),
     };
-    assert_eq!(map_value(map, 99), Some(&Value::Simple(23)));
+    assert_eq!(map_value(map, 99), Some(&Value::UInt(23)));
     let profiles = match map_value(map, 3).unwrap() {
         Value::Array(values) => values,
         _ => unreachable!(),
@@ -996,14 +1171,17 @@ fn unknown_wire_fields_survive_non_target_and_target_mutations() {
         })
         .unwrap();
     let target_map = as_map(target).unwrap();
-    assert_eq!(map_value(target_map, 99), Some(&Value::Simple(42)));
+    assert_eq!(map_value(target_map, 99), Some(&Value::Bytes(vec![42])));
     assert_eq!(
         map_value(as_map(map_value(target_map, 4).unwrap()).unwrap(), 99),
-        Some(&Value::Simple(43))
+        Some(&Value::Array(vec![
+            Value::UInt(43),
+            Value::Map(vec![(0, Value::Text("nested extension".to_owned()))]),
+        ]))
     );
     assert_eq!(
         map_value(as_map(map_value(target_map, 5).unwrap()).unwrap(), 99),
-        Some(&Value::Simple(44))
+        Some(&Value::Map(vec![(0, Value::Bytes(vec![44]))]))
     );
     let index = match map_value(target_map, 6).unwrap() {
         Value::Array(values) => values,
@@ -1013,7 +1191,7 @@ fn unknown_wire_fields_survive_non_target_and_target_mutations() {
         index
             .iter()
             .find_map(|value| as_map(value).and_then(|map| map_value(map, 99))),
-        Some(&Value::Simple(42))
+        Some(&Value::Text("index extension".to_owned()))
     );
 
     let wallet = decode_store(&mutated.store).unwrap().0;
@@ -1036,7 +1214,10 @@ fn unknown_wire_fields_survive_non_target_and_target_mutations() {
     );
     let payload = cbor::decode(&plaintext).unwrap();
     let payload_map = as_map(&payload).unwrap();
-    assert_eq!(map_value(payload_map, 99), Some(&Value::Simple(23)));
+    assert_eq!(
+        map_value(payload_map, 99),
+        Some(&Value::Text("payload extension".to_owned()))
+    );
     let keys = match map_value(payload_map, 1).unwrap() {
         Value::Array(values) => values,
         _ => unreachable!(),
@@ -1046,11 +1227,35 @@ fn unknown_wire_fields_survive_non_target_and_target_mutations() {
         .filter_map(as_map)
         .find(|map| map_value(map, 99).is_some())
         .unwrap();
-    assert_eq!(map_value(key_map, 99), Some(&Value::Simple(45)));
+    assert_eq!(map_value(key_map, 99), Some(&Value::Bytes(vec![45])));
     assert_eq!(
         map_value(as_map(map_value(key_map, 3).unwrap()).unwrap(), 99),
-        Some(&Value::Simple(23))
+        Some(&Value::Array(vec![Value::UInt(23)]))
     );
+}
+
+#[test]
+fn unknown_field_values_use_the_recursive_store_allow_list() {
+    let forbidden_values = [
+        Value::Negative(0),
+        Value::Tag(1, Box::new(Value::UInt(1))),
+        Value::Simple(23),
+        Value::Bool(true),
+        Value::Null,
+        Value::Array(vec![Value::Negative(0)]),
+        Value::Map(vec![(0, Value::Tag(1, Box::new(Value::UInt(1))))]),
+    ];
+
+    for forbidden in forbidden_values {
+        let mut value = cbor::decode(&minimal_store(0, 0)).unwrap();
+        let map = match &mut value {
+            Value::Map(entries) => entries,
+            _ => unreachable!(),
+        };
+        map.push((99, forbidden));
+        let encoded = cbor::encode(&value).unwrap();
+        assert_invalid_store(list_profiles(&encoded));
+    }
 }
 
 #[test]

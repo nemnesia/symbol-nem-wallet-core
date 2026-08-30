@@ -15,9 +15,11 @@ use crate::{
     crypto,
     error::{ErrorCode, WalletError, WalletResult},
     types::{
-        Chain, DecodeWarning, MnemonicExport, MutationResult, Network, PreparedProfile,
-        PrivateKeyExport, ProfileInfo, PublicAccountInfo, ReadResult, Signature, SoftwareKeyInfo,
-        SoftwareKeyListItem, SoftwareKeyOrigin, WalletStoreBlob,
+        AccountContext, Chain, DecodeWarning, ExportApplicationConfirmationStatus, ExportRequest,
+        ExportTarget, ExportUserRequestStatus, HandoffConfirmation, HandoffConfirmationStatus,
+        MnemonicExport, MutationResult, Network, PreparedProfile, PrivateKeyExport, ProfileInfo,
+        PublicAccountInfo, ReadResult, Signature, SigningApprovalStatus, SigningRequest,
+        SoftwareKeyInfo, SoftwareKeyListItem, SoftwareKeyOrigin, WalletStoreBlob,
     },
 };
 
@@ -36,7 +38,7 @@ const PENDING_MAGIC: [u8; 8] = *b"SNWCPND1";
 const PENDING_VERSION: u8 = 1;
 
 #[derive(Clone)]
-struct WalletStore {
+pub(crate) struct WalletStore {
     // Store blobから秘匿される秘密ではなく、Profile重複tagのdomain separationと
     // integrity contextに使うStore固有値。平文manifestの一部として保存する。
     registry_key: [u8; 32],
@@ -220,7 +222,11 @@ pub fn finalize_generated_profile(
     store: &[u8],
     pending_profile: &[u8],
     password_utf8: &[u8],
+    handoff_confirmation: HandoffConfirmation,
 ) -> WalletResult<MutationResult<ProfileInfo>> {
+    if handoff_confirmation.status != HandoffConfirmationStatus::Confirmed {
+        return Err(WalletError::new(ErrorCode::InvalidArgument));
+    }
     crypto::validate_password(password_utf8)?;
     let (mut wallet, warnings) = decode_store(store)?;
     let pending = parse_pending(pending_profile)?;
@@ -251,11 +257,11 @@ pub fn finalize_generated_profile(
         pending.network,
         &entropy,
     ));
-    if wallet
-        .profiles
-        .iter()
-        .any(|profile| profile.duplicate_tag == *duplicate_tag)
-    {
+    let mut duplicate_profile = 0u8;
+    for profile in &wallet.profiles {
+        duplicate_profile |= secret_bytes_equal(&profile.duplicate_tag, &duplicate_tag);
+    }
+    if duplicate_profile != 0 {
         return Err(WalletError::new(ErrorCode::DuplicateProfile));
     }
     if wallet
@@ -318,11 +324,11 @@ pub fn restore_profile(
         network,
         &entropy,
     ));
-    if wallet
-        .profiles
-        .iter()
-        .any(|profile| profile.duplicate_tag == *duplicate_tag)
-    {
+    let mut duplicate_profile = 0u8;
+    for profile in &wallet.profiles {
+        duplicate_profile |= secret_bytes_equal(&profile.duplicate_tag, &duplicate_tag);
+    }
+    if duplicate_profile != 0 {
         return Err(WalletError::new(ErrorCode::DuplicateProfile));
     }
 
@@ -404,9 +410,15 @@ pub fn list_software_keys(
 /// しない場合は`ProfileNotFound`を返し、Mnemonicは返さない。
 pub fn export_mnemonic(
     store: &[u8],
-    profile_id: Uuid,
+    request: ExportRequest,
     password_utf8: &[u8],
 ) -> WalletResult<ReadResult<MnemonicExport>> {
+    let profile_id = match validate_export_request(&request, false)? {
+        ExportTarget::MnemonicTarget { profile_id } => profile_id,
+        ExportTarget::SoftwareKeyTarget { .. } => {
+            return Err(WalletError::new(ErrorCode::InvalidArgument))
+        }
+    };
     let (wallet, mut warnings) = decode_store(store)?;
     let payload = authenticate_profile(
         &wallet,
@@ -433,10 +445,15 @@ pub fn export_mnemonic(
 /// Software Keyが存在しない場合は対応するエラーを返す。
 pub fn export_private_key(
     store: &[u8],
-    profile_id: Uuid,
-    key_id: Uuid,
+    request: ExportRequest,
     password_utf8: &[u8],
 ) -> WalletResult<ReadResult<PrivateKeyExport>> {
+    let (profile_id, key_id) = match validate_export_request(&request, true)? {
+        ExportTarget::SoftwareKeyTarget { profile_id, key_id } => (profile_id, key_id),
+        ExportTarget::MnemonicTarget { .. } => {
+            return Err(WalletError::new(ErrorCode::InvalidArgument))
+        }
+    };
     let (wallet, mut warnings) = decode_store(store)?;
     let payload = authenticate_profile(
         &wallet,
@@ -636,6 +653,52 @@ where
     })
 }
 
+#[cfg(test)]
+pub(crate) fn generate_software_key_public_boundary_for_test<F, G>(
+    store: &[u8],
+    profile_id: Uuid,
+    password_utf8: &[u8],
+    chain: Chain,
+    generate_private_key: F,
+    save_store: G,
+) -> WalletResult<MutationResult<SoftwareKeyInfo>>
+where
+    F: FnMut(Chain) -> WalletResult<[u8; 32]>,
+    G: Fn(&WalletStore) -> WalletResult<Vec<u8>>,
+{
+    generate_software_key_with(
+        store,
+        profile_id,
+        password_utf8,
+        chain,
+        generate_private_key,
+        save_store,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn generate_software_key_public_boundary_with_rng_for_test<F, G>(
+    store: &[u8],
+    profile_id: Uuid,
+    password_utf8: &[u8],
+    chain: Chain,
+    mut candidate: F,
+    save_store: G,
+) -> WalletResult<MutationResult<SoftwareKeyInfo>>
+where
+    F: FnMut() -> WalletResult<[u8; 32]>,
+    G: Fn(&WalletStore) -> WalletResult<Vec<u8>>,
+{
+    generate_software_key_with(
+        store,
+        profile_id,
+        password_utf8,
+        chain,
+        |chain| crypto::generate_private_key_with_for_test(chain, &mut candidate),
+        save_store,
+    )
+}
+
 /// 認証済みSoftware Keyのpublic keyとaddressを返す。
 ///
 /// Profile passwordでpayloadを認証・復号し、Software Keyに固定されたChainとProfileの
@@ -649,6 +712,7 @@ pub fn get_public_account(
     store: &[u8],
     profile_id: Uuid,
     key_id: Uuid,
+    requested_context: AccountContext,
     password_utf8: &[u8],
 ) -> WalletResult<ReadResult<PublicAccountInfo>> {
     let (wallet, mut warnings) = decode_store(store)?;
@@ -659,13 +723,14 @@ pub fn get_public_account(
         .iter()
         .find(|key| key.key_id == key_id.into_bytes())
         .ok_or_else(|| WalletError::new(ErrorCode::SoftwareKeyNotFound))?;
+    validate_account_context(profile, key, requested_context)?;
     let public_key = crypto::public_key(key.chain, &key.private_key)?;
-    let address = crypto::address(key.chain, profile.network, &public_key);
+    let address = crypto::address(key.chain, requested_context.network, &public_key);
     Ok(ReadResult {
         value: PublicAccountInfo {
             key_id,
             chain: key.chain,
-            network: profile.network,
+            network: requested_context.network,
             public_key,
             address,
         },
@@ -685,12 +750,16 @@ pub fn get_public_account(
 /// 場合は`SoftwareKeyNotFound`を返す。
 pub fn sign(
     store: &[u8],
-    profile_id: Uuid,
-    key_id: Uuid,
+    request: SigningRequest,
     password_utf8: &[u8],
-    payload_bytes: &[u8],
 ) -> WalletResult<ReadResult<Signature>> {
+    if request.approval.status != SigningApprovalStatus::Approved {
+        return Err(WalletError::new(ErrorCode::InvalidArgument));
+    }
+    let profile_id = request.target.profile_id;
+    let key_id = request.target.key_id;
     let (wallet, mut warnings) = decode_store(store)?;
+    let profile = find_profile(&wallet, &profile_id.into_bytes())?;
     let payload = authenticate_profile(
         &wallet,
         &profile_id.into_bytes(),
@@ -702,9 +771,10 @@ pub fn sign(
         .iter()
         .find(|key| key.key_id == key_id.into_bytes())
         .ok_or_else(|| WalletError::new(ErrorCode::SoftwareKeyNotFound))?;
+    validate_account_context(profile, key, request.target.context)?;
     Ok(ReadResult {
         value: Signature {
-            signature: crypto::sign(key.chain, &key.private_key, payload_bytes)?,
+            signature: crypto::sign(key.chain, &key.private_key, &request.payload)?,
         },
         warnings,
     })
@@ -824,6 +894,9 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
     let value = cbor::decode_with_limits(bytes, cbor::WALLET_STORE_LIMITS)
         .map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
     let map = as_map(&value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    // Unknown values are checked before any registry-key or profile processing. This keeps
+    // forbidden extension types out of all subsequent secret-bearing paths.
+    validate_unknown_fields(map, &[0, 1, 2, 3])?;
     // top-levelのmagic/versionを確認してから、v1の各fieldを解釈する。
     let magic = fixed_bytes(map_value(map, 0), 4)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
@@ -866,7 +939,7 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
         WalletStore {
             registry_key: *registry_key,
             profiles,
-            unknown_fields: unknown_fields(map, &[0, 1, 2, 3]),
+            unknown_fields: unknown_fields(map, &[0, 1, 2, 3])?,
         },
         Vec::new(),
     ))
@@ -875,6 +948,7 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
 // ProfileEnvelopeの必須field、enum、index順序を検証する。
 fn parse_profile(value: &Value) -> WalletResult<ProfileEnvelope> {
     let map = as_map(value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    validate_unknown_fields(map, &[0, 1, 2, 3, 4, 5, 6])?;
     // 既知fieldは型・長さ・enumを厳密に読み、未知fieldは意味解釈せず保持する。
     let profile_id = fixed_bytes(map_value(map, 0), 16)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
@@ -918,7 +992,7 @@ fn parse_profile(value: &Value) -> WalletResult<ProfileEnvelope> {
         cipher,
         software_key_index,
         aad_software_key_index,
-        unknown_fields: unknown_fields(map, &[0, 1, 2, 3, 4, 5, 6]),
+        unknown_fields: unknown_fields(map, &[0, 1, 2, 3, 4, 5, 6])?,
     })
 }
 
@@ -927,6 +1001,7 @@ fn parse_kdf(value: Option<&Value>) -> WalletResult<KdfParams> {
     let map = value
         .and_then(as_map)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    validate_unknown_fields(map, &[0, 1, 2, 3, 4, 5])?;
     if uint(map_value(map, 0)) != Some(KDF_ALGORITHM)
         || uint(map_value(map, 1)) != Some(crypto::KDF_VERSION as u64)
         || uint(map_value(map, 2)) != Some(crypto::KDF_MEMORY_KIB as u64)
@@ -938,7 +1013,7 @@ fn parse_kdf(value: Option<&Value>) -> WalletResult<KdfParams> {
     Ok(KdfParams {
         salt: fixed_bytes(map_value(map, 5), 16)
             .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?,
-        unknown_fields: unknown_fields(map, &[0, 1, 2, 3, 4, 5]),
+        unknown_fields: unknown_fields(map, &[0, 1, 2, 3, 4, 5])?,
     })
 }
 
@@ -947,6 +1022,7 @@ fn parse_cipher(value: Option<&Value>) -> WalletResult<Ciphertext> {
     let map = value
         .and_then(as_map)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    validate_unknown_fields(map, &[0, 1, 2, 3])?;
     if uint(map_value(map, 0)) != Some(CIPHER_ALGORITHM) {
         return Err(WalletError::new(ErrorCode::InvalidStore));
     }
@@ -962,13 +1038,14 @@ fn parse_cipher(value: Option<&Value>) -> WalletResult<Ciphertext> {
         nonce,
         ciphertext,
         tag,
-        unknown_fields: unknown_fields(map, &[0, 1, 2, 3]),
+        unknown_fields: unknown_fields(map, &[0, 1, 2, 3])?,
     })
 }
 
 // 平文indexはprivate keyを含まず、一覧取得用のkey_idとChainだけを保持する。
 fn parse_index_entry(value: &Value) -> WalletResult<IndexEntry> {
     let map = as_map(value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    validate_unknown_fields(map, &[0, 1])?;
     let key_id = fixed_bytes(map_value(map, 0), 16)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let chain =
@@ -982,6 +1059,7 @@ fn parse_payload(bytes: &[u8]) -> WalletResult<ProfilePayload> {
     let value = cbor::decode_with_limits(bytes, cbor::PROFILE_PAYLOAD_LIMITS)
         .map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
     let map = as_map(&value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    validate_unknown_fields(map, &[0, 1])?;
     let mnemonic_entropy = zeroize::Zeroizing::new(
         fixed_bytes(map_value(map, 0), 32)
             .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?,
@@ -1006,24 +1084,18 @@ fn parse_payload(bytes: &[u8]) -> WalletResult<ProfilePayload> {
     Ok(ProfilePayload {
         mnemonic_entropy: *mnemonic_entropy,
         software_keys,
-        unknown_fields: unknown_fields(map, &[0, 1]),
+        unknown_fields: unknown_fields(map, &[0, 1])?,
     })
 }
 
 // SoftwareKeyRecordの不正はskipせず、Store全体を拒否する。
 fn parse_key_record(value: &Value) -> WalletResult<KeyRecord> {
     let map = as_map(value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
+    validate_unknown_fields(map, &[0, 1, 2, 3])?;
     let key_id = fixed_bytes(map_value(map, 0), 16)
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let chain =
         parse_chain(map_value(map, 1)).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
-    // originの検証が完了するまで、認証済みpayloadから取り出した秘密鍵を
-    // zeroize保証のあるownerで保持する。originの不正によるearly returnでも
-    // plainな秘密鍵bufferを残さない。
-    let private_key = zeroize::Zeroizing::new(
-        fixed_bytes(map_value(map, 2), 32)
-            .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?,
-    );
     let origin_map =
         as_map(map_value(map, 3).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?)
             .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
@@ -1048,13 +1120,19 @@ fn parse_key_record(value: &Value) -> WalletResult<KeyRecord> {
         SoftwareKeyOrigin::Derived { .. } => &[0, 1][..],
         SoftwareKeyOrigin::Imported | SoftwareKeyOrigin::Generated => &[0][..],
     };
+    validate_unknown_fields(origin_map, origin_known_fields)?;
+    // originの検証とunknown field検証が完了してから、秘密鍵をzeroize ownerへ取り込む。
+    let private_key = zeroize::Zeroizing::new(
+        fixed_bytes(map_value(map, 2), 32)
+            .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?,
+    );
     Ok(KeyRecord {
         key_id,
         chain,
         private_key: *private_key,
         origin,
-        unknown_fields: unknown_fields(map, &[0, 1, 2, 3]),
-        origin_unknown_fields: unknown_fields(origin_map, origin_known_fields),
+        unknown_fields: unknown_fields(map, &[0, 1, 2, 3])?,
+        origin_unknown_fields: unknown_fields(origin_map, origin_known_fields)?,
     })
 }
 
@@ -1097,7 +1175,7 @@ fn validate_authenticated_profile(
         profile.network,
         &payload.mnemonic_entropy,
     );
-    if expected_tag != profile.duplicate_tag {
+    if secret_bytes_equal(&expected_tag, &profile.duplicate_tag) == 0 {
         return Err(WalletError::new(ErrorCode::InvalidStore));
     }
     if profile.software_key_index.len() != payload.software_keys.len() {
@@ -1134,7 +1212,7 @@ fn reencrypt_profile(
     let profile = &mut wallet.profiles[profile_index];
     profile.software_key_index = index_from_payload(payload);
     profile.aad_software_key_index =
-        index_values_from_payload(payload, &profile.aad_software_key_index);
+        index_values_from_payload(payload, &profile.aad_software_key_index)?;
     if change_password {
         // password変更時だけKDF saltも更新する。通常のkey追加・削除ではsaltを維持する。
         profile.kdf.salt = crypto::random()?;
@@ -1369,44 +1447,47 @@ fn index_to_values(entries: &[IndexEntry]) -> Vec<Value> {
 }
 
 // 既存indexのunknown fieldをkey_idで引き継ぎ、既知fieldだけを更新する。
-fn index_values_from_payload(payload: &ProfilePayload, existing: &[Value]) -> Vec<Value> {
+fn index_values_from_payload(
+    payload: &ProfilePayload,
+    existing: &[Value],
+) -> WalletResult<Vec<Value>> {
     let mut existing = existing.iter().peekable();
-    index_from_payload(payload)
-        .into_iter()
-        .map(|entry| {
-            // 既存wire indexと新indexはいずれもkey_id昇順。現在のentryより
-            // 小さい既存要素を一度だけ消費し、全体をO(n)でmergeする。
-            while let Some(value) = existing.peek() {
-                let Some(map) = as_map(value) else {
-                    existing.next();
-                    continue;
-                };
-                let Some(key_id) = fixed_bytes(map_value(map, 0), 16) else {
-                    existing.next();
-                    continue;
-                };
-                if key_id < entry.key_id {
-                    existing.next();
-                    continue;
-                }
-                break;
+    let mut entries = Vec::new();
+    for entry in index_from_payload(payload) {
+        // 既存wire indexと新indexはいずれもkey_id昇順。現在のentryより
+        // 小さい既存要素を一度だけ消費し、全体をO(n)でmergeする。
+        while let Some(value) = existing.peek() {
+            let Some(map) = as_map(value) else {
+                existing.next();
+                continue;
+            };
+            let Some(key_id) = fixed_bytes(map_value(map, 0), 16) else {
+                existing.next();
+                continue;
+            };
+            if key_id < entry.key_id {
+                existing.next();
+                continue;
             }
-            let unknown = existing
-                .peek()
-                .and_then(|value| as_map(value))
-                .filter(|map| {
-                    fixed_bytes(map_value(map, 0), 16).is_some_and(|key_id| key_id == entry.key_id)
-                })
-                .map(|map| unknown_fields(map, &[0, 1]))
-                .unwrap_or_default();
-            let mut fields = vec![
-                (0, Value::Bytes(entry.key_id.to_vec())),
-                (1, Value::UInt(entry.chain.wire())),
-            ];
-            fields.extend(unknown);
-            Value::Map(fields)
-        })
-        .collect()
+            break;
+        }
+        let unknown = existing
+            .peek()
+            .and_then(|value| as_map(value))
+            .filter(|map| {
+                fixed_bytes(map_value(map, 0), 16).is_some_and(|key_id| key_id == entry.key_id)
+            })
+            .map(|map| unknown_fields(map, &[0, 1]))
+            .transpose()?
+            .unwrap_or_default();
+        let mut fields = vec![
+            (0, Value::Bytes(entry.key_id.to_vec())),
+            (1, Value::UInt(entry.chain.wire())),
+        ];
+        fields.extend(unknown);
+        entries.push(Value::Map(fields));
+    }
+    Ok(entries)
 }
 
 fn index_from_payload(payload: &ProfilePayload) -> Vec<IndexEntry> {
@@ -1428,6 +1509,35 @@ fn profile_info(profile: &ProfileEnvelope) -> ProfileInfo {
         network: profile.network,
         software_key_count: profile.software_key_index.len(),
     }
+}
+
+fn validate_export_request(
+    request: &ExportRequest,
+    private_key: bool,
+) -> WalletResult<ExportTarget> {
+    if request.user_request.status != ExportUserRequestStatus::Requested
+        || request.application_confirmation.status != ExportApplicationConfirmationStatus::Confirmed
+        || request.target != request.user_request.target
+        || request.target != request.application_confirmation.target
+    {
+        return Err(WalletError::new(ErrorCode::InvalidArgument));
+    }
+    match (private_key, request.target) {
+        (false, ExportTarget::MnemonicTarget { .. })
+        | (true, ExportTarget::SoftwareKeyTarget { .. }) => Ok(request.target),
+        _ => Err(WalletError::new(ErrorCode::InvalidArgument)),
+    }
+}
+
+fn validate_account_context(
+    profile: &ProfileEnvelope,
+    key: &KeyRecord,
+    requested_context: AccountContext,
+) -> WalletResult<()> {
+    if profile.network != requested_context.network || key.chain != requested_context.chain {
+        return Err(WalletError::new(ErrorCode::NetworkMismatch));
+    }
+    Ok(())
 }
 
 fn find_profile<'a>(
@@ -1455,14 +1565,25 @@ fn ensure_not_duplicate(
     private_key: &[u8; 32],
 ) -> WalletResult<()> {
     // 重複条件はProfile内かつ同一Chainに限定する。異なるChainの同一raw keyは別Key。
-    if payload
-        .software_keys
-        .iter()
-        .any(|key| key.chain == chain && key.private_key == *private_key)
-    {
+    let mut duplicate = 0u8;
+    for key in &payload.software_keys {
+        // keyの全32 byteを走査し、secret match時のearly exitを作らない。
+        let same_chain = u8::from(key.chain == chain);
+        duplicate |= same_chain & secret_bytes_equal(&key.private_key, private_key);
+    }
+    if duplicate != 0 {
         return Err(WalletError::new(ErrorCode::DuplicateSoftwareKey));
     }
     Ok(())
+}
+
+// 固定長secret比較は全byteを処理し、最初の差分で終了しない。戻り値は一致時1。
+fn secret_bytes_equal(left: &[u8; 32], right: &[u8; 32]) -> u8 {
+    let mut difference = 0u8;
+    for (left, right) in left.iter().zip(right.iter()) {
+        difference |= left ^ right;
+    }
+    u8::from(difference == 0)
 }
 
 fn new_profile_id(wallet: &WalletStore) -> WalletResult<[u8; 16]> {
@@ -1631,11 +1752,44 @@ fn as_array(value: &Value) -> Option<&[Value]> {
     }
 }
 
-fn unknown_fields(map: &[(u64, Value)], known: &[u64]) -> Vec<(u64, Value)> {
-    map.iter()
-        .filter(|(key, _)| !known.contains(key))
-        .map(|(key, value)| (*key, value.clone()))
-        .collect()
+fn unknown_fields(map: &[(u64, Value)], known: &[u64]) -> WalletResult<Vec<(u64, Value)>> {
+    let mut fields = Vec::new();
+    for (key, value) in map.iter().filter(|(key, _)| !known.contains(key)) {
+        validate_unknown_value(value)?;
+        fields.push((*key, value.clone()));
+    }
+    Ok(fields)
+}
+
+fn validate_unknown_fields(map: &[(u64, Value)], known: &[u64]) -> WalletResult<()> {
+    for (_key, value) in map.iter().filter(|(key, _)| !known.contains(key)) {
+        validate_unknown_value(value)?;
+    }
+    Ok(())
+}
+
+fn validate_unknown_value(value: &Value) -> WalletResult<()> {
+    match value {
+        // Store Format v1のunknown fieldで許可されるCBOR type。
+        Value::UInt(_) | Value::Bytes(_) | Value::Text(_) => Ok(()),
+        Value::Array(values) => {
+            for value in values {
+                validate_unknown_value(value)?;
+            }
+            Ok(())
+        }
+        Value::Map(entries) => {
+            // CBOR decoderがunsigned integer key、canonical order、重複を既に検証して
+            // いる。ここではvalue typeだけを同じallow-listで再帰的に確認する。
+            for (_, value) in entries {
+                validate_unknown_value(value)?;
+            }
+            Ok(())
+        }
+        Value::Negative(_) | Value::Tag(_, _) | Value::Simple(_) | Value::Bool(_) | Value::Null => {
+            Err(WalletError::new(ErrorCode::InvalidStore))
+        }
+    }
 }
 
 fn map_value(map: &[(u64, Value)], key: u64) -> Option<&Value> {

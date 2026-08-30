@@ -175,7 +175,12 @@ pub(crate) fn validate_private_key(
         .try_into()
         .map_err(|_| WalletError::new(ErrorCode::InvalidPrivateKey))?;
     let private_key = Zeroizing::new(private_key);
-    if private_key.iter().all(|byte| *byte == 0) {
+    // all-zero判定は全byteを走査し、最初のnon-zero byteで終了しない。
+    let mut non_zero = 0u8;
+    for byte in private_key.iter() {
+        non_zero |= *byte;
+    }
+    if non_zero == 0 {
         return Err(WalletError::new(ErrorCode::InvalidPrivateKey));
     }
     let _ = public_key(chain, &private_key)?;
@@ -199,6 +204,17 @@ where
             return Ok(*private_key);
         }
     }
+}
+
+#[cfg(test)]
+pub(crate) fn generate_private_key_with_for_test<F>(
+    chain: Chain,
+    candidate: F,
+) -> WalletResult<[u8; 32]>
+where
+    F: FnMut() -> WalletResult<[u8; 32]>,
+{
+    generate_private_key_with(chain, candidate)
 }
 
 pub(crate) fn public_key(chain: Chain, private_key: &[u8; 32]) -> WalletResult<[u8; 32]> {

@@ -9,8 +9,11 @@ use symbol_nem_wallet_core::{
     change_profile_password, create_empty_store, delete_profile, delete_software_key,
     derive_software_key, export_mnemonic, export_private_key, finalize_generated_profile,
     get_public_account, import_software_key, list_profiles, list_software_keys,
-    prepare_generated_profile, restore_profile, sign, Chain, ErrorCode, Network, SoftwareKeyOrigin,
-    WalletError,
+    prepare_generated_profile, restore_profile, sign, AccountContext, Chain, ErrorCode,
+    ExportApplicationConfirmation, ExportApplicationConfirmationStatus, ExportRequest,
+    ExportTarget, ExportUserRequest, ExportUserRequestStatus, HandoffConfirmation,
+    HandoffConfirmationStatus, Network, SigningApproval, SigningApprovalStatus, SigningRequest,
+    SigningTarget, SoftwareKeyOrigin, WalletError,
 };
 
 const MNEMONIC: &[u8] = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
@@ -20,6 +23,66 @@ const NEW_PASSWORD: &[u8] = b"new correct horse battery staple";
 fn array32(hex_value: &str) -> [u8; 32] {
     // 公開APIが返すraw 32 byte値をfixtureのhex表記と比較するための補助関数。
     hex::decode(hex_value).unwrap().try_into().unwrap()
+}
+
+fn mnemonic_export_request(profile_id: Uuid) -> ExportRequest {
+    let target = ExportTarget::MnemonicTarget { profile_id };
+    ExportRequest {
+        target,
+        user_request: ExportUserRequest {
+            target,
+            status: ExportUserRequestStatus::Requested,
+        },
+        application_confirmation: ExportApplicationConfirmation {
+            target,
+            status: ExportApplicationConfirmationStatus::Confirmed,
+        },
+    }
+}
+
+fn private_key_export_request(profile_id: Uuid, key_id: Uuid) -> ExportRequest {
+    let target = ExportTarget::SoftwareKeyTarget { profile_id, key_id };
+    ExportRequest {
+        target,
+        user_request: ExportUserRequest {
+            target,
+            status: ExportUserRequestStatus::Requested,
+        },
+        application_confirmation: ExportApplicationConfirmation {
+            target,
+            status: ExportApplicationConfirmationStatus::Confirmed,
+        },
+    }
+}
+
+fn account_context(chain: Chain, network: Network) -> AccountContext {
+    AccountContext { chain, network }
+}
+
+fn signing_request(
+    profile_id: Uuid,
+    key_id: Uuid,
+    chain: Chain,
+    network: Network,
+    payload: &[u8],
+) -> SigningRequest {
+    SigningRequest {
+        target: SigningTarget {
+            profile_id,
+            key_id,
+            context: account_context(chain, network),
+        },
+        payload: payload.to_vec(),
+        approval: SigningApproval {
+            status: SigningApprovalStatus::Approved,
+        },
+    }
+}
+
+fn confirmed_handoff() -> HandoffConfirmation {
+    HandoffConfirmation {
+        status: HandoffConfirmationStatus::Confirmed,
+    }
 }
 
 fn cbor_uint(value: u64) -> Vec<u8> {
@@ -154,23 +217,36 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         .pending_profile
         .is_empty());
 
-    let exported = export_mnemonic(&created.store, profile_id, PASSWORD).unwrap();
+    let exported = export_mnemonic(
+        &created.store,
+        mnemonic_export_request(profile_id),
+        PASSWORD,
+    )
+    .unwrap();
     assert!(exported.value.mnemonic_utf8 == MNEMONIC);
     assert_eq!(
         format!("{:?}", exported.value),
         r#"MnemonicExport { mnemonic_utf8: "[redacted]" }"#
     );
     assert_eq!(
-        export_mnemonic(&created.store, profile_id, b"wrong")
-            .unwrap_err()
-            .code,
+        export_mnemonic(
+            &created.store,
+            mnemonic_export_request(profile_id),
+            b"wrong"
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::AuthenticationFailed
     );
 
     let symbol =
         derive_software_key(&created.store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
-    let exported_private =
-        export_private_key(&symbol.store, profile_id, symbol.value.key_id, PASSWORD).unwrap();
+    let exported_private = export_private_key(
+        &symbol.store,
+        private_key_export_request(profile_id, symbol.value.key_id),
+        PASSWORD,
+    )
+    .unwrap();
     assert_eq!(
         format!("{:?}", exported_private.value),
         r#"PrivateKeyExport { private_key: "[redacted]" }"#
@@ -178,34 +254,54 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     let symbol_private = exported_private.value.private_key;
     let missing_key_id = Uuid::from_bytes([0; 16]);
     assert_eq!(
-        export_private_key(&symbol.store, profile_id, missing_key_id, PASSWORD)
-            .unwrap_err()
-            .code,
-        ErrorCode::SoftwareKeyNotFound
-    );
-    assert_eq!(
-        get_public_account(&symbol.store, profile_id, missing_key_id, PASSWORD)
-            .unwrap_err()
-            .code,
-        ErrorCode::SoftwareKeyNotFound
-    );
-    assert_eq!(
-        sign(
+        export_private_key(
             &symbol.store,
-            profile_id,
-            missing_key_id,
+            private_key_export_request(profile_id, missing_key_id),
             PASSWORD,
-            b"missing key",
         )
         .unwrap_err()
         .code,
         ErrorCode::SoftwareKeyNotFound
     );
     assert_eq!(
-        get_public_account(&symbol.store, profile_id, symbol.value.key_id, PASSWORD)
-            .unwrap()
-            .value
-            .public_key,
+        get_public_account(
+            &symbol.store,
+            profile_id,
+            missing_key_id,
+            account_context(Chain::Symbol, Network::Mainnet),
+            PASSWORD,
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::SoftwareKeyNotFound
+    );
+    assert_eq!(
+        sign(
+            &symbol.store,
+            signing_request(
+                profile_id,
+                missing_key_id,
+                Chain::Symbol,
+                Network::Mainnet,
+                b"missing key",
+            ),
+            PASSWORD,
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::SoftwareKeyNotFound
+    );
+    assert_eq!(
+        get_public_account(
+            &symbol.store,
+            profile_id,
+            symbol.value.key_id,
+            account_context(Chain::Symbol, Network::Mainnet),
+            PASSWORD,
+        )
+        .unwrap()
+        .value
+        .public_key,
         array32("54ADC79E3BEE5D0EF899832172C3CCF29DC5F5F3BC0E0D5FD06E3E64D8DB51D2")
     );
 
@@ -218,10 +314,16 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         2
     );
     assert_eq!(
-        get_public_account(&nem.store, profile_id, nem.value.key_id, PASSWORD)
-            .unwrap()
-            .value
-            .public_key,
+        get_public_account(
+            &nem.store,
+            profile_id,
+            nem.value.key_id,
+            account_context(Chain::Nem, Network::Mainnet),
+            PASSWORD,
+        )
+        .unwrap()
+        .value
+        .public_key,
         array32("58892BC737B493D837D7F7EC4519371B9498F23BBC7F2A2A10DE11A70E7BCF84")
     );
 
@@ -253,19 +355,27 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     // 重複判定はProfile内かつ同一Chainに限定される。
     assert_eq!(duplicate.code, ErrorCode::DuplicateSoftwareKey);
     assert_eq!(
-        export_private_key(&nem.store, profile_id, symbol.value.key_id, PASSWORD)
-            .unwrap()
-            .value
-            .private_key,
+        export_private_key(
+            &nem.store,
+            private_key_export_request(profile_id, symbol.value.key_id),
+            PASSWORD,
+        )
+        .unwrap()
+        .value
+        .private_key,
         symbol_private
     );
 
     let signature = sign(
         &nem.store,
-        profile_id,
-        nem.value.key_id,
+        signing_request(
+            profile_id,
+            nem.value.key_id,
+            Chain::Nem,
+            Network::Mainnet,
+            b"payload",
+        ),
         PASSWORD,
-        b"payload",
     )
     .unwrap();
     assert_eq!(signature.value.signature.len(), 64);
@@ -284,13 +394,21 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         2
     );
     assert_eq!(
-        export_mnemonic(&password_changed.store, profile_id, PASSWORD)
-            .unwrap_err()
-            .code,
+        export_mnemonic(
+            &password_changed.store,
+            mnemonic_export_request(profile_id),
+            PASSWORD,
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::AuthenticationFailed
     );
-    let after_password =
-        export_mnemonic(&password_changed.store, profile_id, NEW_PASSWORD).unwrap();
+    let after_password = export_mnemonic(
+        &password_changed.store,
+        mnemonic_export_request(profile_id),
+        NEW_PASSWORD,
+    )
+    .unwrap();
     assert!(after_password.value.mnemonic_utf8 == MNEMONIC);
 
     let deleted_key = delete_software_key(
@@ -310,9 +428,8 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     assert_eq!(
         export_private_key(
             &deleted_key.store,
-            profile_id,
-            symbol.value.key_id,
-            NEW_PASSWORD
+            private_key_export_request(profile_id, symbol.value.key_id),
+            NEW_PASSWORD,
         )
         .unwrap_err()
         .code,
@@ -325,9 +442,13 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         .value
         .is_empty());
     assert_eq!(
-        export_mnemonic(&deleted_profile.store, profile_id, NEW_PASSWORD)
-            .unwrap_err()
-            .code,
+        export_mnemonic(
+            &deleted_profile.store,
+            mnemonic_export_request(profile_id),
+            NEW_PASSWORD,
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::ProfileNotFound
     );
 }
@@ -345,7 +466,7 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     let mut invalid_version = prepared.value.pending_profile.clone();
     invalid_version[8] = 2;
     assert_eq!(
-        finalize_generated_profile(&store, &invalid_version, PASSWORD)
+        finalize_generated_profile(&store, &invalid_version, PASSWORD, confirmed_handoff())
             .unwrap_err()
             .code,
         ErrorCode::PendingProfileInvalid
@@ -353,7 +474,7 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     let mut invalid_network = prepared.value.pending_profile.clone();
     invalid_network[57] = 2;
     assert_eq!(
-        finalize_generated_profile(&store, &invalid_network, PASSWORD)
+        finalize_generated_profile(&store, &invalid_network, PASSWORD, confirmed_handoff())
             .unwrap_err()
             .code,
         ErrorCode::PendingProfileInvalid
@@ -363,6 +484,7 @@ fn generated_profile_requires_a_matching_pending_handoff() {
             &store,
             &prepared.value.pending_profile[..prepared.value.pending_profile.len() - 1],
             PASSWORD,
+            confirmed_handoff(),
         )
         .unwrap_err()
         .code,
@@ -370,22 +492,36 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     );
     assert!(list_profiles(&store).unwrap().value.is_empty());
     assert_eq!(
-        finalize_generated_profile(&store, &prepared.value.pending_profile, b"wrong")
-            .unwrap_err()
-            .code,
+        finalize_generated_profile(
+            &store,
+            &prepared.value.pending_profile,
+            b"wrong",
+            confirmed_handoff(),
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::AuthenticationFailed
     );
     assert!(list_profiles(&store).unwrap().value.is_empty());
 
-    let finalized =
-        finalize_generated_profile(&store, &prepared.value.pending_profile, PASSWORD).unwrap();
+    let finalized = finalize_generated_profile(
+        &store,
+        &prepared.value.pending_profile,
+        PASSWORD,
+        confirmed_handoff(),
+    )
+    .unwrap();
     assert_eq!(finalized.value.network, Network::Testnet);
     assert_eq!(finalized.value.software_key_count, 0);
     assert_eq!(list_profiles(&finalized.store).unwrap().value.len(), 1);
 
-    let reused =
-        finalize_generated_profile(&finalized.store, &prepared.value.pending_profile, PASSWORD)
-            .unwrap_err();
+    let reused = finalize_generated_profile(
+        &finalized.store,
+        &prepared.value.pending_profile,
+        PASSWORD,
+        confirmed_handoff(),
+    )
+    .unwrap_err();
     assert_eq!(reused.code, ErrorCode::PendingProfileInvalid);
     assert_eq!(
         restore_profile(
@@ -397,6 +533,161 @@ fn generated_profile_requires_a_matching_pending_handoff() {
         .unwrap_err()
         .code,
         ErrorCode::DuplicateProfile
+    );
+}
+
+#[test]
+fn assertions_and_account_context_are_required_at_core_boundaries() {
+    let store = create_empty_store().unwrap();
+    let prepared = prepare_generated_profile(&store, PASSWORD, Network::Mainnet).unwrap();
+    let unconfirmed = HandoffConfirmation {
+        status: HandoffConfirmationStatus::Unconfirmed,
+    };
+    assert_eq!(
+        finalize_generated_profile(
+            &store,
+            &prepared.value.pending_profile,
+            PASSWORD,
+            unconfirmed,
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::InvalidArgument
+    );
+    assert!(list_profiles(&store).unwrap().value.is_empty());
+
+    let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
+    let profile_id = restored.value.profile_id;
+    let derived =
+        derive_software_key(&restored.store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
+
+    let mut not_requested = mnemonic_export_request(profile_id);
+    not_requested.user_request.status = ExportUserRequestStatus::NotRequested;
+    assert_eq!(
+        export_mnemonic(&derived.store, not_requested, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidArgument
+    );
+    let mut not_confirmed = mnemonic_export_request(profile_id);
+    not_confirmed.application_confirmation.status =
+        ExportApplicationConfirmationStatus::NotConfirmed;
+    assert_eq!(
+        export_mnemonic(&derived.store, not_confirmed, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidArgument
+    );
+    let mut wrong_target = mnemonic_export_request(profile_id);
+    wrong_target.application_confirmation.target = ExportTarget::MnemonicTarget {
+        profile_id: Uuid::from_bytes([0xA5; 16]),
+    };
+    assert_eq!(
+        export_mnemonic(&derived.store, wrong_target, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidArgument
+    );
+    assert_eq!(
+        export_mnemonic(
+            &derived.store,
+            mnemonic_export_request(profile_id),
+            b"wrong"
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::AuthenticationFailed
+    );
+
+    let context = account_context(Chain::Symbol, Network::Mainnet);
+    assert_eq!(
+        get_public_account(
+            &derived.store,
+            profile_id,
+            derived.value.key_id,
+            AccountContext {
+                chain: context.chain,
+                network: Network::Testnet,
+            },
+            PASSWORD,
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::NetworkMismatch
+    );
+    assert_eq!(
+        get_public_account(
+            &derived.store,
+            profile_id,
+            derived.value.key_id,
+            AccountContext {
+                chain: Chain::Nem,
+                network: context.network,
+            },
+            PASSWORD,
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::NetworkMismatch
+    );
+
+    let mut not_approved = signing_request(
+        profile_id,
+        derived.value.key_id,
+        Chain::Symbol,
+        Network::Mainnet,
+        b"exact payload",
+    );
+    not_approved.approval.status = SigningApprovalStatus::NotApproved;
+    assert_eq!(
+        sign(&derived.store, not_approved, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidArgument
+    );
+    assert_eq!(
+        sign(
+            &derived.store,
+            signing_request(
+                profile_id,
+                derived.value.key_id,
+                Chain::Symbol,
+                Network::Mainnet,
+                b"exact payload",
+            ),
+            b"wrong",
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::AuthenticationFailed
+    );
+    let mut wrong_signing_context = signing_request(
+        profile_id,
+        derived.value.key_id,
+        Chain::Symbol,
+        Network::Mainnet,
+        b"exact payload",
+    );
+    wrong_signing_context.target.context.network = Network::Testnet;
+    assert_eq!(
+        sign(&derived.store, wrong_signing_context, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::NetworkMismatch
+    );
+    let mut wrong_signing_chain = signing_request(
+        profile_id,
+        derived.value.key_id,
+        Chain::Symbol,
+        Network::Mainnet,
+        b"exact payload",
+    );
+    wrong_signing_chain.target.context.chain = Chain::Nem;
+    assert_eq!(
+        sign(&derived.store, wrong_signing_chain, PASSWORD)
+            .unwrap_err()
+            .code,
+        ErrorCode::NetworkMismatch
     );
 }
 
@@ -503,9 +794,10 @@ fn malformed_public_store_envelopes_are_rejected_before_authentication() {
     );
 
     let unknown_simple = raw_store_with_unknown_simple();
-    let restored = restore_profile(&unknown_simple, MNEMONIC, PASSWORD, Network::Mainnet)
-        .expect("unknown simple field should be preserved");
-    assert_eq!(list_profiles(&restored.store).unwrap().value.len(), 1);
+    assert_eq!(
+        list_profiles(&unknown_simple).unwrap_err().code,
+        ErrorCode::InvalidStore
+    );
 }
 
 #[test]
@@ -545,6 +837,7 @@ fn generated_software_key_and_error_strings_are_public_contracts() {
         (ErrorCode::RandomSourceFailure, "RandomSourceFailure"),
         (ErrorCode::SerializationFailure, "SerializationFailure"),
         (ErrorCode::PendingProfileInvalid, "PendingProfileInvalid"),
+        (ErrorCode::BindingFailure, "BindingFailure"),
     ];
     for (code, expected) in cases {
         assert_eq!(code.as_str(), expected);

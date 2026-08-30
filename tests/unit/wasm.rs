@@ -1,5 +1,6 @@
 use super::*;
 use crate::cbor::{self, Value};
+use js_sys::{Object, Reflect};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -25,6 +26,84 @@ fn bytes_field(object: &JsValue, name: &str) -> Uint8Array {
 
 fn string_field(object: &JsValue, name: &str) -> String {
     property(object, name).as_string().unwrap()
+}
+
+fn object(fields: &[(&str, JsValue)]) -> JsValue {
+    let object = Object::new();
+    for (name, value) in fields {
+        Reflect::set(&object, &JsValue::from_str(name), value).unwrap();
+    }
+    object.into()
+}
+
+fn handoff(status: &str) -> JsValue {
+    object(&[("status", JsValue::from_str(status))])
+}
+
+fn export_target(profile_id: &str, key_id: Option<&str>) -> JsValue {
+    let kind = if key_id.is_some() {
+        "software_key"
+    } else {
+        "mnemonic"
+    };
+    let mut fields = vec![
+        ("kind", JsValue::from_str(kind)),
+        ("profile_id", JsValue::from_str(profile_id)),
+    ];
+    if let Some(key_id) = key_id {
+        fields.push(("key_id", JsValue::from_str(key_id)));
+    }
+    object(&fields)
+}
+
+fn export_request(profile_id: &str, key_id: Option<&str>) -> JsValue {
+    let target = export_target(profile_id, key_id);
+    object(&[
+        ("target", target.clone()),
+        (
+            "user_request",
+            object(&[
+                ("target", target.clone()),
+                ("status", JsValue::from_str("requested")),
+            ]),
+        ),
+        (
+            "application_confirmation",
+            object(&[
+                ("target", target),
+                ("status", JsValue::from_str("confirmed")),
+            ]),
+        ),
+    ])
+}
+
+fn context(chain: &str, network: &str) -> JsValue {
+    object(&[
+        ("chain", JsValue::from_str(chain)),
+        ("network", JsValue::from_str(network)),
+    ])
+}
+
+fn signing_request(
+    profile_id: &str,
+    key_id: &str,
+    chain: &str,
+    network: &str,
+    payload: &[u8],
+    status: &str,
+) -> JsValue {
+    object(&[
+        (
+            "target",
+            object(&[
+                ("profile_id", JsValue::from_str(profile_id)),
+                ("key_id", JsValue::from_str(key_id)),
+                ("context", context(chain, network)),
+            ]),
+        ),
+        ("payload", Uint8Array::from(payload).into()),
+        ("approval", object(&[("status", JsValue::from_str(status))])),
+    ])
 }
 
 fn mutation_store(result: &JsValue) -> Vec<u8> {
@@ -86,6 +165,7 @@ fn wasm_secret_boundaries_and_core_parity() {
         &empty_store,
         &Uint8Array::from(pending.as_slice()),
         &password,
+        &handoff("confirmed"),
     )
     .unwrap();
     assert!(!mutation_store(&finalized).is_empty());
@@ -99,7 +179,7 @@ fn wasm_secret_boundaries_and_core_parity() {
 
     let exported_mnemonic = export_mnemonic(
         &Uint8Array::from(restored_store.as_slice()),
-        &profile_id_text,
+        &export_request(&profile_id_text, None),
         &password,
     )
     .unwrap();
@@ -123,17 +203,30 @@ fn wasm_secret_boundaries_and_core_parity() {
 
     let exported = export_private_key(
         &Uint8Array::from(derived_store.as_slice()),
-        &profile_id_text,
-        &key_id_text,
+        &export_request(&profile_id_text, Some(&key_id_text)),
         &password,
     )
     .unwrap();
     let exported_private_key = bytes_field(&value(&exported), "private_key");
     assert_eq!(exported_private_key.length(), 32);
-    let core_private_key = crate::export_private_key(&derived_store, profile_id, key_id, PASSWORD)
-        .unwrap()
-        .value
-        .private_key;
+    let core_private_key = crate::export_private_key(
+        &derived_store,
+        crate::ExportRequest {
+            target: crate::ExportTarget::SoftwareKeyTarget { profile_id, key_id },
+            user_request: crate::ExportUserRequest {
+                target: crate::ExportTarget::SoftwareKeyTarget { profile_id, key_id },
+                status: crate::ExportUserRequestStatus::Requested,
+            },
+            application_confirmation: crate::ExportApplicationConfirmation {
+                target: crate::ExportTarget::SoftwareKeyTarget { profile_id, key_id },
+                status: crate::ExportApplicationConfirmationStatus::Confirmed,
+            },
+        },
+        PASSWORD,
+    )
+    .unwrap()
+    .value
+    .private_key;
     if exported_private_key.to_vec() != core_private_key {
         panic!("exported private key mismatch");
     }
@@ -150,13 +243,23 @@ fn wasm_secret_boundaries_and_core_parity() {
         &Uint8Array::from(derived_store.as_slice()),
         &profile_id_text,
         &key_id_text,
+        &context("symbol", "mainnet"),
         &password,
     )
     .unwrap();
     let wasm_account_value = value(&wasm_account);
-    let core_account = crate::get_public_account(&derived_store, profile_id, key_id, PASSWORD)
-        .unwrap()
-        .value;
+    let core_account = crate::get_public_account(
+        &derived_store,
+        profile_id,
+        key_id,
+        crate::AccountContext {
+            chain: crate::Chain::Symbol,
+            network: crate::Network::Mainnet,
+        },
+        PASSWORD,
+    )
+    .unwrap()
+    .value;
     assert_eq!(
         bytes_field(&wasm_account_value, "public_key").to_vec(),
         core_account.public_key
@@ -190,6 +293,7 @@ fn wasm_secret_boundaries_and_core_parity() {
         &Uint8Array::from(nem_derived_store.as_slice()),
         &profile_id_text,
         &nem_key_id_text,
+        &context("nem", "mainnet"),
         &password,
     )
     .unwrap();
@@ -197,6 +301,10 @@ fn wasm_secret_boundaries_and_core_parity() {
         &nem_derived_store,
         profile_id,
         parse_uuid(&nem_key_id_text).unwrap(),
+        crate::AccountContext {
+            chain: crate::Chain::Nem,
+            network: crate::Network::Mainnet,
+        },
         PASSWORD,
     )
     .unwrap()
@@ -210,21 +318,36 @@ fn wasm_secret_boundaries_and_core_parity() {
         core_nem_account.address
     );
 
-    let nem_payload = Uint8Array::from(b"wasm NEM fixture payload".as_slice());
     let wasm_nem_signature = sign(
         &Uint8Array::from(nem_derived_store.as_slice()),
-        &profile_id_text,
-        &nem_key_id_text,
+        &signing_request(
+            &profile_id_text,
+            &nem_key_id_text,
+            "nem",
+            "mainnet",
+            b"wasm NEM fixture payload",
+            "approved",
+        ),
         &password,
-        &nem_payload,
     )
     .unwrap();
     let core_nem_signature = crate::sign(
         &nem_derived_store,
-        profile_id,
-        parse_uuid(&nem_key_id_text).unwrap(),
+        crate::SigningRequest {
+            target: crate::SigningTarget {
+                profile_id,
+                key_id: parse_uuid(&nem_key_id_text).unwrap(),
+                context: crate::AccountContext {
+                    chain: crate::Chain::Nem,
+                    network: crate::Network::Mainnet,
+                },
+            },
+            payload: b"wasm NEM fixture payload".to_vec(),
+            approval: crate::SigningApproval {
+                status: crate::SigningApprovalStatus::Approved,
+            },
+        },
         PASSWORD,
-        b"wasm NEM fixture payload",
     )
     .unwrap()
     .value
@@ -234,21 +357,36 @@ fn wasm_secret_boundaries_and_core_parity() {
         core_nem_signature
     );
 
-    let payload = Uint8Array::from(b"wasm fixture payload".as_slice());
     let wasm_signature = sign(
         &Uint8Array::from(derived_store.as_slice()),
-        &profile_id_text,
-        &key_id_text,
+        &signing_request(
+            &profile_id_text,
+            &key_id_text,
+            "symbol",
+            "mainnet",
+            b"wasm fixture payload",
+            "approved",
+        ),
         &password,
-        &payload,
     )
     .unwrap();
     let core_signature = crate::sign(
         &derived_store,
-        profile_id,
-        key_id,
+        crate::SigningRequest {
+            target: crate::SigningTarget {
+                profile_id,
+                key_id,
+                context: crate::AccountContext {
+                    chain: crate::Chain::Symbol,
+                    network: crate::Network::Mainnet,
+                },
+            },
+            payload: b"wasm fixture payload".to_vec(),
+            approval: crate::SigningApproval {
+                status: crate::SigningApprovalStatus::Approved,
+            },
+        },
         PASSWORD,
-        b"wasm fixture payload",
     )
     .unwrap()
     .value
@@ -285,6 +423,7 @@ fn wasm_secret_boundaries_and_core_parity() {
         &Uint8Array::from(nem_store.as_slice()),
         &profile_id_text,
         &nem_key_id_text,
+        &context("nem", "mainnet"),
         &password,
     )
     .unwrap();
@@ -309,10 +448,15 @@ fn wasm_secret_boundaries_and_core_parity() {
     let nem_signature_key_id_text = string_field(&value(&nem_signature_imported), "key_id");
     let nem_signature = sign(
         &Uint8Array::from(nem_signature_store.as_slice()),
-        &profile_id_text,
-        &nem_signature_key_id_text,
+        &signing_request(
+            &profile_id_text,
+            &nem_signature_key_id_text,
+            "nem",
+            "mainnet",
+            NEM_FIXTURE_PAYLOAD.as_slice(),
+            "approved",
+        ),
         &password,
-        &Uint8Array::from(NEM_FIXTURE_PAYLOAD.as_slice()),
     )
     .unwrap();
     assert_eq!(
@@ -358,6 +502,143 @@ fn wasm_secret_boundaries_and_core_parity() {
         .unwrap_err();
         assert_eq!(invalid.as_string().as_deref(), Some("InvalidAccountIndex"));
     }
+}
+
+#[wasm_bindgen_test]
+fn wasm_assertion_context_and_binding_failure_contracts() {
+    let password = Uint8Array::from(PASSWORD);
+    let empty_store = create_empty_store().unwrap();
+    let prepared = prepare_generated_profile(&empty_store, &password, 1.0).unwrap();
+    let prepared_value = value(&prepared);
+    let pending = bytes_field(&prepared_value, "pending_profile");
+    let unconfirmed =
+        finalize_generated_profile(&empty_store, &pending, &password, &handoff("unconfirmed"))
+            .unwrap_err();
+    assert_eq!(unconfirmed.as_string().as_deref(), Some("InvalidArgument"));
+    let missing_handoff =
+        finalize_generated_profile(&empty_store, &pending, &password, &object(&[])).unwrap_err();
+    assert_eq!(
+        missing_handoff.as_string().as_deref(),
+        Some("InvalidArgument")
+    );
+    let unknown_handoff =
+        finalize_generated_profile(&empty_store, &pending, &password, &handoff("unknown"))
+            .unwrap_err();
+    assert_eq!(
+        unknown_handoff.as_string().as_deref(),
+        Some("InvalidArgument")
+    );
+
+    let restored =
+        restore_profile(&empty_store, &Uint8Array::from(MNEMONIC), &password, 1.0).unwrap();
+    let restored_store = mutation_store(&restored);
+    let profile_id = string_field(&value(&restored), "profile_id");
+    let derived = derive_software_key(
+        &Uint8Array::from(restored_store.as_slice()),
+        &profile_id,
+        &password,
+        1.0,
+        0.0,
+    )
+    .unwrap();
+    let derived_store = mutation_store(&derived);
+    let key_id = string_field(&value(&derived), "key_id");
+
+    let not_requested = export_request(&profile_id, None);
+    let user_request = property(&not_requested, "user_request");
+    Reflect::set(
+        &user_request,
+        &JsValue::from_str("status"),
+        &JsValue::from_str("not_requested"),
+    )
+    .unwrap();
+    assert_eq!(
+        export_mnemonic(
+            &Uint8Array::from(derived_store.as_slice()),
+            &not_requested,
+            &password,
+        )
+        .unwrap_err()
+        .as_string()
+        .as_deref(),
+        Some("InvalidArgument")
+    );
+
+    let wrong_target = export_request(&profile_id, None);
+    let confirmation = property(&wrong_target, "application_confirmation");
+    Reflect::set(
+        &confirmation,
+        &JsValue::from_str("target"),
+        &export_target(&Uuid::nil().to_string(), None),
+    )
+    .unwrap();
+    assert_eq!(
+        export_mnemonic(
+            &Uint8Array::from(derived_store.as_slice()),
+            &wrong_target,
+            &password,
+        )
+        .unwrap_err()
+        .as_string()
+        .as_deref(),
+        Some("InvalidArgument")
+    );
+
+    let incomplete = object(&[("target", export_target(&profile_id, None))]);
+    assert_eq!(
+        export_mnemonic(
+            &Uint8Array::from(derived_store.as_slice()),
+            &incomplete,
+            &password,
+        )
+        .unwrap_err()
+        .as_string()
+        .as_deref(),
+        Some("InvalidArgument")
+    );
+
+    let wrong_network = get_public_account(
+        &Uint8Array::from(derived_store.as_slice()),
+        &profile_id,
+        &key_id,
+        &context("symbol", "testnet"),
+        &password,
+    )
+    .unwrap_err();
+    assert_eq!(
+        wrong_network.as_string().as_deref(),
+        Some("NetworkMismatch")
+    );
+
+    let not_approved = sign(
+        &Uint8Array::from(derived_store.as_slice()),
+        &signing_request(
+            &profile_id,
+            &key_id,
+            "symbol",
+            "mainnet",
+            b"payload",
+            "not_approved",
+        ),
+        &password,
+    )
+    .unwrap_err();
+    assert_eq!(not_approved.as_string().as_deref(), Some("InvalidArgument"));
+
+    let wrong_password = export_mnemonic(
+        &Uint8Array::from(derived_store.as_slice()),
+        &export_request(&profile_id, None),
+        &Uint8Array::from(b"wrong".as_slice()),
+    )
+    .unwrap_err();
+    assert_eq!(
+        wrong_password.as_string().as_deref(),
+        Some("AuthenticationFailed")
+    );
+    assert_eq!(
+        conversion_error().as_string().as_deref(),
+        Some("BindingFailure")
+    );
 }
 
 #[wasm_bindgen_test]

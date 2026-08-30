@@ -48,6 +48,8 @@ pub enum ErrorCode {
     SerializationFailure,
     /// 生成途中のProfile blobが不正、または対象Storeと一致しない。
     PendingProfileInvalid,
+    /// Binding自身のrepresentation、allocationまたはownership処理に失敗した。
+    BindingFailure,
 }
 
 impl ErrorCode {
@@ -73,6 +75,7 @@ impl ErrorCode {
             Self::RandomSourceFailure => "RandomSourceFailure",
             Self::SerializationFailure => "SerializationFailure",
             Self::PendingProfileInvalid => "PendingProfileInvalid",
+            Self::BindingFailure => "BindingFailure",
         }
     }
 }

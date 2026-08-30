@@ -14,15 +14,15 @@
  * 出力のSnwcOwnedBytesと配列は、対応するfree関数で解放する。free関数はbufferの内容を
  * 可能な範囲でzeroizeしてから解放するため、秘密情報を含む出力にも使用できる。
  *
- * output pointerはNULLであってはならず、呼び出し側は出力構造体を初期化し、既存のowned
- * bufferをfreeしてから再利用する。エラー時は既存の出力を上書きせず、途中生成した所有
- * bufferをBinding側で解放する。
+ * Bindingは各operationの開始時に、NULLでないoutput struct全体をfailure-safeな空状態へ
+ * 初期化する。callerは前回の可変長outputをsnwc_free_*で解放してから再利用する。
+ * operation失敗時もoutputはNULL / 0 / empty stateとなり、partial resultは返らない。
  *
  * 戻り値はNULLが成功、NULL以外がNUL終端された安定error code文字列である。error文字列は
  * Bindingが所有する静的文字列なので、呼び出し側は解放しない。errorやwarningに秘密情報は
  * 含まれない。panicはC ABIを越えず、error codeへ変換される。
  * free APIへ任意のpointerや不整合なlengthを渡すことは未定義であり、free APIはこのBinding
- * が返した未解放bufferに対してだけ使用する。
+ * が返した未解放bufferに対してだけ使用する。正常なrelease後はhandleをNULL / 0へ更新する。
  */
 
 typedef struct {
@@ -39,6 +39,53 @@ typedef struct {
     uint8_t *ptr;
     size_t len;
 } SnwcOwnedBytes;
+
+typedef struct {
+    uint8_t status; /* 0 = unconfirmed, 1 = confirmed */
+} SnwcHandoffConfirmation;
+
+typedef struct {
+    uint8_t kind; /* 0 = mnemonic, 1 = software key */
+    SnwcUuid profile_id;
+    SnwcUuid key_id; /* used for software key target */
+} SnwcExportTarget;
+
+typedef struct {
+    SnwcExportTarget target;
+    uint8_t status; /* 0 = not requested, 1 = requested */
+} SnwcExportUserRequest;
+
+typedef struct {
+    SnwcExportTarget target;
+    uint8_t status; /* 0 = not confirmed, 1 = confirmed */
+} SnwcExportApplicationConfirmation;
+
+typedef struct {
+    SnwcExportTarget target;
+    SnwcExportUserRequest user_request;
+    SnwcExportApplicationConfirmation application_confirmation;
+} SnwcExportRequest;
+
+typedef struct {
+    uint8_t chain; /* 0 = NEM, 1 = Symbol */
+    uint8_t network; /* 0 = testnet, 1 = mainnet */
+} SnwcAccountContext;
+
+typedef struct {
+    SnwcUuid profile_id;
+    SnwcUuid key_id;
+    SnwcAccountContext context;
+} SnwcSigningTarget;
+
+typedef struct {
+    uint8_t status; /* 0 = not approved, 1 = approved */
+} SnwcSigningApproval;
+
+typedef struct {
+    SnwcSigningTarget target;
+    SnwcBytes payload;
+    SnwcSigningApproval approval;
+} SnwcSigningRequest;
 
 typedef struct {
     const char *code;
@@ -93,6 +140,7 @@ const char *snwc_finalize_generated_profile(
     SnwcBytes store,
     SnwcBytes pending_profile,
     SnwcBytes password_utf8,
+    SnwcHandoffConfirmation handoff_confirmation,
     SnwcOwnedBytes *out_store,
     SnwcProfileInfo *out_profile,
     SnwcWarnings *out_warnings);
@@ -108,15 +156,14 @@ const char *snwc_restore_profile(
 
 const char *snwc_export_mnemonic(
     SnwcBytes store,
-    SnwcUuid profile_id,
+    SnwcExportRequest request,
     SnwcBytes password_utf8,
     SnwcOwnedBytes *out_mnemonic,
     SnwcWarnings *out_warnings);
 
 const char *snwc_export_private_key(
     SnwcBytes store,
-    SnwcUuid profile_id,
-    SnwcUuid key_id,
+    SnwcExportRequest request,
     SnwcBytes password_utf8,
     SnwcOwnedBytes *out_private_key,
     SnwcWarnings *out_warnings);
@@ -167,16 +214,15 @@ const char *snwc_get_public_account(
     SnwcBytes store,
     SnwcUuid profile_id,
     SnwcUuid key_id,
+    SnwcAccountContext requested_context,
     SnwcBytes password_utf8,
     SnwcPublicAccountInfo *out_account,
     SnwcWarnings *out_warnings);
 
 const char *snwc_sign(
     SnwcBytes store,
-    SnwcUuid profile_id,
-    SnwcUuid key_id,
+    SnwcSigningRequest request,
     SnwcBytes password_utf8,
-    SnwcBytes payload,
     SnwcOwnedBytes *out_signature,
     SnwcWarnings *out_warnings);
 
@@ -203,9 +249,9 @@ const char *snwc_delete_profile(
     SnwcOwnedBytes *out_store,
     SnwcWarnings *out_warnings);
 
-void snwc_free_bytes(SnwcOwnedBytes value);
-void snwc_free_warnings(SnwcWarnings value);
-void snwc_free_profiles(SnwcProfileInfo *ptr, size_t len);
-void snwc_free_software_key_list(SnwcSoftwareKeyListItem *ptr, size_t len);
+void snwc_free_bytes(SnwcOwnedBytes *value);
+void snwc_free_warnings(SnwcWarnings *value);
+void snwc_free_profiles(SnwcProfileInfo **ptr, size_t *len);
+void snwc_free_software_key_list(SnwcSoftwareKeyListItem **ptr, size_t *len);
 
 #endif /* SYMBOL_NEM_WALLET_CORE_H */

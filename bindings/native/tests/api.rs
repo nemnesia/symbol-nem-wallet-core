@@ -5,13 +5,18 @@
 
 use std::{ptr, slice};
 
-use symbol_nem_wallet_core::{get_public_account, sign};
+use symbol_nem_wallet_core::{
+    get_public_account, sign, AccountContext, Chain, Network, SigningApproval,
+    SigningApprovalStatus,
+};
 use symbol_nem_wallet_core_native::{
     snwc_create_empty_store, snwc_derive_software_key, snwc_export_private_key, snwc_free_bytes,
     snwc_free_profiles, snwc_free_software_key_list, snwc_free_warnings, snwc_get_public_account,
     snwc_import_software_key, snwc_list_profiles, snwc_list_software_keys,
-    snwc_prepare_generated_profile, snwc_restore_profile, snwc_sign, SnwcBytes, SnwcOwnedBytes,
-    SnwcProfileInfo, SnwcPublicAccountInfo, SnwcSoftwareKeyInfo, SnwcSoftwareKeyListItem, SnwcUuid,
+    snwc_prepare_generated_profile, snwc_restore_profile, snwc_sign, SnwcAccountContext, SnwcBytes,
+    SnwcExportApplicationConfirmation, SnwcExportRequest, SnwcExportTarget, SnwcExportUserRequest,
+    SnwcOwnedBytes, SnwcProfileInfo, SnwcPublicAccountInfo, SnwcSigningApproval,
+    SnwcSigningRequest, SnwcSigningTarget, SnwcSoftwareKeyInfo, SnwcSoftwareKeyListItem, SnwcUuid,
     SnwcWarnings,
 };
 
@@ -25,7 +30,7 @@ fn borrowed(value: &[u8]) -> SnwcBytes {
     }
 }
 
-unsafe fn take_bytes(value: SnwcOwnedBytes) -> Vec<u8> {
+unsafe fn take_bytes(value: &mut SnwcOwnedBytes) -> Vec<u8> {
     // Binding所有のbufferをコピーしてから、契約されたfree関数へ返す。
     let copied = if value.ptr.is_null() || value.len == 0 {
         Vec::new()
@@ -33,7 +38,45 @@ unsafe fn take_bytes(value: SnwcOwnedBytes) -> Vec<u8> {
         slice::from_raw_parts(value.ptr, value.len).to_vec()
     };
     snwc_free_bytes(value);
+    assert!(value.ptr.is_null());
+    assert_eq!(value.len, 0);
+    snwc_free_bytes(value);
     copied
+}
+
+fn export_request(profile_id: SnwcUuid, key_id: Option<SnwcUuid>) -> SnwcExportRequest {
+    let target = SnwcExportTarget {
+        kind: if key_id.is_some() { 1 } else { 0 },
+        profile_id,
+        key_id: key_id.unwrap_or_default(),
+    };
+    SnwcExportRequest {
+        target,
+        user_request: SnwcExportUserRequest { target, status: 1 },
+        application_confirmation: SnwcExportApplicationConfirmation { target, status: 1 },
+    }
+}
+
+fn account_context(chain: u8, network: u8) -> SnwcAccountContext {
+    SnwcAccountContext { chain, network }
+}
+
+fn signing_request(
+    profile_id: SnwcUuid,
+    key_id: SnwcUuid,
+    chain: u8,
+    network: u8,
+    payload: &[u8],
+) -> SnwcSigningRequest {
+    SnwcSigningRequest {
+        target: SnwcSigningTarget {
+            profile_id,
+            key_id,
+            context: account_context(chain, network),
+        },
+        payload: borrowed(payload),
+        approval: SnwcSigningApproval { status: 1 },
+    }
 }
 
 #[test]
@@ -46,17 +89,32 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             len: 0,
         };
         assert!(snwc_create_empty_store(&mut empty).is_null());
-        let store = take_bytes(empty);
+        let store = take_bytes(&mut empty);
 
-        // 複数出力が同じ構造体を指す場合は、先に作成した秘密bufferを
-        // pending出力で上書きしない。
+        let mut empty_profiles: *mut SnwcProfileInfo = ptr::null_mut();
+        let mut empty_profile_len = 0;
+        let mut empty_list_warnings = SnwcWarnings::default();
+        assert!(snwc_list_profiles(
+            borrowed(&store),
+            &mut empty_profiles,
+            &mut empty_profile_len,
+            &mut empty_list_warnings,
+        )
+        .is_null());
+        assert!(empty_profiles.is_null());
+        assert_eq!(empty_profile_len, 0);
+        assert!(empty_list_warnings.ptr.is_null());
+        assert_eq!(empty_list_warnings.len, 0);
+        snwc_free_profiles(&mut empty_profiles, &mut empty_profile_len);
+        snwc_free_warnings(&mut empty_list_warnings);
+
+        // 複数出力が同じ構造体を指す場合は、部分結果を公開せず空状態へ戻す。
         let mut aliased_output = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
             len: 0,
         };
         assert!(snwc_create_empty_store(&mut aliased_output).is_null());
-        let aliased_ptr = aliased_output.ptr;
-        let aliased_len = aliased_output.len;
+        snwc_free_bytes(&mut aliased_output);
         let mut alias_warnings = SnwcWarnings {
             ptr: ptr::null_mut(),
             len: 0,
@@ -74,19 +132,18 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             std::ffi::CStr::from_ptr(error).to_str().unwrap(),
             "InvalidArgument"
         );
-        assert_eq!(aliased_output.ptr, aliased_ptr);
-        assert_eq!(aliased_output.len, aliased_len);
-        snwc_free_bytes(aliased_output);
-        snwc_free_warnings(alias_warnings);
+        assert!(aliased_output.ptr.is_null());
+        assert_eq!(aliased_output.len, 0);
+        snwc_free_bytes(&mut aliased_output);
+        snwc_free_warnings(&mut alias_warnings);
 
-        // 失敗時は既存のowned出力を上書きせず、callerがそのまま解放できる。
+        // operation開始時にcaller-owned outputはfailure-safe stateへ戻される。
         let mut sentinel_store = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
             len: 0,
         };
         assert!(snwc_create_empty_store(&mut sentinel_store).is_null());
-        let sentinel_ptr = sentinel_store.ptr;
-        let sentinel_len = sentinel_store.len;
+        take_bytes(&mut sentinel_store);
         let mut sentinel_profile = SnwcProfileInfo::default();
         let mut sentinel_warnings = SnwcWarnings {
             ptr: ptr::null_mut(),
@@ -105,10 +162,10 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             std::ffi::CStr::from_ptr(error).to_str().unwrap(),
             "InvalidMnemonic"
         );
-        assert_eq!(sentinel_store.ptr, sentinel_ptr);
-        assert_eq!(sentinel_store.len, sentinel_len);
-        snwc_free_bytes(sentinel_store);
-        snwc_free_warnings(sentinel_warnings);
+        assert!(sentinel_store.ptr.is_null());
+        assert_eq!(sentinel_store.len, 0);
+        snwc_free_bytes(&mut sentinel_store);
+        snwc_free_warnings(&mut sentinel_warnings);
 
         let mut invalid_store = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
@@ -176,8 +233,8 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             &mut warnings,
         )
         .is_null());
-        snwc_free_warnings(warnings);
-        let store = take_bytes(restored_store);
+        snwc_free_warnings(&mut warnings);
+        let store = take_bytes(&mut restored_store);
         let profile_id = SnwcUuid {
             bytes: profile.profile_id,
         };
@@ -197,8 +254,13 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         .is_null());
         assert_eq!(profile_len, 1);
         assert_eq!((*profiles).profile_id, profile.profile_id);
-        snwc_free_profiles(profiles, profile_len);
-        snwc_free_warnings(list_warnings);
+        assert!(list_warnings.ptr.is_null());
+        assert_eq!(list_warnings.len, 0);
+        snwc_free_profiles(&mut profiles, &mut profile_len);
+        assert!(profiles.is_null());
+        assert_eq!(profile_len, 0);
+        snwc_free_profiles(&mut profiles, &mut profile_len);
+        snwc_free_warnings(&mut list_warnings);
 
         let mut derived_store = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
@@ -220,8 +282,8 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             &mut derive_warnings,
         )
         .is_null());
-        snwc_free_warnings(derive_warnings);
-        let store = take_bytes(derived_store);
+        snwc_free_warnings(&mut derive_warnings);
+        let store = take_bytes(&mut derived_store);
         let key_id = SnwcUuid { bytes: key.key_id };
 
         // NEMのChain依存導出・署名も同じCore fixtureと一致する。
@@ -245,8 +307,8 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             &mut nem_warnings,
         )
         .is_null());
-        snwc_free_warnings(nem_warnings);
-        let nem_store = take_bytes(nem_derived_store);
+        snwc_free_warnings(&mut nem_warnings);
+        let nem_store = take_bytes(&mut nem_derived_store);
         let nem_key_id = SnwcUuid {
             bytes: nem_key.key_id,
         };
@@ -273,28 +335,37 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         };
         assert!(snwc_sign(
             borrowed(&nem_store),
-            profile_id,
-            nem_key_id,
+            signing_request(profile_id, nem_key_id, 0, 1, b"payload"),
             borrowed(PASSWORD),
-            borrowed(b"payload"),
             &mut nem_signature,
             &mut nem_sign_warnings,
         )
         .is_null());
         assert_eq!(
-            take_bytes(nem_signature),
+            take_bytes(&mut nem_signature),
             symbol_nem_wallet_core::sign(
                 &nem_store,
-                uuid::Uuid::from_bytes(profile_id.bytes),
-                uuid::Uuid::from_bytes(nem_key_id.bytes),
+                symbol_nem_wallet_core::SigningRequest {
+                    target: symbol_nem_wallet_core::SigningTarget {
+                        profile_id: uuid::Uuid::from_bytes(profile_id.bytes),
+                        key_id: uuid::Uuid::from_bytes(nem_key_id.bytes),
+                        context: AccountContext {
+                            chain: Chain::Nem,
+                            network: Network::Mainnet,
+                        },
+                    },
+                    payload: b"payload".to_vec(),
+                    approval: SigningApproval {
+                        status: SigningApprovalStatus::Approved,
+                    },
+                },
                 PASSWORD,
-                b"payload",
             )
             .unwrap()
             .value
             .signature
         );
-        snwc_free_warnings(nem_sign_warnings);
+        snwc_free_warnings(&mut nem_sign_warnings);
 
         let mut listed_keys: *mut SnwcSoftwareKeyListItem = ptr::null_mut();
         let mut key_len = 0;
@@ -312,8 +383,11 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         .is_null());
         assert_eq!(key_len, 1);
         assert_eq!((*listed_keys).key_id, key.key_id);
-        snwc_free_software_key_list(listed_keys, key_len);
-        snwc_free_warnings(key_warnings);
+        snwc_free_software_key_list(&mut listed_keys, &mut key_len);
+        assert!(listed_keys.is_null());
+        assert_eq!(key_len, 0);
+        snwc_free_software_key_list(&mut listed_keys, &mut key_len);
+        snwc_free_warnings(&mut key_warnings);
 
         let mut signature = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
@@ -325,28 +399,37 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         };
         assert!(snwc_sign(
             borrowed(&store),
-            profile_id,
-            key_id,
+            signing_request(profile_id, key_id, 1, 1, b"payload"),
             borrowed(PASSWORD),
-            borrowed(b"payload"),
             &mut signature,
             &mut sign_warnings,
         )
         .is_null());
-        let native_signature = take_bytes(signature);
+        let native_signature = take_bytes(&mut signature);
         // C ABIのraw signatureは、同じ入力をCoreへ渡した結果と一致する。
         let core_signature = sign(
             &store,
-            uuid::Uuid::from_bytes(profile_id.bytes),
-            uuid::Uuid::from_bytes(key_id.bytes),
+            symbol_nem_wallet_core::SigningRequest {
+                target: symbol_nem_wallet_core::SigningTarget {
+                    profile_id: uuid::Uuid::from_bytes(profile_id.bytes),
+                    key_id: uuid::Uuid::from_bytes(key_id.bytes),
+                    context: AccountContext {
+                        chain: Chain::Symbol,
+                        network: Network::Mainnet,
+                    },
+                },
+                payload: b"payload".to_vec(),
+                approval: SigningApproval {
+                    status: SigningApprovalStatus::Approved,
+                },
+            },
             PASSWORD,
-            b"payload",
         )
         .unwrap()
         .value
         .signature;
         assert_eq!(native_signature, core_signature);
-        snwc_free_warnings(sign_warnings);
+        snwc_free_warnings(&mut sign_warnings);
 
         let mut private_key = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
@@ -358,19 +441,18 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         };
         assert!(snwc_export_private_key(
             borrowed(&store),
-            profile_id,
-            key_id,
+            export_request(profile_id, Some(key_id)),
             borrowed(PASSWORD),
             &mut private_key,
             &mut export_warnings,
         )
         .is_null());
         assert_eq!(
-            take_bytes(private_key),
+            take_bytes(&mut private_key),
             hex::decode("521BF2A56DD3BCA09A43D8378FB6659ABA155A02DE0486A0FEF8026F464AB764")
                 .unwrap()
         );
-        snwc_free_warnings(export_warnings);
+        snwc_free_warnings(&mut export_warnings);
 
         let mut account = SnwcPublicAccountInfo {
             key_id: [0; 16],
@@ -390,6 +472,7 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             borrowed(&store),
             profile_id,
             key_id,
+            account_context(1, 1),
             borrowed(PASSWORD),
             &mut account,
             &mut account_warnings,
@@ -401,6 +484,10 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             &store,
             uuid::Uuid::from_bytes(profile_id.bytes),
             uuid::Uuid::from_bytes(key_id.bytes),
+            AccountContext {
+                chain: Chain::Symbol,
+                network: Network::Mainnet,
+            },
             PASSWORD,
         )
         .unwrap()
@@ -418,8 +505,63 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
             "NBPYVRSCYLIJH7VU6XNR7I3H7GBQOGHHAMLJC3A"
         );
         assert!(!account.address.ptr.is_null());
-        snwc_free_bytes(account.address);
-        snwc_free_warnings(account_warnings);
+        snwc_free_bytes(&mut account.address);
+        snwc_free_warnings(&mut account_warnings);
+
+        // Request assertion、context、passwordの不成立ではsecret / signature / addressを
+        // 部分的にも返さず、出力は開始時のfailure-safe stateを維持する。
+        let mut failed_private_key = SnwcOwnedBytes::default();
+        let mut failed_export_warnings = SnwcWarnings::default();
+        let mut unconfirmed_export = export_request(profile_id, Some(key_id));
+        unconfirmed_export.application_confirmation.status = 0;
+        let error = snwc_export_private_key(
+            borrowed(&store),
+            unconfirmed_export,
+            borrowed(PASSWORD),
+            &mut failed_private_key,
+            &mut failed_export_warnings,
+        );
+        assert_eq!(
+            std::ffi::CStr::from_ptr(error).to_str().unwrap(),
+            "InvalidArgument"
+        );
+        assert!(failed_private_key.ptr.is_null() && failed_private_key.len == 0);
+        assert!(failed_export_warnings.ptr.is_null() && failed_export_warnings.len == 0);
+
+        let mut failed_signature = SnwcOwnedBytes::default();
+        let mut failed_sign_warnings = SnwcWarnings::default();
+        let mut unapproved = signing_request(profile_id, key_id, 1, 1, b"payload");
+        unapproved.approval.status = 0;
+        let error = snwc_sign(
+            borrowed(&store),
+            unapproved,
+            borrowed(PASSWORD),
+            &mut failed_signature,
+            &mut failed_sign_warnings,
+        );
+        assert_eq!(
+            std::ffi::CStr::from_ptr(error).to_str().unwrap(),
+            "InvalidArgument"
+        );
+        assert!(failed_signature.ptr.is_null() && failed_signature.len == 0);
+        assert!(failed_sign_warnings.ptr.is_null() && failed_sign_warnings.len == 0);
+
+        let mut failed_account = SnwcPublicAccountInfo::default();
+        let mut failed_account_warnings = SnwcWarnings::default();
+        let error = snwc_get_public_account(
+            borrowed(&store),
+            profile_id,
+            key_id,
+            account_context(1, 0),
+            borrowed(PASSWORD),
+            &mut failed_account,
+            &mut failed_account_warnings,
+        );
+        assert_eq!(
+            std::ffi::CStr::from_ptr(error).to_str().unwrap(),
+            "NetworkMismatch"
+        );
+        assert!(failed_account.address.ptr.is_null() && failed_account.address.len == 0);
     }
 }
 
@@ -438,7 +580,7 @@ fn c_abi_nem_external_fixture_matches_public_key_address_and_signature() {
             len: 0,
         };
         assert!(snwc_create_empty_store(&mut empty).is_null());
-        let empty_store = take_bytes(empty);
+        let empty_store = take_bytes(&mut empty);
 
         let mut restored_store = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
@@ -459,8 +601,8 @@ fn c_abi_nem_external_fixture_matches_public_key_address_and_signature() {
             &mut restore_warnings,
         )
         .is_null());
-        snwc_free_warnings(restore_warnings);
-        let restored_store = take_bytes(restored_store);
+        snwc_free_warnings(&mut restore_warnings);
+        let restored_store = take_bytes(&mut restored_store);
         let profile_id = SnwcUuid {
             bytes: profile.profile_id,
         };
@@ -485,8 +627,8 @@ fn c_abi_nem_external_fixture_matches_public_key_address_and_signature() {
             &mut import_warnings,
         )
         .is_null());
-        snwc_free_warnings(import_warnings);
-        let imported_store = take_bytes(imported_store);
+        snwc_free_warnings(&mut import_warnings);
+        let imported_store = take_bytes(&mut imported_store);
         let key_id = SnwcUuid {
             bytes: imported_key.key_id,
         };
@@ -509,6 +651,7 @@ fn c_abi_nem_external_fixture_matches_public_key_address_and_signature() {
             borrowed(&imported_store),
             profile_id,
             key_id,
+            account_context(0, 1),
             borrowed(PASSWORD),
             &mut account,
             &mut account_warnings,
@@ -524,8 +667,8 @@ fn c_abi_nem_external_fixture_matches_public_key_address_and_signature() {
             slice::from_raw_parts(account.address.ptr, account.address.len),
             b"NDD2CT6LQLIYQ56KIXI3ENTM6EK3D44P5JFXJ4R4"
         );
-        snwc_free_bytes(account.address);
-        snwc_free_warnings(account_warnings);
+        snwc_free_bytes(&mut account.address);
+        snwc_free_warnings(&mut account_warnings);
 
         let mut signature_store = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
@@ -547,8 +690,8 @@ fn c_abi_nem_external_fixture_matches_public_key_address_and_signature() {
             &mut signature_import_warnings,
         )
         .is_null());
-        snwc_free_warnings(signature_import_warnings);
-        let signature_store = take_bytes(signature_store);
+        snwc_free_warnings(&mut signature_import_warnings);
+        let signature_store = take_bytes(&mut signature_store);
         let signature_key_id = SnwcUuid {
             bytes: signature_key.key_id,
         };
@@ -563,18 +706,16 @@ fn c_abi_nem_external_fixture_matches_public_key_address_and_signature() {
         };
         assert!(snwc_sign(
             borrowed(&signature_store),
-            profile_id,
-            signature_key_id,
+            signing_request(profile_id, signature_key_id, 0, 1, PAYLOAD),
             borrowed(PASSWORD),
-            borrowed(PAYLOAD),
             &mut signature,
             &mut sign_warnings,
         )
         .is_null());
         assert_eq!(
-            take_bytes(signature),
+            take_bytes(&mut signature),
             hex::decode("D9CEC0CC0E3465FAB229F8E1D6DB68AB9CC99A18CB0435F70DEB6100948576CD5C0AA1FEB550BDD8693EF81EB10A556A622DB1F9301986827B96716A7134230C").unwrap()
         );
-        snwc_free_warnings(sign_warnings);
+        snwc_free_warnings(&mut sign_warnings);
     }
 }
