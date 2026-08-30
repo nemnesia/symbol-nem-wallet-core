@@ -6,18 +6,13 @@
 
 symbol-nem-wallet-core v1 は、Desktop / Mobile / Web の Symbol / NEM ウォレット向けに、Mainnet または Testnet に所属する Profile を秘密情報管理の基本単位とし、Mnemonic と Software Key の生成・復元・導出・取込み・暗号化保存・処理単位の認証・署名・個別エクスポート・削除を Rust Wallet Core へ集約する。
 
-Web には Web Application および Browser Extension を含む。Desktop / Mobile は Native Binding、Web は Web Binding を介して同一 Core を利用する。
+Web には Web Application および Browser Extension を含む。Desktop / Mobile は Native Binding、Web は WASM Binding を介して同一 Core を利用する。
 
-### 1.2 上位方針と承認履歴
+### 1.2 上位根拠
 
-本書は次を上位根拠および現行の要件正本として扱う。
+上位コンセプトは `docs/consept/concept-sheet.md` である。
 
-- `docs/consept/concept-sheet.md`: 製品目的、v1範囲、責任境界
 - コンセプトとの追跡: 背景・課題は `docs/consept/concept-sheet.md` §1〜§2、目的は§3、対象利用者・主要利用場面は§4、責任境界は§7〜§8に対応する。
-
-初期承認ベースラインは commit `99fa54bb4bd64ca4ae9ecb7452f91c679a4c5fba`、blob `930d22b30bb1b48126895dd7bdbaedc9bfcb601f` である。現行の統合要件ベースラインは commit `2ef959be4a57cf25623a81edfb7750db161128af`、blob `e6a5eae4a30f357f5b1b40d57be5b51cf2a05330` とし、互換性基準の明確化は commit `b2969dc2011aff7d339848b793b5b5e03088d877`、パスワード品質方針の amendment 取り込みは commit `6eaaa2ba0462e18025d1966c397a4710cea4aedd` から追跡する。
-
-旧要件本文に存在した「独立した承認記録は存在しない」という記述および解消済みの OPEN 項目は現行要件では失効している。本書の確定事項と承認履歴は本文、Git 履歴および `docs/reviews/requirements/` の履歴記録から追跡する。
 
 ### 1.3 本書で決定しない事項
 
@@ -32,7 +27,7 @@ API、型、保存レコード構造、暗号方式、KDF、salt / nonce、具�
 ```text
 Profile
 ├─ Network [Mainnet | Testnet、必須・作成時に固定]
-├─ Mnemonic [必須・1つ]
+├─ Mnemonic [必須・1 つ]
 ├─ Derived Software Key [0..n]
 ├─ Imported Software Key [0..n]
 └─ Generated Software Key [0..n]
@@ -55,14 +50,14 @@ Profile
 ```text
 Desktop / Mobile Application       Web / Browser Extension
              │                              │
-        Native Binding                  Web Binding
+        Native Binding                  WASM Binding
              │                              │
              └──────────────┬───────────────┘
                             ▼
                     Rust Wallet Core
 ```
 
-Native Binding / Web Binding は Core を利用する境界とし、Core と別系統の秘密情報管理、暗号化、署名、導出、Profile パスワード認可を実装しない。
+Native Binding / WASM Binding は Core を利用する境界とし、Core と別系統の秘密情報管理、暗号化、署名、導出、Profile パスワード認可を実装しない。
 
 Binding 方式によって Core の秘密情報管理方針、認可責務、秘密情報公開範囲を変更しない。Desktop / Mobile / Web のどの環境でも、Core が保持する責任と通常処理での秘密情報非開示の原則を共通に適用する。
 
@@ -179,7 +174,7 @@ UI / Application が利用する Account と署名対象内容を選択・提示
 
 ### UC-008 Software Key / Profile を削除する
 
-個別 Software Key 削除は対象鍵だけを削除する。Profile 削除は Mnemonic と配下の全 Software Key と Profile 自体をCore管理下から破棄する。いずれも正しい Profile パスワードを必要とし、部分削除を残さない。削除前から利用者が保持しているMnemonicを使い、同一Networkの新しいProfileを再作成することは許可する。これは削除済みCoreデータの復旧または再利用とは扱わない。
+個別 Software Key 削除は対象鍵だけを削除する。Profile 削除は Mnemonic と配下の全 Software Key と Profile 自体を Core 管理下から破棄する。いずれも正しい Profile パスワードを必要とし、部分削除を残さない。削除前から利用者が保持している Mnemonic を使い、同一 Network の新しい Profile を再作成することは許可する。これは削除済み Core データの復旧または再利用とは扱わない。
 
 ### UC-009 Chain / Network を区別して利用する
 
@@ -187,7 +182,7 @@ UI / Application が利用する Account と署名対象内容を選択・提示
 
 ### UC-010 Binding 経由で Core を利用する
 
-Desktop / Mobile は Native Binding、Web は Web Binding から v1 Core 主要機能を利用できる。Binding により Core の責任・認可・秘密情報公開方針は変化しない。Desktop / Mobile / Web のホスト環境の侵害を Core が防止する保証はしないが、Core / Binding が不要に秘密情報を公開しない責任は共通に適用する。
+Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要機能を利用できる。Binding により Core の責任・認可・秘密情報公開方針は変化しない。Desktop / Mobile / Web のホスト環境の侵害を Core が防止する保証はしないが、Core / Binding が不要に秘密情報を公開しない責任は共通に適用する。
 
 ### UC-011 Mnemonic / Software Key を個別エクスポートする
 
@@ -212,14 +207,14 @@ Desktop / Mobile は Native Binding、Web は Web Binding から v1 Core 主要�
 | FR-009 | MUST | UI / Application が利用者へ提示し、明示的に承認した署名要求だけを対象とし、Core が指定 Chain、Account / Software Key、処理単位の Profile パスワード、署名対象データから署名を生成し、`symbol-sdk` 3.3.2 と互換な外部検証結果を返却すること。正しいパスワードだけで利用者の署名承認済みとはみなさず、Profile の Network と要求の Chain / Network が矛盾する処理を許可しないこと。Core は Transaction の意味説明、利用者意思の確認および UI を担わないこと。 |
 | FR-010 | MUST | 正しい現在パスワードを要求して Profile パスワードを変更でき、失敗・中断時に部分変更を残さないこと。 |
 | FR-011 | MUST | 正しい Profile パスワードを要求して個別 Software Key を削除でき、失敗・中断時に部分適用を残さないこと。 |
-| FR-012 | MUST | 正しい Profile パスワードを要求して、Profile、Mnemonic、全 Software KeyをCore管理下から破棄でき、失敗・中断時に部分削除を残さないこと。削除前から利用者が保持するMnemonicを使った同一Networkの新しいProfile作成は、削除済みProfileの復旧・再利用とはみなさず許可すること。 |
+| FR-012 | MUST | 正しい Profile パスワードを要求して、Profile、Mnemonic、全 Software Key を Core 管理下から破棄でき、失敗・中断時に部分削除を残さないこと。削除前から利用者が保持する Mnemonic を使った同一 Network の新しい Profile 作成は、削除済み Profile の復旧・再利用とはみなさず許可すること。 |
 | FR-013 | MUST | Profile を Chain に固定せず、Network は固定し、Software Key は指定 Chain に固定すること。指定 Chain と Profile Network に対応する Derived / Imported / Generated Software Key の公開鍵・アドレス・署名結果を扱い、Chain / Network を暗黙に別の値へ変換しないこと。 |
 | FR-014 | MUST | Mnemonic 生成、秘密鍵導出、暗号化を含む Profile / Software Key の管理責任、認証、保存、削除およびライフサイクルを Symbol / NEM で共通の Core 管理方針として扱うこと。ただし Chain 固有の鍵・アドレス・署名処理まで同一仕様とみなさないこと。 |
 | FR-015 | MUST | Profile 作成時に Mainnet / Testnet を必須指定し保存すること。 |
 | FR-016 | MUST | Profile の Network を作成後変更できないこと。 |
 | FR-017 | MUST | Core が生成・維持する、本要件・仕様に適合した整合した Store を対象として、同一 Mnemonic + 同一 Network の Profile 重複登録を拒否し、異なる Network なら別 Profile を許可すること。 |
 | FR-018 | MUST | 同一 Profile 内かつ同一 Chain で同一秘密鍵に対応する Software Key の重複登録を由来をまたいで拒否すること。異なる Chain では同一秘密鍵に対応する Software Key を別 Software Key として許可すること。 |
-| FR-019 | MUST | Native / Web Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除、Mnemonic の個別エクスポート、Software Key 秘密鍵の個別エクスポートを利用できること。新規 Profile 作成は FR-001 の初回 handoff 成立条件を満たすことを条件とし、Profile 全体の一括バックアップ・復旧は含めないこと。 |
+| FR-019 | MUST | Native / WASM Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除、Mnemonic の個別エクスポート、Software Key 秘密鍵の個別エクスポートを利用できること。新規 Profile 作成は FR-001 の初回 handoff 成立条件を満たすことを条件とし、Profile 全体の一括バックアップ・復旧は含めないこと。 |
 | FR-020 | MUST | Profile 作成・パスワード変更で未指定・空・Core 内部既定値の Profile パスワードを拒否すること。パスワード品質条件は上位 Application / Package の責任とし、Core は独自に要求しないこと。 |
 | FR-021 | MUST | Mnemonic は生成、復元および取込みのすべてで §3.2 の BIP-0039（英語 24 語）基準を満たした値だけを登録・利用すること。Software Key は生成、取込みおよび HD Wallet からの導出のすべてで §3.3 の妥当性基準を満たした値だけを登録・利用すること。各経路の失敗時に不完全状態を登録せず、既存 Profile と既存 Software Key を変更しないこと。 |
 | FR-022 | MUST | Core は、対象 Profile の指定、処理単位の正しい Profile パスワード、利用者の秘密情報取得に関する明示的要求、および Application / UI による意思確認を伴う要求に対して、保存済み Mnemonic を個別にエクスポートできること。単なる API 呼出しやパスワード所有だけでは明示的要求とみなさないこと。誤認証、意思確認のない要求、対象不存在または処理失敗時は Mnemonic を返さず、Profile 状態を変更しないこと。成功後も Core 内の Mnemonic 原本は Core が継続管理し、Core 外へ渡されたコピーの保護・保存・利用責任は受領側へ移ること。 |
@@ -248,7 +243,7 @@ Desktop / Mobile は Native Binding、Web は Web Binding から v1 Core 主要�
 | SEC-002 | MUST | 正しい Profile パスワードがない場合、秘密情報処理および Software Key 登録を成功させないこと。認証は処理単位で行い、認証済み Unlocked 状態を次の処理へ持ち越さないこと。 |
 | SEC-003 | MUST | 処理後に Mnemonic / 秘密鍵を平文で継続利用可能な状態として保持しないこと。 |
 | SEC-004 | MUST | 破損または認証失敗した保存データを正常な秘密情報として利用しないこと。 |
-| SEC-005 | MUST | Core管理下から削除済みとなったSoftware Key / Profileの秘密情報を、Coreの署名、導出、登録その他の秘密情報処理へ再利用できないこと。削除前から利用者が保持するMnemonicを外部入力として新しいProfileへ登録することは、本要件の禁止対象に含めない。 |
+| SEC-005 | MUST | Core 管理下から削除済みとなった Software Key / Profile の秘密情報を、Core の署名、導出、登録その他の秘密情報処理へ再利用できないこと。削除前から利用者が保持する Mnemonic を外部入力として新しい Profile へ登録することは、本要件の禁止対象に含めない。 |
 | SEC-006 | MUST | Profile パスワード変更は正しい現在パスワードと未指定でも空でもない新パスワードを要求し、成功後は旧パスワードを無効化すること。 |
 | SEC-007 | MUST | Core は Profile パスワードを永続保存・継続キャッシュしないこと。上位が一時保持する場合の責任は上位にあること。 |
 | SEC-008 | MUST | Profile 削除は正しい Profile パスワードを Core が認可し、認可失敗時は状態を変更しないこと。 |
@@ -266,15 +261,13 @@ Desktop / Mobile は Native Binding、Web は Web Binding から v1 Core 主要�
 | SEC-021 | MUST | Mnemonic または Software Key 秘密鍵の個別エクスポートは、対象指定、利用者の明示的要求、Application / UI による意思確認、および要求ごとの正しい Profile パスワードを Core が認可した場合だけ成功させること。単なる API 呼出しやパスワード所有だけでは利用者の明示的要求とみなさないこと。誤ったパスワード、意思確認のない要求、対象不存在または処理失敗では秘密情報を返さず、Profile 状態を変更しないこと。 |
 | SEC-022 | MUST | Profile パスワードの正しさと、利用者が指定 Transaction への署名を明示的に承認したことを別の security property とすること。UI / Application は署名対象内容を利用者へ提示して明示的承認を得た要求だけを Core へ送る責任を負い、Core はその要求を受けて指定 Account / Software Key を利用し署名するが、Transaction の意味説明、利用者意思の推測または確認 UI を担わないこと。 |
 
-`SEC-016` は OPEN-002 により廃止した。Wallet Core 自身にパスワード品質または推測攻撃耐性の判定を要求しない。パスワードから保存秘密情報を保護する KDF 等の暗号学的設計は別途仕様設計で定める。
-
 ---
 
 ## 8. データ要件
 
 | ID | 優先度 | 要件 |
 | --- | --- | --- |
-| DR-001 | MUST | Profile は Network、1つの Mnemonic、0個以上の Derived / Imported / Generated Software Key を持つこと。 |
+| DR-001 | MUST | Profile は Network、1 つの Mnemonic、0 個以上の Derived / Imported / Generated Software Key を持つこと。 |
 | DR-002 | MUST | Mnemonic を Profile のルート秘密情報として全 Software Key と同じ秘密情報管理対象にすること。 |
 | DR-003 | MUST | Profile 配下の Mnemonic / Software Key を同一 Profile パスワード保護対象とし、個別鍵パスワードを持たないこと。 |
 | DR-004 | MUST | Software Key の由来を区別可能としても基本的な秘密鍵利用処理は同じライフサイクルで扱うこと。 |
@@ -301,7 +294,7 @@ Desktop / Mobile は Native Binding、Web は Web Binding から v1 Core 主要�
 | AC-009 | FR-009, SEC-022, DR-008 | UI / Application が利用者へ提示し明示的に承認した署名要求だけが Core へ送られ、Core が処理単位の正しいパスワードで指定 Account / Software Key を利用して署名する。署名結果が指定 Chain / Network に対する `symbol-sdk` 3.3.2 と互換な外部検証結果となり、パスワードの正しさだけを利用者承認の根拠としない。 |
 | AC-010 | FR-010, SEC-006 | パスワード変更成功後は新パスワードだけで秘密情報を利用できる。 |
 | AC-011 | FR-011, SEC-009 | 個別 Software Key 削除で対象だけを削除し Profile / Mnemonic / 他鍵を保持する。認可失敗時は変更しない。 |
-| AC-012 | FR-012, SEC-005, SEC-008 | Profile 削除でCore管理下のProfile、Mnemonic、全 Software Keyを破棄し、認可失敗時は変更しない。削除前から利用者が保持するMnemonicを使って同一Networkの新しいProfileを作成することは許可され、削除済みCoreデータの復旧・再利用とは扱わない。 |
+| AC-012 | FR-012, SEC-005, SEC-008 | Profile 削除で Core 管理下の Profile、Mnemonic、全 Software Key を破棄し、認可失敗時は変更しない。削除前から利用者が保持する Mnemonic を使って同一 Network の新しい Profile を作成することは許可され、削除済み Core データの復旧・再利用とは扱わない。 |
 | AC-013 | FR-013, DR-005, FR-024 | Derived / Imported / Generated すべてで指定 Chain / Profile Network の公開鍵・アドレス・署名結果を扱え、Profile Network と要求 Network または Software Key の固定 Chain と要求 Chain が不一致の要求を拒否する。 |
 | AC-014 | FR-014 | Symbol / NEM の Profile / Software Key について、Core による管理責任、認証、保存、削除およびライフサイクルを共通に扱える。ただし Chain 固有の鍵・アドレス・署名処理は各基準に従う。 |
 | AC-015 | NFR-001, NFR-002 | Desktop / Mobile / Web から Binding 経由で共通 Core を利用でき、Core と Application の責任を区別できる。 |
@@ -327,17 +320,15 @@ Desktop / Mobile は Native Binding、Web は Web Binding から v1 Core 主要�
 | AC-035 | FR-004, FR-005, FR-021, §3.2, §3.3 | Mnemonic の生成・復元・取込みには BIP-0039（英語 24 語）基準を、Software Key の生成・取込み・HD Wallet からの導出には §3.3 の基準を一貫して適用し、Core が妥当性を判定する。失敗時に不完全状態、既存 Profile 変更または秘密情報返却を残さない。 |
 | AC-037 | SEC-017 | 一時的に扱った秘密情報を成功・失敗・中断後に継続利用可能状態または診断出力として残さない。 |
 | AC-038 | SEC-018 | Profile 作成、Derived / Imported / Generated Software Key 登録、パスワード変更・鍵削除・Profile 削除は成功時に全体反映し、失敗時に外部観測上の部分適用、不完全な秘密情報または既存データの破壊を残さない。 |
-| AC-039 | SEC-019 | 1つの Profile 操作が他 Profile の秘密情報・認証状態・利用可否・削除結果へ影響しない。 |
-| AC-040 | FR-019, NFR-004, SEC-020 | Web / Browser Extension から Web Binding 経由で v1 主要機能を利用でき、Native と同じ秘密情報管理・認可方針が適用される。ホスト環境の侵害防止保証とは区別する。 |
+| AC-039 | SEC-019 | 1 つの Profile 操作が他 Profile の秘密情報・認証状態・利用可否・削除結果へ影響しない。 |
+| AC-040 | FR-019, NFR-004, SEC-020 | Web / Browser Extension から WASM Binding 経由で v1 主要機能を利用でき、Native と同じ秘密情報管理・認可方針が適用される。ホスト環境の侵害防止保証とは区別する。 |
 | AC-041 | FR-022, SEC-010, SEC-021 | 対象 Profile、利用者の明示的要求、Application / UI の意思確認および正しい Profile パスワードで Mnemonic を個別エクスポートでき、誤パスワード・意思確認のない要求・対象不存在・処理失敗時は Mnemonic を返さず Profile 状態を変更しない。成功後も Core 内原本は Core が継続管理し、Core 外のコピーは受領側が保護する。 |
 | AC-042 | FR-023, SEC-010, SEC-021 | 対象 Profile / Software Key、利用者の明示的要求、Application / UI の意思確認および正しい Profile パスワードで Software Key の秘密鍵を個別エクスポートでき、誤パスワード・意思確認のない要求・対象不存在・処理失敗時は秘密鍵を返さず Profile 状態を変更しない。成功後も Core 内原本は Core が継続管理し、Core 外のコピーは受領側が保護する。 |
-| AC-043 | FR-019, SEC-017, SEC-020 | Native / Web Binding は個別エクスポート結果を Application へ受け渡せるが、秘密情報を継続保持・キャッシュ・ログ出力せず、Profile 全体の一括バックアップ機能を提供しない。 |
+| AC-043 | FR-019, SEC-017, SEC-020 | Native / WASM Binding は個別エクスポート結果を Application へ受け渡せるが、秘密情報を継続保持・キャッシュ・ログ出力せず、Profile 全体の一括バックアップ機能を提供しない。 |
 | AC-044 | NFR-005 | Core の行・関数・分岐カバレッジの計測結果を確認でき、目標未達の場合は未カバー範囲、理由および影響が記録されている。重要な仕様・セキュリティ・相互運用性・異常系の未検証を、カバレッジ目標達成だけで合格扱いしない。 |
 | AC-045 | DR-009, SEC-004 | v1 Core が Store / Profile の version を識別し、明示的に対応する version だけを処理できる。v1 では version migration を提供せず、unsupported または unknown version、破損または整合しないデータを正常データとして利用しない。暗黙 migration、Application による独自の読み替えを前提とした処理、黙った解釈・無視・fallback を行わず、拒否時に既存状態を変更しない。未知データの意味を推測せず、非意味的な将来拡張として安全に保持できない変更を拒否し、対応範囲で deterministic かつ相互運用可能な保存結果を確認できる。既存 version の意味を後から変更して migration とみなさない。将来 migration を提供する場合は、別途定義された source / target version、明示的な開始、target version として利用可能になったことを外部から判定できる成功および失敗時の既存状態不変を満たし、通常結果へ秘密情報を漏らさない。 |
 | AC-046 | FR-003, FR-021, SEC-018 | HD Wallet からの Software Key 導出、妥当性確認、登録または保存のいずれかが失敗・中断した場合、不完全な Software Key、部分変更、既存 Software Key の破壊または秘密情報返却を残さず、外部観測上 fail-closed に扱う。 |
 | AC-047 | FR-024, DR-005 | unsupported または不整合な Chain / Network、Profile Network と要求 Network の不一致、Software Key の固定 Chain と要求 Chain の不一致を拒否し、Profile、Software Key および秘密情報を変更・返却せず、別 Chain / Network へ fallback または暗黙変換しない。 |
-
-`AC-036` は OPEN-002 により廃止した。Wallet Core による Profile パスワード品質判定は受入対象としない。
 
 ---
 
@@ -363,8 +354,6 @@ v1 は Store / Profile の version migration 機能を提供しない。Store �
 ## 11. 未決定事項
 
 **要件レベルの未決定事項はない。**
-
-過去に OPEN-001、OPEN-002 および OPEN-VALIDITY-001 として管理した事項は、本書の互換性、パスワード責任および妥当性・安全性の条項へ取り込んだため、現行要件では解消済みである。Requirements review-006 までの指摘も、本書の認証、妥当性、責任境界、Store、Chain / Network、失敗安全性および下流委譲の条項へ取り込んだ。今回の Requirements review-007 で再確認された RR-022 は初回 handoff の5つの成立事実と Core の確定条件へ、RR-026 は v1 migration 非提供、unsupported Store の拒否責任および将来 version への委譲条件へ取り込んだため、要件レベルの未決定事項はない。旧 OPEN 項目および過去レビューは Git 履歴と `docs/reviews/requirements/` の履歴記録で追跡する。
 
 仕様設計で決定する具体方式は未決定事項ではなく、要件から仕様へ引き継ぐ設計事項として管理する。
 
@@ -393,8 +382,8 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 
 ### 12.3 Binding
 
-- Native / Web Binding の外部契約、言語間の値変換およびエラー表現
-- Web Binding / JavaScript 境界の秘密情報受渡し・コピー・消去
+- Native / WASM Binding の外部契約、言語間の値変換およびエラー表現
+- WASM Binding / JavaScript 境界の秘密情報受渡し・コピー・消去
 - Browser 固有 Storage と Application の責任分界
 - 対象 OS / Browser / バージョン、ビルド・配布方式
 
@@ -409,47 +398,9 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 
 ---
 
-## 13. レビュー指摘への対応状態
-
-`requirements-review-007.md` までの RR-001〜RR-029 を、現在の要件および参照可能な決定記録に照らして整理する。過去の review ファイル自体は監査記録として変更しない。
-
-| ID | 現在の状態 | 対応 |
-| --- | --- | --- |
-| RR-001 | Resolved | OPEN-001 を `symbol-sdk` 3.3.2 互換基準として確定。HD導出パスは仕様設計へ分離。 |
-| RR-002 | Resolved | 未指定・空・Core既定値を拒否。 |
-| RR-003 | Resolved | Mnemonic / Software Key の暗号化保存を明示。 |
-| RR-004 | Resolved | 公開情報と秘密情報の返却境界を明示。 |
-| RR-005 | Resolved | `DEC-REQ-001` により第三者追跡可能な承認記録を追加。 |
-| RR-006 | Resolved | Concept の lock / unlock を処理単位の Profile パスワード認証として具体化し、継続・永続 Unlocked 状態、Application の unlock session および認証結果の持越しを禁止。 |
-| RR-007 | Resolved | パスワード復旧非提供、Core認可責任を明示。 |
-| RR-008 | Resolved | 失敗・診断を含む秘密情報非開示を明示。 |
-| RR-009 | Resolved | Imported / Generated 登録のパスワード認可と失敗時状態不変を明示。 |
-| RR-010 | Resolved | 初回 Mnemonic 受渡しの完了条件、失敗・中断時のProfile非作成、保管・紛失防止責任、Profileデータバックアップ責任を明示。 |
-| RR-011 | Resolved | Derived / Imported / Generated すべての公開情報利用を明示。 |
-| RR-012 | Resolved by approved requirement | パスワード品質ポリシーは上位責任とし、Coreの品質判定要求を廃止。 |
-| RR-013 | Resolved by approved requirement | Mnemonic は BIP-0039（英語 24 語）とし、生成・復元・取込みへ同一基準を適用。Software Key は生成・取込み・HD 導出の妥当性を Core が判定し、互換性基準を §3.1〜§3.3 へ追跡可能にした。具体方式は仕様設計へ分離。 |
-| RR-014 | Resolved | 一時秘密情報の処理範囲・終了後非保持を明示。 |
-| RR-015 | Resolved | `symbol-sdk` 3.3.2 互換の外部検証基準を明示。 |
-| RR-016 | Resolved | 状態変更の部分適用禁止を明示。 |
-| RR-017 | Resolved | Profile 間の越境禁止を明示。 |
-| RR-018 | Resolved | §1.2で背景・課題、目的、対象利用者・主要利用場面、責任境界をコンセプトの該当節へ追跡可能にした。 |
-| RR-019 | Resolved | Profile削除後の外部Mnemonicによる同一Networkの新規Profile再作成を許可し、SEC-005をCore管理下の削除済みデータの再利用禁止へ限定した。 |
-| RR-020 | Resolved | Profile は Network 固定・Chain 非固定、Software Key は Chain 固定、Account は対象 Chain / Profile Network 上で Software Key を利用する概念として統一。 |
-| RR-021 | Resolved | 既存 Wallet との包括的互換性を保証せず、追加保証を明示した名称・version / commit・入力・期待値・fixture の範囲に限定。 |
-| RR-022 | Resolved | 初回 Mnemonic handoff の成功を、完全な Mnemonic の Application への受渡し、利用者への提示、利用者の明示的受領確認、Application から Core への確認伝達および Core による Profile 成功確定の全成立条件に結び付けた。失敗・未確認・中断時の非成功状態と責任主体も明示。 |
-| RR-023 | Resolved | Password 認証、Account 選択、Transaction 内容提示、利用者の明示的承認、Core の署名、署名結果返却を分離し、パスワード正当性だけで承認済みとみなさないことを明示。 |
-| RR-024 | Resolved | Mnemonic / Software Key 秘密鍵の export に対象指定、処理単位認証、利用者の明示的要求および Application / UI の意思確認を要求し、原本と Core 外コピーの責任を分離。 |
-| RR-025 | Resolved | Desktop / Mobile / Native / Web Application / Browser Extension 等に共通する Core の非開示責任と、Application / Browser / OS / host process の侵害防止が Core の保証外であることを分離。 |
-| RR-026 | Resolved | v1 は Store / Profile version migration を提供せず、Core は明示的対応 version だけを処理し、unsupported / 破損データを拒否することを明示。Application の独自読み替えを前提にせず、将来 migration の source / target、明示的開始、成功および失敗時不変の原則を将来 version へ委譲。 |
-| RR-027 | Resolved | HD Wallet からの Software Key 導出、妥当性確認、登録、保存の失敗時に不完全状態、Profile 部分変更、既存鍵破壊または秘密情報返却を残さない fail-closed 条件を追加。 |
-| RR-028 | Resolved | unsupported / 不一致の Chain / Network を拒否し、Profile、Software Key、秘密情報を変更・返却せず、別 Chain / Network へ fallback または暗黙変換しないことを FR-024 / AC-047 へ追加。 |
-| RR-029 | Resolved | Requirements の Binding、Store、重複および invalid data の外部要求を一般化し、具体的な境界契約、保存表現、内部動作およびエラー表現を下流へ委譲。 |
-
-過去の review ファイルはその時点の監査記録であり、履歴性を保つため内容を書き換えない。
-
 ---
 
-## 14. 参照資料
+## 13. 参照資料
 
 | 資料 | 用途 |
 | --- | --- |
@@ -457,9 +408,6 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 | `docs/design/architecture.md` | 要件を実装配置へつなぐ基本設計と責任境界 |
 | `docs/knowledge/symbol-technicalref-jp.pdf` | Symbolの鍵・署名・Network・アドレス前提 |
 | `docs/knowledge/nem-technicalref.pdf` | NEMの鍵・署名・Network・アドレス前提 |
-| `docs/reviews/requirements/requirements-review-002.md` | RR-001〜RR-017の履歴レビュー |
-| `docs/reviews/requirements/requirements-review-003.md` | RR-001〜RR-019の履歴レビュー |
-| `docs/reviews/requirements/requirements-review-006.md` | RR-006、RR-013、RR-020、RR-022〜RR-029の再レビュー結果 |
-| `docs/reviews/requirements/requirements-review-007.md` | RR-022 / RR-026 の再レビュー結果 |
+| `docs/reviews/requirements/` | 要件レビュー記録 |
 
-本書を v1 要件の単一の現行正本とする。要件上の承認履歴と変更理由は本書、Git 履歴および `docs/reviews/requirements/` から追跡し、要件本文と矛盾する別 amendment を並存させない。設計上の判断は `docs/design/` を参照する。
+本書を v1 要件の現行正本とする。設計上の判断は `docs/design/` を参照する。
