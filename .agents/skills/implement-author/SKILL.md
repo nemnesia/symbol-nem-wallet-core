@@ -98,19 +98,19 @@ description: symbol-nem-wallet-core の Rust Core、Native C ABI、WASM binding 
 4. 必要なら仕様フィードバックを作成し、決定前の外部動作を実装しない。
 5. Core、binding、テスト、fixtureの責務を確認して最小変更を実装する。
 6. 仕様に対応する正常系・異常系・境界テストを追加・更新する。
-7. ルート `AGENTS.md` に定める formatter、clippy、test、WASM check、Native検証を対象に応じて実行する。
+7. ルート `AGENTS.md` の `Change-aware validation` に従い、実際の変更分類と明示された
+   依頼範囲に該当する formatter、clippy、test、WASM、Native 検証だけを実行する。
 8. 未実行の検証、未確認の protocol 事実、残存リスク、仕様フィードバックを報告する。
 
-Rust 実装を変更した場合の標準検証は次のとおり。環境に target や外部ツールがない場合は未実行理由を明記する。
+docs-only または agent / skill-only の作業では、コード、manifest、dependency、build
+configuration、test、fixture に変更がない限り、Rust / WASM / Native / Node の実装テストを
+実行しない。Rust Core、WASM、Native C ABI、Node-API / npm に影響する変更がある場合の
+具体的なコマンド、対象外の扱い、未実行理由の報告は `AGENTS.md` の分類に従う。環境に
+target や外部ツールがない場合は未実行理由を明記する。
 
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-cargo check --target wasm32-unknown-unknown --features wasm
-```
-
-Native C ABI の変更時は、対象に応じて `bindings/native/tests/run_c_abi_runtime.sh`、header compile、sanitizer を追加確認する。WASM生成物を更新する場合は `scripts/build-wasm.sh` の実行結果と生成先を分けて記録する。
+Native C ABI の変更時は、`AGENTS.md` の分類に従って `bindings/native/tests/run_c_abi_runtime.sh`、
+header compile、必要な sanitizer を追加確認する。WASM生成物を更新する場合は
+`scripts/build-wasm.sh` の実行結果と生成先を分けて記録する。
 
 ## 自己確認
 

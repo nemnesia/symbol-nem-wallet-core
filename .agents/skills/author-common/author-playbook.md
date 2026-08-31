@@ -97,9 +97,19 @@ stale または inconsistent な疑いは、正式資料を根拠に作業を続
 
 ## 整形と検証
 
-- Markdown は、このリポジトリに formatter が設定されている場合だけ、その設定と対象パスに従う。存在しない `pnpm` や npm script を前提にしない。
-- Rust 実装を変更する作業では、ルート `AGENTS.md` の formatter / lint / test / WASM check を適用する。文書作成だけでコード全体の検証を実行したことにしない。
-- 実行していない検証、確認できない外部環境、未解決の仕様を成功として記録しない。
+検証前に実際の変更ファイルとユーザーが依頼した検証範囲を確認し、ルート `AGENTS.md` の
+`Change-aware validation` を適用する。作業フェーズだけで検証範囲を決めない。
+
+- `docs/**`、README 等の docs-only 作業では、Markdown、リンク、relative reference、
+  traceability、文書間整合性、差分・状態確認だけを対象にし、Rust / Binding / WASM /
+  Native / Node の実装テストを自動実行しない。
+- `AGENTS.md` と `.agents/**` だけの agent / skill-only 作業では、Skill の構造・参照・
+  Markdown・必要な validator だけを対象にし、実装テストを実行しない。
+- Rust Core、WASM、Native C ABI、Node-API / npm に関係する検証は、実際の変更分類または
+  明示された依頼範囲に該当するものだけを追加する。Release Readiness の release gate
+  例外を除き、変更対象外の検証を「念のため」実行しない。
+- 対象変更がない検証は `NOT APPLICABLE / SKIPPED (no relevant change)` と報告できる。
+  実行していない検証、確認できない外部環境、未解決の仕様を成功として記録しない。
 
 ## 完了と Git
 

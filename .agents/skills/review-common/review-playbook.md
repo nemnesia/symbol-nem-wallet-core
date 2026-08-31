@@ -78,11 +78,25 @@ Requirements Review、Design Review、Specification Review では、品質 Gate 
 - 資料の競合は chain、network、version、資料の役割、更新時点、影響とともに記録し、勝手に統合しない。
 - 過去レビューは原則として指摘 ID と状態の追跡に使う。前段レビューの判定が必要な場合は、公開された判定と指摘状態だけを確認する。
 
-## 機密情報と検証
+## 機密情報と change-aware validation
 
 秘密鍵、Mnemonic、password、復号データ、credential をログ、成果物、例、エラー、テスト出力へ含めない。
 
-Rust の検証は対象に応じて、リポジトリ `AGENTS.md` に定める `cargo fmt`、`cargo clippy`、`cargo test`、WASM check、Native C ABI 検証を候補とする。実行したコマンド、結果、未実行理由を分けて記録する。network、registry、外部 node、長時間テストを未実行のまま成功と書かない。
+検証前に実際の変更ファイルとユーザーが依頼した検証範囲を確認し、ルート `AGENTS.md` の
+`Change-aware validation` を適用する。Rust の検証は review のフェーズだけで候補になるもの
+ではなく、Rust Core、WASM、Native C ABI、Node-API / npm の変更分類または明示された依頼範囲に
+該当する場合だけ実行する。
+
+docs-only では文書・リンク・traceability・整合性の確認を行い、agent / skill-only では
+Skill の構造・参照・Markdown・必要な validator を確認する。いずれも Rust / WASM /
+Native / Node の実装テストを自動実行しない。Concept / Requirements / Design /
+Specification が外部契約を記述していても、文書だけの差分であることは実装テストの根拠に
+ならない。既存 Implementation との適合確認をユーザーが明示した場合、または Release
+Readiness の release gate が full validation を要求する場合だけ、必要なコード検証を追加する。
+
+実行したコマンド、結果、対象外として skipped した検証、未実行理由を分けて記録する。
+対象変更がない検証は `NOT APPLICABLE / SKIPPED (no relevant change)` と報告でき、failure
+とは扱わない。network、registry、外部 node、長時間テストを未実行のまま成功と書かない。
 
 ## 成果物と Git
 

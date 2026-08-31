@@ -483,30 +483,93 @@ Wallet Store やその他の永続化・交換フォーマットを変更する�
 
 ## Validation
 
-Rust または Binding の実装を変更した場合は、
-原則としてリポジトリルートから以下を実行する。
+### Change-aware validation
 
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-cargo check --target wasm32-unknown-unknown --features wasm
-```
+validation は作業フェーズだけでなく、次の3つに基づいて決定する。
 
-変更内容によって追加の検証が必要な場合は、
-関連するテスト、ビルド、fixture 検証等も実行する。
+1. 実際に変更したファイル
+2. ユーザーが依頼した検証範囲
+3. Release Readiness のような明示された release gate の例外
 
-Coverage を対象とする作業では、
-CI の coverage 設定を確認する。
+validation を始める前に、base からの差分、staged 差分、working tree の差分、
+未追跡ファイルを確認し、実際の変更ファイルを確定する。例えば commit range では
+`git diff --name-only <base>...HEAD`、作業中の差分では
+`git diff --name-only`、`git diff --cached --name-only`、
+`git ls-files --others --exclude-standard` を対象に応じて使用する。
+base や対象範囲が指定されている場合は、その指定を優先する。
 
-検証コマンドを実行できなかった場合は、
-成功したものとして扱わない。
+複数の分類にまたがる変更は、該当する検証を組み合わせる。作業フェーズだけを理由に、
+変更対象外の test suite を「念のため」実行しない。
 
-一部だけ実行した場合は、
-実行した範囲と未実行の範囲を区別する。
+#### docs-only
 
-「おそらく通る」「問題ないはず」を
-実行結果として報告しない。
+変更が `docs/**`、`README.md` 等の文書ファイルだけで、Rust / Binding / WASM /
+Native / Node の source、manifest、dependency、build configuration、test、fixture に
+変更がない場合、Rust / Binding / WASM / Native / Node の実装テストを実行しない。
+Concept / Requirements / Design / Specification が外部契約を記述していても、
+文書だけの変更であることを理由に `cargo test` 等を自動実行しない。
+
+必要な検証は、対象に応じて Markdown format、文書内リンク、relative reference、
+traceability、文書間整合性、`git diff`、`git status` とする。既存 Implementation との
+適合確認をユーザーが明示的に依頼した場合だけ、その依頼範囲に必要なコード閲覧・
+build・test・fixture 検証を追加する。
+
+#### agent / skill-only
+
+変更が `AGENTS.md` と `.agents/**` だけの場合、Rust / WASM / Native / Node の
+実装テストを実行しない。Skill の構造、参照、Markdown、および必要な validator、
+`git diff`、`git status` だけを対象にする。agent / skill の変更と文書変更だけが混在する
+場合も、コード変更がない限り実装テストを追加しない。
+
+#### 実装・binding 別の検証
+
+- Rust Core の source、manifest、dependency、または対応する test / fixture に影響する
+  変更がある場合だけ、対象に応じて `cargo fmt`、`cargo clippy`、`cargo test` を実行する。
+- WASM の source、feature、build configuration、生成・実行手順に影響する変更がある場合だけ、
+  対象の WASM build / test / check を追加する。
+- Native C ABI の source、header、ownership 契約、build configuration に影響する変更がある
+  場合だけ、header compile、C ABI runtime、必要な sanitizer 等の Native validation を追加する。
+- Node-API / TypeScript / package / npm build に影響する変更がある場合だけ、対象の build、
+  test、package validation を追加する。
+
+Rust Core と binding の共有部分を変更した場合は、影響する分類の検証を組み合わせる。
+具体的なコマンドは実際の script、target、fixture、CI 設定とこの `AGENTS.md` に従い、
+存在しない npm / pnpm script や validator を前提にしない。
+
+#### 依頼範囲と release gate
+
+ユーザーが full validation、既存 Implementation との適合、または特定の build / test を
+明示的に依頼した場合は、変更分類だけでは省略せず、依頼された範囲を実行する。Release
+Readiness Review のように repository 全体の release evidence を確認する作業は例外とし、
+コード差分がなくても release gate が必要とする full validation を要求できる。その場合は、
+「release gate のため実行した」と validation results に明記する。
+
+対象変更がない検証は failure と扱わず、`NOT APPLICABLE / SKIPPED (no relevant change)`
+として報告できる。対象変更があるのに実行できなかった場合、または実行して失敗した場合は、
+未実行理由または失敗結果を別に報告する。未確認範囲を成功扱いしない。
+
+この change-aware 判定は security review、security gate、既存の review gate、
+外部契約の traceability または必要な code inspection の責任を弱めない。変更対象と
+依頼範囲に該当する security / interoperability / failure-path の確認は、引き続き
+必要な範囲で実施する。
+
+### 標準コマンドと報告
+
+Rust、WASM、Native、Node の具体的な formatter、lint、test、build、fixture 検証は、
+上記の変更分類に従って対象を選ぶ。Coverage を対象とする作業では CI の coverage 設定を
+確認する。標準コマンドが適用対象になる場合は、次を基準にする。
+
+- Rust Core: `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets --all-features -- -D warnings`、
+  `cargo test --workspace --all-features`
+- WASM: `cargo check --target wasm32-unknown-unknown --features wasm` と、対象の WASM build /
+  test script
+- Native C ABI: `bindings/native/tests/run_c_abi_runtime.sh`、header compile、必要な sanitizer
+
+対象の実際の script、target、fixture、CI 設定に追加の検証が定められている場合はそれも適用する。
+
+検証コマンドを実行できなかった場合は、成功したものとして扱わない。一部だけ実行した
+場合は、実行した範囲、対象外として skipped した範囲、未実行の範囲を区別する。
+「おそらく通る」「問題ないはず」を実行結果として報告しない。
 
 ---
 

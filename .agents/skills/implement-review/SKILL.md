@@ -56,16 +56,17 @@ Implementation Review は、`Specification: what exact behavior must be observed
 
 レビュー成果物の `Domain Checks` には、適用した主要な security checklist 項目、重要な適用外項目とその理由、未確認範囲だけを記録する。全項目を機械的なチェックボックスや新しい製品要求の一覧として出力しない。protected asset に触れない変更へ不要な secret checklist を適用しない。
 
-必要な非破壊検証は、ルート `AGENTS.md` と対象の実際の script に従う。Rust実装の変更では、対象に応じて次を候補とする。
+必要な非破壊検証は、ルート `AGENTS.md` の `Change-aware validation` と対象の実際の
+script に従う。Rust / WASM / Native / Node の検証は、実際の変更分類またはユーザーが
+明示した検証範囲に該当する場合だけ実行する。docs-only または agent / skill-only の
+差分では、実装テストを自動実行せず、文書・Skill の構造、参照、Markdown、必要な
+validator、差分・状態を確認する。
 
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-cargo check --target wasm32-unknown-unknown --features wasm
-```
-
-Native C ABI の変更時は `bindings/native/tests/run_c_abi_runtime.sh`、header compile、必要な sanitizer を確認する。WASMの生成・実行や外部環境の検証は、実行した場合だけ記録する。
+Native C ABI の変更時は `bindings/native/tests/run_c_abi_runtime.sh`、header compile、
+必要な sanitizer を対象に応じて確認する。WASM の生成・実行や外部環境の検証は、変更分類
+または明示された依頼範囲に該当する場合だけ実行し、実行した場合だけ記録する。
+対象変更がない検証は `NOT APPLICABLE / SKIPPED (no relevant change)` とし、レビューの
+failure とは扱わない。
 
 ## 判定
 

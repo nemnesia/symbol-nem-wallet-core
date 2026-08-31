@@ -36,6 +36,18 @@ description: symbol-nem-wallet-core の公開対象 Rust crate、Native binding�
 
 `Cargo.toml`、`Cargo.lock`、README、LICENSE、`CHANGELOG.md` の存在は実際に確認する。存在しない CHANGELOG や npm metadata を前提にしない。
 
+## Release gate と change-aware validation
+
+通常の validation は、ルート `AGENTS.md` の `Change-aware validation` に従い、実際の変更
+ファイルとユーザーが依頼した検証範囲から選ぶ。ただし Release Readiness Review は
+repository 全体の release evidence と公開 gate を確認する作業であるため、コード差分が
+ない場合でも、release gate が必要とする full validation を要求できる。
+
+この例外を適用した場合は、実行した検証結果へ「release gate のため実行した」と明記する。
+対象外の検証を実行しない場合は `NOT APPLICABLE / SKIPPED (no relevant change)` と記録し、
+対象変更がないことを failure や未確認による不合格と扱わない。実行できなかった検証や
+release evidence の不足は、未実行理由・依存環境・影響を分けて報告する。
+
 ## 確認項目
 
 - crate name、version、workspace member、license、公開対象、依存関係、features、MSRV等の明示有無
