@@ -4,9 +4,9 @@
 
 本書は、`symbol-nem-wallet-core` の実装移行を開始する前に、Rust workspace、Binding の責務境界、npm 配布、runtime routing、release artifact および移行順序を固定するための設計成果物である。
 
-本書は、`docs/design/architecture.md`、`docs/design/security.md`、`docs/design/bindings.md` および `docs/specifications/` の security meaning、既存 API、Store semantics、error semantics、ownership 契約または protocol 契約を変更しない。これらの資料が定める責務と契約を、モノレポおよび npm という配布単位へ配置する。
+本書は、`docs/design/architecture.md`、`docs/design/security.md`、`docs/design/bindings.md` および `docs/specifications/` の security meaning、既存 API、Store semantics、error semantics、ownership 契約または protocol 契約を変更しない。今回の impact review では、Node.js の v1 support が同じ Rust Wallet Core を Node-API Binding 経由で利用することを上流資料へ明記し、独立した Node.js / TypeScript Wallet Core 実装を対象外とする意味を明確化する。これらの資料が定める責務と契約を、モノレポおよび npm という配布単位へ配置する。
 
-今回はソースコード、Cargo manifest、npm manifest、CI、生成物および既存ドキュメントの migration を実行しない。本書作成以外のファイル変更は行わない。
+今回はソースコード、Cargo manifest、npm manifest、CI、生成物および実装 migration を変更しない。上流資料との scope 整合に必要な設計文書の更新だけを行う。
 
 ## 1. Goals / Non-goals
 
@@ -24,7 +24,7 @@
 ### 1.2 Non-goals
 
 - Core の暗号、KDF、nonce、salt、署名対象 byte 列、HD 導出規則、Store schema、error code、authorization または failure semantics の変更。
-- Core の Node.js、Browser、C ABI または WASM による別実装の作成。すべての Binding は同一 Core を呼び出す。
+- Rust Wallet Core と独立した Node.js / TypeScript 等による Wallet Core の別実装の作成。Node-API、C ABI および WASM の各 Binding は同一 Core を呼び出す。
 - `c-abi` を npm から JavaScript FFI で呼び出す構成。
 - Transaction の構築・解釈、Network 通信、Wallet UI、Browser Extension の page / background / storage architecture の設計。
 - Hardware Wallet、External Signer、OS-backed Key、Profile migration または Store version migration の追加。
@@ -58,19 +58,19 @@
 
 ### 2.3 上流資料への影響評価
 
-本書では上流資料を変更しない。実装 migration 前に、次の impact review を行う。
+Node.js の v1 scope と Binding non-authority を上流資料へ反映し、実装 migration 前の impact review を次のとおり記録する。
 
 | 資料 | 今回の扱い | 実装開始前の確認 |
 | --- | --- | --- |
-| Concept | 変更しない | Node.js は別 Core 実装ではなく Binding / 配布経路であることを確認する。 |
-| Requirements | 変更しない | §2.5 の `Node.js 代替実装` 対象外が Node-API thin binding を除外する意味ではないことを要求追跡上確認する。必要なら、security meaning を変えない限定的な用語 clarification を承認する。 |
-| Architecture | 変更しない | Node-API を既存の Native / WASM と同じ non-authoritative Binding として追跡できるか確認する。 |
-| Security Design | 変更しない | native を WASM より強い secret isolation boundary と扱わないこと、host compromise 非保証、Core ownership および non-disclosure を維持する。 |
-| Bindings Design | 変更しない | Node-API が C ABI の authority や別の security policy にならないことを確認する。必要な具体契約は下流仕様へ委譲する。 |
-| Specification | 変更しない | 現在の Native / WASM binding 契約へ Node-API boundary と npm facade parity を追記する必要がある。既存 operation、DTO、error、ownership の意味は変更しない。 |
+| Concept | scope / environment レベルで Node.js を追加 | Node.js を対象利用環境として明記し、Rust Wallet Core と独立した Node.js / TypeScript 等の別実装を対象外として明確化する。Node-API、conditional exports および npm artifact の詳細は追加しない。 |
+| Requirements | Node.js を supported environment として追加 | Node.js は Node-API Binding 経由で同じ Rust Wallet Core を利用すること、`Node.js 代替実装` は独立した Wallet Core implementation を意味し Node-API を除外しないことを明確化する。 |
+| Architecture | Node-API を Native / WASM と並ぶ Binding として追加 | Node-API を thin / non-authoritative boundary とし、security authority、secret ownership、Store authority および signing authority は Core に残す。 |
+| Security Design | Node.js の guarantee boundary を既存原則へ追加 | Node-API を理由に新しい security authority や native-isolation guarantee を追加せず、Node.js host process compromise を Core / Binding の保証外とする。 |
+| Bindings Design | Binding の分類を Native C ABI / Node-API / WASM へ拡張 | 3 Binding とも同じ Core security meaning を mediation し、Node-API は C ABI を JavaScript FFI で呼び出さない。具体契約は下流仕様へ委譲する。 |
+| Specification | Node-API の高位 boundary 契約を追加 | Node-API が同じ Core の operation、error、ownership、failure semantics を橋渡しすることを定める。wrapper library、Node version、target matrix、TypeScript API および npm artifact 契約は確定しない。 |
 | README | 変更しない | 現行 root crate / `bindings/native` / raw WASM の説明は cutover 後に target layout と npm facade へ更新する。 |
 
-Node.js 経路を「Node.js 独自の Wallet Core 実装」と解釈する資料がある場合は、実装を進めず、Requirements / Design の clarification を先に承認する。
+Node.js 経路は同じ Rust Wallet Core を利用する v1 supported environment として扱う。`Node.js 代替実装` は Rust Wallet Core と独立した Node.js / TypeScript 等による Wallet Core implementation を意味し、Node-API Binding はこれに含めない。
 
 ## 3. Current structure
 
@@ -690,14 +690,28 @@ protected tag vX.Y.Z
 
 実装 migration は本書の設計 gate が承認されるまで開始しない。開始後も、各段階を独立した差分と検証結果で完了させる。大規模な一括 rename / move と API change を同じ差分へ混在させない。
 
-### 19.1 12 段階
+### 19.1 Gate classification
+
+今回の Node.js scope clarification により、Node.js support は既存 v1 scope と正式に整合した。`OPEN-009` は解消済みであり、実装者が Node.js を独立した Wallet Core と解釈する余地を残さない。
+
+未決定事項は、物理的なモノレポ構造移行、Node/npm 実装、公開 release の異なる gate に分類する。
+
+| Gate | 対象 | 段階 1〜5 の structural migration への扱い |
+| --- | --- | --- |
+| monorepo structural migration gate | upstream impact review、target tree、依存方向、責務境界、既存 consumer inventory。`OPEN-003` は package name を変更する場合だけ該当する。 | `OPEN-001`、`OPEN-002`、`OPEN-004`、`OPEN-005`、`OPEN-006`、`OPEN-007`、`OPEN-008` は blocker にしない。`OPEN-003` が未解決でも、既存 package name を維持して path migration を進められる。 |
+| Node/npm implementation gate | `OPEN-001`、`OPEN-002`、`OPEN-004`、`OPEN-005`、`OPEN-008` | crates/core、crates/c-abi、crates/wasm の structural migration 開始条件にはしない。`crates/node` と npm facade の実装開始前に解決する。 |
+| release gate | `OPEN-006`、`OPEN-007` と release candidate の全 artifact / package 検証 | structural migration および Node/npm 実装の開始条件にはしない。publish、GitHub release asset 提供および provenance 完了前に解決する。 |
+
+Node-API wrapper library、exact Node.js version matrix、Browser bundler baseline、artifact size threshold、runtime hash verification および SBOM / provenance の具体方式は、Core / C ABI / WASM の物理的な path move を段階 1 から開始する blocker ではない。
+
+### 19.2 12 段階
 
 | 段階 | 作業 | 完了 gate |
 | --- | --- | --- |
-| 0 | 本書、upstream impact、crate / package name、target matrix、公開範囲を review し、migration 開始を承認する。 | 設計未決定事項が implementation blocker として明示されている。source code は未変更。 |
+| 0 | 本書、上流 impact、crate / package name、target tree、依存方向、公開範囲および gate 分類を review し、structural migration 開始を承認する。 | Node.js scope clarification と `OPEN-009` の解消、structural migration gate の承認、source code 未変更。 |
 | 1 | root Cargo virtual workspace、workspace version、root npm private package、`pnpm-workspace.yaml` および lockfile policy を準備する。 | 既存 Core / Native / fuzz の build と test が維持される。 |
 | 2 | root Core package と `src/` / Core tests を `crates/core` へ移す。Core package name と Rust public API を維持する。 | `cargo test`、clippy、format、WASM 依存分離前の Core parity が通る。 |
-| 3 | `bindings/native` を `crates/c-abi` へ移す。header、C symbols、ownership / free、C runtime tests を最小差分で移す。 | C header compile、runtime、sanitizer、C ABI compatibility review が通る。 |
+| 3 | `bindings/native` を `crates/c-abi` へ移す。header、C symbols、ownership / free、C runtime tests を最小差分で移す。既存 package name の変更は `OPEN-003` の確認後に別差分で扱う。 | C header compile、runtime、sanitizer、C ABI compatibility review が通る。 |
 | 4 | `src/wasm.rs`、WASM feature、`wasm-bindgen` / `js-sys` を `crates/wasm` へ抽出する。Core から WASM-specific dependency を除く。 | wasm target build、generated export parity、WASM boundary tests、Core の host-neutral dependency check が通る。 |
 | 5 | root `tests/`、fuzz path、scripts、fixture path、README の内部参照を段階的に修正する。 | Core / C ABI / WASM / fuzz の既存検証が新 path で通り、fixture scope が変わっていない。 |
 | 6 | `crates/node` を作り、Node-API wrapper library、Node-API version、target build、JS value / error / ownership bridge を実装する。C ABI は再利用しない。 | Node-API addon load、Core operation parity、Node version / target matrix が通る。 |
@@ -707,7 +721,7 @@ protected tag vX.Y.Z
 | 10 | artifact digest、SBOM、license / dependency review、provenance、GitHub Actions protected release、npm trusted publishing、C ABI release asset を実装する。 | publish 前の supply-chain review が完了し、秘密情報や不要ファイルがない。 |
 | 11 | README、仕様・Design の impact review、migration compatibility note、deprecation / package name note を更新し、公開前の release-readiness review を行う。 | upstream security meaning / public contract の差分がないことを確認し、実装移行を完了とする。 |
 
-### 19.2 各段階の共通ルール
+### 19.3 各段階の共通ルール
 
 - 新しい Binding を追加する段階でも Core の authorization、secret ownership、Store semantics、failure semantics を再実装しない。
 - path move と package rename は別の変更として扱い、既存利用者に影響し得る package name は registry / repository consumer inventory 後に決める。
@@ -736,19 +750,24 @@ protected tag vX.Y.Z
 
 本書で repository topology、依存方向、single npm facade、static routing、v1 fixed version、no postinstall remote artifact および migration sequence は確定する。次の事項は、実装移行前に決定し、未決定のまま public release を行わない。
 
-| ID | 未決定事項 | 影響 | 決定時期 |
-| --- | --- | --- | --- |
-| OPEN-001 | Node.js の最低 supported version、Node-API version、ESM / CJS の compatibility floor | `exports`、Node-API matrix、`main` / `module` fallback、CI matrix | 段階 0〜6 |
-| OPEN-002 | supported OS / CPU / Linux libc / deployment target の最終 matrix | `.node` 同梱、WASM fallback、artifact build、package size | 段階 0〜6 |
-| OPEN-003 | `symbol-nem-wallet-core-native` の既存外部利用有無と、`c-abi` package name / compatibility alias | Cargo consumer の破壊的変更、registry package topology | 段階 0〜3 |
-| OPEN-004 | Node-API wrapper library と exact JS / TypeScript sync・async shape | `crates/node` 実装、facade declaration、event loop behavior | 段階 6〜7 |
-| OPEN-005 | all-in-one npm tarball の size threshold と、将来 optional platform artifact package を導入する条件 | npm topology、install dependency、integrity / provenance | 段階 7〜9 |
-| OPEN-006 | runtime native artifact hash verification を行うか | initialization behavior、failure type、performance、package manifest | 段階 7〜10 |
-| OPEN-007 | SBOM format / generator、artifact signing、provenance retention、GitHub release permissions | supply-chain evidence と release operation | 段階 9〜10 |
-| OPEN-008 | Browser bundler、Browser Extension、CSP、worker context の supported integration baseline | WASM asset loading、README、integration test | 段階 7〜9 |
-| OPEN-009 | Node-API binding を v1 Requirements / Specification 上でどの項目へ trace するか | Node.js alternative implementation exclusion との用語整合 | 段階 0、6 前 |
+### 21.1 Resolved
 
-OPEN-001〜004 と OPEN-009 は、単なる実装上の好みではなく、公開契約または上流範囲へ影響し得るため、実装者判断だけで close しない。
+- **OPEN-009 — 解消**: Node.js は Node-API Binding 経由で同じ Rust Wallet Core を利用する v1 supported environment である。`Node.js 代替実装` は Rust Wallet Core と独立した Node.js / TypeScript 等による Wallet Core implementation を意味し、Node-API Binding はこれに含めない。この判断を Concept、Requirements、Architecture、Security Design、Bindings Design および Specification に反映した。
+
+### 21.2 Remaining open decisions
+
+| ID | 未決定事項 | Gate | 影響 | 決定時期 |
+| --- | --- | --- | --- | --- |
+| OPEN-001 | Node.js の最低 supported version、Node-API version、ESM / CJS の compatibility floor | Node/npm implementation gate | `exports`、Node-API matrix、`main` / `module` fallback、CI matrix | 段階 6〜7 |
+| OPEN-002 | supported OS / CPU / Linux libc / deployment target の最終 matrix | Node/npm implementation gate | `.node` 同梱、WASM fallback、artifact build、package size | 段階 6〜9 |
+| OPEN-003 | `symbol-nem-wallet-core-native` の既存外部利用有無と、`c-abi` package name / compatibility alias | monorepo structural migration gate（package rename のみ） | Cargo consumer の破壊的変更、registry package topology | 段階 0〜3。未解決時は既存名を維持して path move 可 |
+| OPEN-004 | Node-API wrapper library と exact JS / TypeScript sync・async shape | Node/npm implementation gate | `crates/node` 実装、facade declaration、event loop behavior | 段階 6〜7 |
+| OPEN-005 | all-in-one npm tarball の size threshold と、将来 optional platform artifact package を導入する条件 | Node/npm implementation gate | npm topology、install dependency、integrity / provenance | 段階 7〜9 |
+| OPEN-006 | runtime native artifact hash verification を行うか | release gate | initialization behavior、failure type、performance、package manifest | 段階 9〜10 |
+| OPEN-007 | SBOM format / generator、artifact signing、provenance retention、GitHub release permissions | release gate | supply-chain evidence と release operation | 段階 9〜10 |
+| OPEN-008 | Browser bundler、Browser Extension、CSP、worker context の supported integration baseline | Node/npm implementation gate | WASM asset loading、README、integration test | 段階 7〜9 |
+
+OPEN-001、OPEN-002、OPEN-004、OPEN-005 および OPEN-008 は Node/npm 実装開始前に解決する。OPEN-006 と OPEN-007 は release gate の項目であり、構造移行や Node/npm 実装の開始を止めない。OPEN-003 は package name 変更の判断に限って構造移行を拘束し、既存名を維持する path move は阻害しない。
 
 ## 22. Traceability と参照資料
 
@@ -757,11 +776,11 @@ OPEN-001〜004 と OPEN-009 は、単なる実装上の好みではなく、公�
 | 本書の設計領域 | 追跡先 |
 | --- | --- |
 | Core が継続 secret owner、通常非開示、per-operation authorization | `docs/consept/concept-sheet.md` §1、§3、§7〜§10; `docs/requirements/requirements.md` §2、SEC-001〜SEC-023、AC-007、AC-025〜AC-032、AC-037、AC-049〜AC-050; `docs/design/architecture.md` §3〜§6; `docs/design/security.md` §3〜§8 |
-| Binding thin / non-authoritative、依存方向、Native / WASM 共通 boundary | `docs/requirements/requirements.md` §2.2、NFR-001〜NFR-004、AC-023〜AC-024、AC-040; `docs/design/bindings.md` §3〜§9 |
+| Binding thin / non-authoritative、依存方向、Native C ABI / Node-API / WASM 共通 boundary | `docs/requirements/requirements.md` §2.2、NFR-001〜NFR-004、AC-023〜AC-024、AC-040、AC-043; `docs/design/architecture.md` §3〜§4; `docs/design/security.md` §3〜§4; `docs/design/bindings.md` §3〜§9; `docs/specifications/specification.md` §13 |
 | Store opaque、replacement、current Store authority、no migration | `docs/requirements/requirements.md` SEC-004〜SEC-005、SEC-018、AC-045、AC-048; `docs/design/architecture.md` §5〜§6、§9.3; `docs/design/security.md` §6.5〜§6.6; `docs/specifications/wallet-store-format-v1.md` |
 | Initial Mnemonic handoff、explicit export、signing approval | `docs/requirements/requirements.md` FR-001、FR-009、FR-022〜FR-023、SEC-010、SEC-021〜SEC-022、AC-034、AC-041〜AC-042、AC-050; `docs/design/bindings.md` §6; `docs/specifications/specification.md` §8〜§10、§13 |
 | Symbol / NEM、Mainnet / Testnet、signature / interop | `docs/requirements/requirements.md` §3; `docs/specifications/specification.md` §3〜§5、§9、§14 |
-| Rust / Native C ABI / WASM の既存契約 | `docs/design/bindings.md` §4〜§10; `docs/specifications/specification.md` §13; current `bindings/native/`、`src/wasm.rs`、README |
+| Rust / Native C ABI / Node-API / WASM の既存・下流契約 | `docs/design/bindings.md` §4〜§10; `docs/specifications/specification.md` §13; current `bindings/native/`、`src/wasm.rs`、README。Node-API の具体契約は未確定であり、本書の下流 gate で決定する。 |
 
 ### 22.2 External primary references
 
@@ -774,11 +793,11 @@ OPEN-001〜004 と OPEN-009 は、単なる実装上の好みではなく、公�
 
 ## 23. Implementation migration readiness
 
-現時点では、設計文書だけを作成したため、実装 migration は開始可能状態ではない。開始条件は次のとおりである。
+現時点では、上流資料の scope 整合と target tree / gate の設計を完了したため、monorepo の structural migration は開始可能である。Node/npm implementation と release は、それぞれの gate が解決するまで開始しない。開始条件は次のとおりである。
 
-- 本書の target tree、static routing、single npm facade、native / WASM distribution、fixed version policy を review・承認する。
-- OPEN-001〜004、OPEN-008、OPEN-009 を解決し、必要な上流資料・下流仕様への impact を記録する。
-- 既存 Rust / C ABI / WASM の public contract と external consumer inventory を確認する。
-- migration 段階 0 の gate を満たし、段階 1 以降を個別差分として開始する。
+- monorepo structural migration gate として、本書の target tree、依存方向、responsibility、既存 Rust / C ABI / WASM public contract および必要な external consumer inventory を review・承認する。`OPEN-003` 未解決時は既存 C ABI package name を維持する。
+- Node/npm implementation gate として、`OPEN-001`、`OPEN-002`、`OPEN-004`、`OPEN-005` および `OPEN-008` を解決し、必要な下流仕様・package contract への impact を記録する。
+- release gate として、`OPEN-006`、`OPEN-007`、全 target artifact、package contents、integrity、SBOM、provenance および release workflow の review を完了する。
+- migration 段階 0 の structural gate を満たし、段階 1 以降を個別差分として開始する。
 
-したがって、本ブランチでの作業完了時点の判定は **設計確定案の作成完了、実装 migration は未開始** である。
+したがって、本ブランチでの作業完了時点の判定は **Node.js v1 scope の整合および設計 gate の確定、monorepo structural migration は開始可能、Node/npm implementation と release は未開始** である。

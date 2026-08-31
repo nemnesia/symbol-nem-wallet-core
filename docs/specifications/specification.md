@@ -4,7 +4,7 @@
 
 本書は `docs/requirements/requirements.md` を実装可能な仕様へ具体化する v1 の仕様正本である。
 
-対象は Rust Wallet Core と Native / WASM Binding の境界までとし、Wallet UI、Network、Transaction 構築、OS Keychain / Secure Enclave / TPM、Hardware Wallet、External Signer は扱わない。
+対象は Rust Wallet Core と Native C ABI / Node-API / WASM Binding の境界までとし、Wallet UI、Network、Transaction 構築、OS Keychain / Secure Enclave / TPM、Hardware Wallet、External Signer は扱わない。
 
 本書の仕様は次を前提とする。
 
@@ -19,7 +19,7 @@
 - Core が Mnemonic を新規生成するすべての Profile creation は、初回 Mnemonic handoff と利用者の受領確認を完了してから最終確定する。既存 Mnemonic の restore は生成時 handoff confirmation の対象外とする。
 - Handoff、export および signing の assertion freshness は Application / UI の責任であり、Core は UI 表示・利用者操作または assertion freshness を独立には証明しない。
 - Wallet Store の current Store authority、successful replacement の適用および stale / historical Store の再適用防止は Application / persistence layer の責任であり、Core は過去の Store history を保持しない。
-- Native / WASM で同じ Core ロジックを使用する。
+- Native C ABI / Node-API / WASM で同じ Core ロジックを使用する。Node.js の v1 support は Node-API Binding 経由で同じ Rust Wallet Core を利用することを意味し、Rust Wallet Core と独立した Node.js / TypeScript 等による Wallet Core の別実装を意味しない。
 
 責務、依存方向、trust boundaryおよび設計判断の正本は `docs/design/architecture.md`、`docs/design/security.md` および `docs/design/bindings.md` とする。
 
@@ -45,7 +45,7 @@ Core は次を所有する。
 - atomic 更新用の新しい保存イメージ生成
 - Mnemonic / Software Key 秘密鍵の個別エクスポート
 - 現在の operation に入力された Store の version、構造、authentication / integrity および consistency の検証
-- Native / WASM へ公開する共通 API 契約
+- Native C ABI / Node-API / WASM へ公開する共通 API 契約
 
 ### 2.2 Core が所有しない責務
 
@@ -654,7 +654,7 @@ Signature {
 }
 ```
 
-Native / WASM は、同じ Store、同じ `SigningRequest`、同じ password および同じ context に対して同じ DTO 値、同じ error または同じ署名 bytes を返す。Binding は binary 値を raw byte sequence として受け渡し、Core は payload に prefix、generation hash または Transaction 解釈を暗黙に追加しない。
+Native C ABI / Node-API / WASM は、同じ Store、同じ `SigningRequest`、同じ password および同じ context に対して同じ DTO 値、同じ error または同じ署名 bytes を返す。Binding は binary 値を raw byte sequence として受け渡し、Core は payload に prefix、generation hash または Transaction 解釈を暗黙に追加しない。
 
 ### 9.5.1 署名 scheme と相互運用性
 
@@ -846,7 +846,7 @@ third-party cryptographic library 内部、compiler、runtime、OS、browser、h
 
 ---
 
-## 13. Native / WASM Binding
+## 13. Native C ABI / Node-API / WASM Binding
 
 Binding は型変換、byte buffer transfer、error / warning mapping、lifecycle / memory ownership の橋渡しだけを行う。Binding は user intent authority、assertion freshness authority または current Store authority ではなく、Application と Core の contract を忠実に伝達するだけである。
 
@@ -854,7 +854,7 @@ Binding は、handoff / export / signing の status を生成せず、password �
 
 Binding に暗号化、password authentication、Mnemonic validation、key derivation、signing、duplicate detection を再実装しない。
 
-v1 Native Binding は `bindings/native` の C ABI (`cdylib` / `staticlib`) を使用し、v1 WASM Binding は `wasm-bindgen` を使用する。各 Binding は §9.2 の各 operation を 1 対 1 で公開し、operation の入力条件、confirmation / approval、Core error、success boundary および `ReadResult` / `MutationResult` の意味を変更・省略してはならない。Binding方式を変更する場合は、本仕様と `docs/design/bindings.md` を更新する。秘密情報処理ロジックを Core と重複させない。
+v1 Native C ABI Binding は `bindings/native` の C ABI (`cdylib` / `staticlib`) を使用し、v1 WASM Binding は `wasm-bindgen` を使用する。各 Binding は §9.2 の各 operation を 1 対 1 で公開し、operation の入力条件、confirmation / approval、Core error、success boundary および `ReadResult` / `MutationResult` の意味を変更・省略してはならない。Binding方式を変更する場合は、本仕様と `docs/design/bindings.md` を更新する。秘密情報処理ロジックを Core と重複させない。
 
 WASM public API は `Uint8Array` を binary data の基本型とする。Wallet Store blob、PendingProfileBlob、署名 payload、signature、public key、Mnemonic UTF-8 bytes、Profile password UTF-8 bytes、import / export private key は `Uint8Array` 相当とする。
 
@@ -892,7 +892,13 @@ void snwc_release_bytes(OwnedBytes *buffer);
 - `WalletStoreBlob`、`PendingProfileBlob` および Core の replacement は、Native では `OwnedBytes` としてのみ ABI 境界を越える。Binding はそれらを decode、normalize、migration、fallback または意味解釈しない。Core 外へ返った secret-containing output の一時所有者は caller となるが、Core 内原本の継続 ownership は Core に残る。
 - Core の error code は §10 の symbolic code へ 1 対 1 で mapping し、Binding が別の success、NULL success または warning-only result へ変換してはならない。Binding 自身の conversion、output allocation、ownership または lifecycle failure は `BindingFailure` とし、Core を成功として扱わない。allocation failure を含む failure で部分 allocation を caller へ返さず、全 output を failure-safe 状態に戻す。
 
-### 13.2 WASM / JavaScript Binding
+### 13.2 Node-API Binding
+
+Node-API Binding は Node.js から同じ Rust Wallet Core を利用する thin / non-authoritative boundary である。C ABI を JavaScript FFI から呼び出す構成ではなく、Core の operation、error、warning、ownership、secret return condition、Store replacement、failure semantics および security meaning を変更せずに橋渡しする。Node.js host process の compromise を防止する native-isolation guarantee は追加しない。
+
+Node-API の具体的な ABI、wrapper library、Node.js version、target matrix、JavaScript / TypeScript の表現および native artifact の配布契約は本仕様で確定せず、Node/npm の実装・配布設計および release gate へ委譲する。Node-API Binding は Core の暗号、Store、authorization、secret ownership または signing authority を複製しない。
+
+### 13.3 WASM / JavaScript Binding
 
 WASM の各 public operation は §9.2 の Core operation と 1 対 1 に対応する。binary input / output は `Uint8Array` 相当、非秘密の UUID / address は JavaScript string 相当、enum / scalar は対応する number または enum 値、`ReadResult` / `MutationResult` は §9.1 の field と同じ意味を持つ JavaScript object とする。`ExportRequest`、`SigningRequest`、`HandoffConfirmation` および `AccountContext` の status、target、context field を省略・再命名して security meaning を変えてはならない。
 
@@ -900,7 +906,7 @@ WASM の各 public operation は §9.2 の Core operation と 1 対 1 に対応�
 - 期待される Core failure と Binding failure は、成功値を返さない `Err { code, diagnostics }` 相当の result として返す。`null`、空の正常値、warning-only result または成功を示す例外へ変換してはならない。WASM representation への変換不能、detached / unreadable buffer、型不一致その他 Binding 自身の conversion / lifecycle failure は `BindingFailure` とし、Core error は §10 の code を維持する。
 - 返却された `Uint8Array` は caller が所有する新しい外部 copy とし、Binding は呼出し完了後に保持、cache、global state、component state、log、diagnostic または永続 storage へ保存しない。JavaScript の garbage collection は secret の完全消去を保証しないため、secret-containing result の利用者は利用後速やかに buffer を上書きして参照を破棄する。Core 内原本の ownership は移転しない。
 - secret-containing result は、該当 operation の成功時だけ返す。unconfirmed、unapproved、target / context mismatch、authentication、conversion、allocation または処理 failure では Mnemonic、private key、signature、正常な result および replacement Store を返さない。WASM はこれらの failure を Core の security meaning と異なる JavaScript exception または success object へ変換してはならない。
-- Native と WASM は、同じ Core input、status、target、context、password、Store および pending に対して、同じ operation success / failure、§10 error code、secret return condition、signature bytes、replacement Store の意味および lifecycle responsibility を提供する。実行環境の object / buffer 管理差は Core の authorization、ownership、Chain / Network policy または fail-closed 境界を変更しない。
+- Native C ABI、Node-API および WASM は、同じ Core input、status、target、context、password、Store および pending に対して、同じ operation success / failure、§10 error code、secret return condition、signature bytes、replacement Store の意味および lifecycle responsibility を提供する。実行環境の object / buffer 管理差は Core の authorization、ownership、Chain / Network policy または fail-closed 境界を変更しない。
 
 ---
 
@@ -975,11 +981,11 @@ WASM の各 public operation は §9.2 の Core operation と 1 対 1 に対応�
 - retry が新しい operation として password、confirmation、approval を再取得し、previous result / pending / authorization を暗黙継承しないこと、restart 後に authorization / unconfirmed pending を復元しないことを確認する
 - Core が Store history を保持せず、prior-call history を Store acceptance 条件にしないこと、および structure、version、authentication、integrity、consistency を満たす valid historical Store を historical であるという理由だけで malformed / tampered として拒否しないことを確認する。これは rollback を安全とする検証ではなく、current Store の選択と stale / historical Store の再適用防止が Application / persistence responsibility であることを確認する
 - Core-owned secret processing に不要な secret-dependent control flow、timing behavior または data access を導入しないことを確認する。third-party cryptographic library、compiler、runtime、OS、browser、hardware および CPU microarchitecture の完全な side-channel absence は合格条件に含めず、specific technique を固定せず、単一の wall-clock threshold を唯一の security proof としない
-- Native / WASM Binding が status を生成・補完せず、stale assertion を別 operation へ再利用せず、target / payload / AccountContext を書き換えず、Store history DB、rollback detector または current Store selector を持たないことを確認する
+- Native C ABI / Node-API / WASM Binding が status を生成・補完せず、stale assertion を別 operation へ再利用せず、target / payload / AccountContext を書き換えず、Store history DB、rollback detector または current Store selector を持たないことを確認する
 - 通常 API に Mnemonic / private key が含まれない
 - WASM public API に Mnemonic、Profile password、private key を JavaScript string で受け渡す経路が存在しない
 - WASM の secret 入出力が `Uint8Array` 相当であり、private key が raw 32 bytes である
-- Native / WASM が同じ fixture 結果を返す
+- Native C ABI / Node-API / WASM が同じ fixture 結果を返す
 - error / warning / Debug output に secret が含まれない
 
 ### 14.3 Coverage verification
@@ -1002,7 +1008,7 @@ target に未達した場合、verification record に少なくとも uncovered 
 | Delete / atomicity                            | FR-011, FR-012, SEC-005, SEC-008, SEC-009, SEC-018, SEC-019                                        |
 | Current Store authority / historical rollback | FR-012, FR-017, SEC-005, SEC-018, AC-012, AC-018, AC-048                                           |
 | Assertion freshness / Core authorization      | FR-007, FR-009, SEC-002, SEC-007, SEC-014, SEC-021, SEC-022, AC-007, AC-009, AC-031, AC-050        |
-| Binding / Native / WASM                       | FR-019, NFR-001..004, SEC-011, SEC-012, SEC-017, SEC-020, AC-015..016, AC-021..024, AC-040, AC-043 |
+| Binding / Native C ABI / Node-API / WASM       | FR-019, NFR-001..004, SEC-011, SEC-012, SEC-017, SEC-020, AC-015..016, AC-021..024, AC-040, AC-043 |
 | Initial Mnemonic handoff                      | FR-001, FR-019, SEC-010, SEC-017..018, AC-001, AC-034                                              |
 | Individual secret export                      | FR-022, FR-023, FR-019, SEC-010, SEC-015, SEC-017, SEC-020..021, AC-025..026, AC-041..043          |
 | Pending / failure / retry / restart           | FR-007, FR-019, SEC-003, SEC-005, SEC-017..019, AC-007, AC-037..039, AC-046                        |
@@ -1016,14 +1022,14 @@ target に未達した場合、verification record に少なくとも uncovered 
 | Design の確定事項                                                                               | Specification の対応                                                                                                                                                                                  |
 | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Core の継続 secret ownership、通常非開示および user intent と Core authorization の分離         | Architecture §3.1〜§3.3、§4.1〜§4.3、§5.1、§6.1〜§6.5; Security Design §3.2、§4、§5、§6.1〜§6.4; Bindings Design §3.1〜§3.2、§5.1、§6.1〜§6.5 → §1〜§2、§8.1、§8.4、§9.1.1、§9.4〜§9.5、§10、§12〜§13 |
-| Initial Mnemonic handoff の6段階、confirmation 前非 committed、失敗時非開示                     | Architecture §6.1; Security Design §6.2; Bindings Design §6.3 → §8.1、§9.1.1〜§9.2、§10〜§11、§13.2、§14.2                                                                                            |
+| Initial Mnemonic handoff の6段階、confirmation 前非 committed、失敗時非開示                     | Architecture §6.1; Security Design §6.2; Bindings Design §6.3 → §8.1、§9.1.1〜§9.2、§10〜§11、§13.2〜§13.3、§14.2                                                                                     |
 | Explicit export の target / user intent / confirmation / per-operation authorization            | Architecture §6.4; Security Design §6.3; Bindings Design §6.4 → §8.4、§9.1.1、§9.2、§9.4、§10、§13、§14.2                                                                                             |
-| Signing approval と signing authority の分離、Core の raw signing responsibility                | Architecture §6.3; Security Design §6.4; Bindings Design §6.5 → §2.2、§9.1.1、§9.2、§9.5、§10、§13.2、§14.2                                                                                           |
+| Signing approval と signing authority の分離、Core の raw signing responsibility                | Architecture §6.3; Security Design §6.4; Bindings Design §6.5 → §2.2、§9.1.1、§9.2、§9.5、§10、§13.2〜§13.3、§14.2                                                                                    |
 | Profile Network、Software Key fixed Chain、Account context、fallback / implicit conversion 禁止 | Architecture §5.1、§7; Security Design §7; Bindings Design §7 → §3.2〜§3.3、§9.1.1〜§9.2、§9.5、§10、§14.1〜§14.2                                                                                     |
 | Pending / committed、atomicity、failure、retry、restart および existing state 保護              | Architecture §5.2〜§5.3、§6.1〜§6.2、§6.5、§9.3〜§9.4; Security Design §5.2、§6.5〜§6.6; Bindings Design §5.2、§6.1〜§6.2、§6.6 → §8.1、§10〜§11、§13、§14.2                                          |
 | Current Store authority、stateless Core および historical rollback の保証外範囲                 | Architecture §5.2〜§5.3、§8、§9.3〜§9.4; Security Design §6.5、§9.3; Bindings Design §5.2、§6.6、§9.3 → §2.3、§7、§11、§13、§14.2                                                                     |
 | Application assertion freshness と Core guarantee boundary                                      | Architecture §6.1、§6.3〜§6.5、§9.2; Security Design §3.2、§6.2〜§6.6、§9.2; Bindings Design §6.1〜§6.6、§9.1 → §8、§9.1.1、§9.4〜§9.5、§11.2、§13、§14.2                                             |
-| Native / WASM thin non-authority、opaque Store、ownership / lifecycle / failure mediation       | Architecture §3.3、§4.2、§5.2; Security Design §4.3、§8.2; Bindings Design §3.1〜§3.2、§4.2、§5.2、§8.1〜§8.2、§10.1 → §7、§9.1、§10、§12.3、§13、§14.2                                               |
+| Native C ABI / Node-API / WASM thin non-authority、opaque Store、ownership / lifecycle / failure mediation | Architecture §3.3、§4.2、§5.2; Security Design §4.3、§8.2; Bindings Design §3.1〜§3.2、§4.2、§5.2、§8.1〜§8.2、§10.1 → §7、§9.1、§10、§12.3、§13、§14.2                    |
 | SEC-023 side-channel property と guarantee boundary                                             | Architecture §4.1、§8、§10; Security Design §8.1〜§8.3、§9.4、§10; Bindings Design §10.2 → §12.4、§14.2、§16                                                                                          |
 | Chain-specific cryptographic scheme と下流への Transaction responsibility 委譲                  | Architecture §7、§10; Security Design §7、§10; Bindings Design §7、§10.1 → §4.2、§5、§9.5.1、§14.1、§18                                                                                               |
 

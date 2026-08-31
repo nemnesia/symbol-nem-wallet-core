@@ -4,9 +4,9 @@
 
 ### 1.1 目的
 
-symbol-nem-wallet-core v1 は、Desktop / Mobile / Web の Symbol / NEM ウォレット向けに、Mainnet または Testnet に所属する Profile を秘密情報管理の基本単位とし、Mnemonic と Software Key の生成・復元・導出・取込み・暗号化保存・処理単位の認証・署名・個別エクスポート・削除を Rust Wallet Core へ集約する。
+symbol-nem-wallet-core v1 は、Desktop / Mobile / Web / Node.js の Symbol / NEM ウォレット向けに、Mainnet または Testnet に所属する Profile を秘密情報管理の基本単位とし、Mnemonic と Software Key の生成・復元・導出・取込み・暗号化保存・処理単位の認証・署名・個別エクスポート・削除を Rust Wallet Core へ集約する。
 
-Web には Web Application および Browser Extension を含む。Desktop / Mobile は Native Binding、Web は WASM Binding を介して同一 Core を利用する。
+Web には Web Application および Browser Extension を含む。Desktop / Mobile は Native C ABI、Node.js は Node-API Binding、Web は WASM Binding を介して同一 Rust Wallet Core を利用する。Node.js の v1 support は、Rust Wallet Core と独立した Node.js / TypeScript 等による Wallet Core の別実装を意味しない。
 
 ### 1.2 上位根拠
 
@@ -48,18 +48,16 @@ Profile
 ### 2.2 Binding と Core
 
 ```text
-Desktop / Mobile Application       Web / Browser Extension
-             │                              │
-        Native Binding                  WASM Binding
-             │                              │
-             └──────────────┬───────────────┘
-                            ▼
-                    Rust Wallet Core
+Desktop / Mobile Application ──> Native C ABI ─────┐
+Node.js Application ──────────> Node-API Binding ──┼──> Rust Wallet Core
+Web / Browser Extension ──────> WASM Binding ──────┘
 ```
 
-Native Binding / WASM Binding は Core を利用する境界とし、Core と別系統の秘密情報管理、暗号化、署名、導出、Profile パスワード認可を実装しない。
+Native C ABI / Node-API Binding / WASM Binding は Core を利用する境界とし、Core と別系統の秘密情報管理、暗号化、署名、導出、Profile パスワード認可を実装しない。
 
-Binding 方式によって Core の秘密情報管理方針、認可責務、秘密情報公開範囲を変更しない。Desktop / Mobile / Web のどの環境でも、Core が保持する責任と通常処理での秘密情報非開示の原則を共通に適用する。
+Binding 方式によって Core の秘密情報管理方針、認可責務、秘密情報公開範囲を変更しない。Desktop / Mobile / Web / Node.js のどの環境でも、Core が保持する責任と通常処理での秘密情報非開示の原則を共通に適用する。
+
+Node.js Application / Node-API Binding は、Node.js 専用の暗号、Store、authorization、secret management または signing implementation を持たず、同じ Rust Wallet Core の処理を利用する。
 
 ### 2.3 Profile パスワード
 
@@ -102,7 +100,7 @@ Binding 方式によって Core の秘密情報管理方針、認可責務、秘
 - REST Client、WebSocket Client、ノード選択、Explorer
 - Transaction 構築・シリアライズ
 - Wallet UI / UI コンポーネント
-- Node.js 代替実装
+- Node.js 代替実装（Rust Wallet Core と独立した Node.js / TypeScript 等による Wallet Core の別実装）
 - 特定 Wallet Application 専用ロジック
 - Application が提供する、保存済み暗号化 Profile データそのもののバックアップ・端末間移行・外部復旧。v1 は Store / Profile の version migration 機能を提供せず、Core は v1 が明示的に対応する version だけを処理する。Application が unsupported version を独自に読み替えたデータを、Core が v1 の正常 Store として扱うことは前提にしない。将来 migration を提供する場合は、将来 version の Requirements / Design / Specification で別途定義する。
 
@@ -182,7 +180,7 @@ UI / Application が利用する Account と署名対象内容を選択・提示
 
 ### UC-010 Binding 経由で Core を利用する
 
-Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要機能を利用できる。Binding により Core の責任・認可・秘密情報公開方針は変化しない。Desktop / Mobile / Web のホスト環境の侵害を Core が防止する保証はしないが、Core / Binding が不要に秘密情報を公開しない責任は共通に適用する。
+Desktop / Mobile は Native C ABI、Node.js は Node-API Binding、Web は WASM Binding から v1 Core 主要機能を利用できる。Binding により Core の責任・認可・秘密情報公開方針は変化しない。Desktop / Mobile / Node.js / Web のホスト環境の侵害を Core が防止する保証はしないが、Core / Binding が不要に秘密情報を公開しない責任は共通に適用する。
 
 ### UC-011 Mnemonic / Software Key を個別エクスポートする
 
@@ -214,7 +212,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | FR-016 | MUST | Profile の Network を作成後変更できないこと。 |
 | FR-017 | MUST | Core が生成・維持する、本要件・仕様に適合した整合した Store を対象として、同一 Mnemonic + 同一 Network の Profile 重複登録を拒否し、異なる Network なら別 Profile を許可すること。Core は入力された Store の validity、authentication / integrity および consistency を処理するが、過去に返した Store snapshot を記憶して currentness や historical rollback を判定しない。 |
 | FR-018 | MUST | 同一 Profile 内かつ同一 Chain で同一秘密鍵に対応する Software Key の重複登録を由来をまたいで拒否すること。異なる Chain では同一秘密鍵に対応する Software Key を別 Software Key として許可すること。 |
-| FR-019 | MUST | Native / WASM Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除、Mnemonic の個別エクスポート、Software Key 秘密鍵の個別エクスポートを利用できること。新規 Profile 作成は FR-001 の生成時 handoff 成立条件を満たすことを条件とし、restore は生成時 handoff confirmation の対象外とし、Profile 全体の一括バックアップ・復旧は含めないこと。 |
+| FR-019 | MUST | Native C ABI / Node-API / WASM Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除、Mnemonic の個別エクスポート、Software Key 秘密鍵の個別エクスポートを利用できること。新規 Profile 作成は FR-001 の生成時 handoff 成立条件を満たすことを条件とし、restore は生成時 handoff confirmation の対象外とし、Profile 全体の一括バックアップ・復旧は含めないこと。 |
 | FR-020 | MUST | Profile 作成・パスワード変更で未指定・空・Core 内部既定値の Profile パスワードを拒否すること。パスワード品質条件は上位 Application / Package の責任とし、Core は独自に要求しないこと。 |
 | FR-021 | MUST | Mnemonic は生成、復元および取込みのすべてで §3.2 の BIP-0039（英語 24 語）基準を満たした値だけを登録・利用すること。Software Key は生成、取込みおよび HD Wallet からの導出のすべてで §3.3 の妥当性基準を満たした値だけを登録・利用すること。各経路の失敗時に不完全状態を登録せず、既存 Profile と既存 Software Key を変更しないこと。 |
 | FR-022 | MUST | Core は、対象 Profile の指定、処理単位の正しい Profile パスワード、利用者の秘密情報取得に関する明示的要求、および Application / UI による意思確認を伴う要求に対して、保存済み Mnemonic を個別にエクスポートできること。単なる API 呼出しやパスワード所有だけでは明示的要求とみなさないこと。誤認証、意思確認のない要求、対象不存在または処理失敗時は Mnemonic を返さず、Profile 状態を変更しないこと。成功後も Core 内の Mnemonic 原本は Core が継続管理し、Core 外へ渡されたコピーの保護・保存・利用責任は受領側へ移ること。 |
@@ -227,10 +225,10 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 
 | ID | 優先度 | 要件 |
 | --- | --- | --- |
-| NFR-001 | MUST | Desktop / Mobile / Web が対応 Binding 経由で共通 Core を利用し、秘密鍵処理を各 Application で再実装しないこと。 |
+| NFR-001 | MUST | Desktop / Mobile / Web / Node.js が対応 Binding 経由で共通 Core を利用し、秘密鍵処理を各 Application で再実装しないこと。 |
 | NFR-002 | MUST | Core、Binding、Application の実装・レビュー・保守責任を区別でき、Binding が Core 責任や外部責任を重複実装しないこと。 |
 | NFR-003 | MUST | Core、Binding、UI / Application、上位 Application / Package の責任境界を第三者が説明できること。 |
-| NFR-004 | MUST | Desktop / Mobile / Native / Web Application / Browser Extension の違いによって、秘密情報管理方針、認可責務、責任境界および Core の通常処理での非開示原則が変わらないこと。 |
+| NFR-004 | MUST | Desktop / Mobile / Node.js / Native / Web Application / Browser Extension の違いによって、秘密情報管理方針、認可責務、責任境界および Core の通常処理での非開示原則が変わらないこと。 |
 | NFR-005 | SHOULD | Core の自動検証では、行・関数カバレッジ90%以上、分岐カバレッジ85%以上を目標とし、未達時は未カバー範囲、理由および影響を確認可能にすること。カバレッジ率だけで仕様適合性、セキュリティまたは相互運用性を合格判定しないこと。 |
 
 ---
@@ -298,16 +296,16 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | AC-012 | FR-012, SEC-005, SEC-008 | Application が current Store として正しく選択した状態の Profile 削除では、Core が Profile、Mnemonic、全 Software Key を破棄し、削除成功時の replacement Store に対象秘密情報を残さず、認可失敗時は変更しない。削除前から利用者が保持する Mnemonic を使って同一 Network の新しい Profile を作成することは許可され、削除済み Core データの復旧・再利用とは扱わない。 |
 | AC-013 | FR-013, DR-005, FR-024 | Derived / Imported / Generated すべてで指定 Chain / Profile Network の公開鍵・アドレス・署名結果を扱え、Profile Network と要求 Network または Software Key の固定 Chain と要求 Chain が不一致の要求を拒否する。 |
 | AC-014 | FR-014 | Symbol / NEM の Profile / Software Key について、Core による管理責任、認証、保存、削除およびライフサイクルを共通に扱える。ただし Chain 固有の鍵・アドレス・署名処理は各基準に従う。 |
-| AC-015 | NFR-001, NFR-002 | Desktop / Mobile / Web から Binding 経由で共通 Core を利用でき、Core と Application の責任を区別できる。 |
+| AC-015 | NFR-001, NFR-002 | Desktop / Mobile / Web / Node.js から対応する Binding 経由で共通 Core を利用でき、Core と Application の責任を区別できる。Node.js は Node-API Binding を使用し、独立した Wallet Core 実装を使用しない。 |
 | AC-016 | NFR-003 | Core、Binding、Application、上位 Package の秘密情報・パスワード責任を第三者が説明できる。 |
 | AC-017 | SEC-004 | 破損・認証失敗データで秘密情報処理が成功しない。 |
 | AC-018 | FR-001, FR-017, DR-006, DR-009, SEC-004 | Core が生成・維持する、要件・仕様に適合した整合した Store では、同一 Mnemonic + 同一 Network の重複 Profile 作成を拒否し、異なる Network は別 Profile として作成できる。破損、unsupported version、認証失敗または整合しない Store は正常データとして扱わず、黙って解釈・無視・fallback せず、読込み失敗時に既存状態を変更しない。未知データの意味を推測して処理せず、対応 version の拡張を安全に保持できない変更は拒否する。Profile 削除後に利用者が保持する同一 Mnemonic + 同一 Network から新しい Profile を作成することは、削除済み Core データの再利用ではないため許可する。Core は、valid historical Store が過去 snapshot であることを理由に単独で拒否することを保証せず、その再適用防止と current Store の選択は Application / persistence layer が担う。 |
 | AC-019 | FR-016, DR-005 | Profile Network を作成後変更できない。 |
 | AC-020 | FR-018, DR-007 | 同一 Profile・同一 Chain では同一秘密鍵を別由来または再導出で重複登録しない。異なる Chain では同一秘密鍵を異なる Software Key として登録できる。 |
-| AC-021 | FR-019, NFR-001 | Desktop Native Binding から v1 主要機能を利用できる。 |
-| AC-022 | FR-019, NFR-001 | Mobile Native Binding から v1 主要機能を利用できる。 |
+| AC-021 | FR-019, NFR-001 | Desktop Native C ABI から v1 主要機能を利用できる。 |
+| AC-022 | FR-019, NFR-001 | Mobile Native C ABI から v1 主要機能を利用できる。 |
 | AC-023 | NFR-002 | Binding が Core 責任、Wallet 固有ロジック、Network、Transaction 構築を独自実装しない。 |
-| AC-024 | NFR-004, SEC-020 | Desktop / Mobile / Native / Web Application / Browser Extension で Core の秘密情報管理・認可・責任境界・通常処理での非開示原則が同じである。Application、Browser、OS または host process の侵害を Core が防止する保証とは区別する。 |
+| AC-024 | NFR-004, SEC-020 | Desktop / Mobile / Node.js / Native / Web Application / Browser Extension で Core の秘密情報管理・認可・責任境界・通常処理での非開示原則が同じである。Application、Browser、OS、Node.js または host process の侵害を Core が防止する保証とは区別する。 |
 | AC-025 | SEC-010, SEC-021 | 通常処理結果として秘密鍵を Application へ返さない。対象指定、処理単位の正しいパスワード、利用者の明示的要求および Application / UI の意思確認を伴う個別エクスポートの成功結果だけを例外とし、成功後のコピーの保護・保存・利用は受領側責任、Core 内原本の継続管理は Core の責任とする。 |
 | AC-026 | SEC-010, SEC-021 | 保存済み Mnemonic を通常処理結果として Application へ返さない。対象指定、処理単位の正しいパスワード、利用者の明示的要求および Application / UI の意思確認を伴う個別エクスポートの成功結果だけを例外とし、成功後のコピーの保護・保存・利用は受領側責任、Core 内原本の継続管理は Core の責任とする。 |
 | AC-027 | SEC-011 | 処理後に Core / Binding が Profile パスワードを永続保存・継続キャッシュしない。 |
@@ -325,7 +323,7 @@ Desktop / Mobile は Native Binding、Web は WASM Binding から v1 Core 主要
 | AC-040 | FR-019, NFR-004, SEC-020 | Web / Browser Extension から WASM Binding 経由で v1 主要機能を利用でき、Native と同じ秘密情報管理・認可方針が適用される。ホスト環境の侵害防止保証とは区別する。 |
 | AC-041 | FR-022, SEC-010, SEC-021 | 対象 Profile、利用者の明示的要求、Application / UI の意思確認および正しい Profile パスワードで Mnemonic を個別エクスポートでき、誤パスワード・意思確認のない要求・対象不存在・処理失敗時は Mnemonic を返さず Profile 状態を変更しない。成功後も Core 内原本は Core が継続管理し、Core 外のコピーは受領側が保護する。 |
 | AC-042 | FR-023, SEC-010, SEC-021 | 対象 Profile / Software Key、利用者の明示的要求、Application / UI の意思確認および正しい Profile パスワードで Software Key の秘密鍵を個別エクスポートでき、誤パスワード・意思確認のない要求・対象不存在・処理失敗時は秘密鍵を返さず Profile 状態を変更しない。成功後も Core 内原本は Core が継続管理し、Core 外のコピーは受領側が保護する。 |
-| AC-043 | FR-019, SEC-017, SEC-020 | Native / WASM Binding は個別エクスポート結果を Application へ受け渡せるが、秘密情報を継続保持・キャッシュ・ログ出力せず、Profile 全体の一括バックアップ機能を提供しない。 |
+| AC-043 | FR-019, SEC-017, SEC-020 | Native / Node-API / WASM Binding は個別エクスポート結果を Application へ受け渡せるが、秘密情報を継続保持・キャッシュ・ログ出力せず、Profile 全体の一括バックアップ機能を提供しない。 |
 | AC-044 | NFR-005 | Core の行・関数・分岐カバレッジの計測結果を確認でき、目標未達の場合は未カバー範囲、理由および影響が記録されている。重要な仕様・セキュリティ・相互運用性・異常系の未検証を、カバレッジ目標達成だけで合格扱いしない。 |
 | AC-045 | DR-009, SEC-004 | v1 Core が Store / Profile の version を識別し、明示的に対応する version だけを処理できる。v1 では version migration を提供せず、unsupported または unknown version、破損または整合しないデータを正常データとして利用しない。暗黙 migration、Application による独自の読み替えを前提とした処理、黙った解釈・無視・fallback を行わず、拒否時に既存状態を変更しない。未知データの意味を推測せず、非意味的な将来拡張として安全に保持できない変更を拒否し、対応範囲で deterministic かつ相互運用可能な保存結果を確認できる。既存 version の意味を後から変更して migration とみなさない。将来 migration を提供する場合は、別途定義された source / target version、明示的な開始、target version として利用可能になったことを外部から判定できる成功および失敗時の既存状態不変を満たし、通常結果へ秘密情報を漏らさない。 |
 | AC-046 | FR-003, FR-021, SEC-018 | HD Wallet からの Software Key 導出、妥当性確認、登録または保存のいずれかが失敗・中断した場合、不完全な Software Key、部分変更、既存 Software Key の破壊または秘密情報返却を残さず、外部観測上 fail-closed に扱う。 |
@@ -390,8 +388,8 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 
 ### 12.3 Binding
 
-- Native / WASM Binding の外部契約、言語間の値変換およびエラー表現
-- WASM Binding / JavaScript 境界の秘密情報受渡し・コピー・消去
+- Native / Node-API / WASM Binding の外部契約、言語間の値変換およびエラー表現
+- Node-API / WASM Binding と JavaScript 境界の秘密情報受渡し・コピー・消去
 - Browser 固有 Storage と Application の責任分界。current Store の選択、成功 replacement の適用、stale / historical Store の再適用防止および backup / snapshot の最新版管理は Application / persistence layer の責任とする。
 - 対象 OS / Browser / バージョン、ビルド・配布方式
 

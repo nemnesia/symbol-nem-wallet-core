@@ -4,7 +4,7 @@
 
 本書は、Wallet Core v1 における秘密情報の所有、trust boundary、認証・認可、署名権限、状態 lifecycle、失敗時責任および security invariant を定める基本設計である。確定済み Architecture の security responsibility を、Security Design として一意に下流へ引き継ぐ。
 
-対象は、Desktop / Mobile / Web の Symbol / NEM ウォレットから利用する Rust Core、Native Binding、Web / WASM Binding およびそれらを取り巻く秘密情報の境界である。Web には Web Application と Browser Extension を含める。
+対象は、Desktop / Mobile / Web / Node.js の Symbol / NEM ウォレットから利用する Rust Core、Native C ABI、Node-API、Web / WASM Binding およびそれらを取り巻く秘密情報の境界である。Web には Web Application と Browser Extension を含める。
 
 本書の対象外は、Wallet UI の具体的な表示、Transaction の構築・シリアライズ・意味解釈、REST / WebSocket / announce、Hardware Wallet、External Signer、OS-backed Key、Profile データの保存先選択および端末間 transfer の具体方式である。v1 は Store / Profile version migration を提供しないが、将来 version の migration 方式は本書で定めない。
 
@@ -55,7 +55,7 @@ Implementation
 ## 3. システムコンテキストと trust boundary
 
 ~~~text
-利用者 ──確認・承認──> Application / UI ──> Native または Web / WASM Binding ──> Rust Core
+利用者 ──確認・承認──> Application / UI ──> Native C ABI、Node-API または Web / WASM Binding ──> Rust Core
    │                              │                                      │
    │                              ├── opaque Store ──> persistent storage
    │                              └── Transaction layer ──> Network layer
@@ -68,12 +68,14 @@ Implementation
 | Actor / boundary | Security responsibility | Core との関係 |
 | --- | --- | --- |
 | 利用者 | 初回 Mnemonic handoff の受領確認、署名承認、明示的 export の要求、および Core 外へ受け取った秘密情報 copy の保管 | Core は利用者の UI 操作、紙・外部媒体への保存または将来の紛失を独立検証しない |
-| Desktop Application / Mobile Application | UI、利用者への表示、Account 選択、handoff、export、signing の確認・承認取得、opaque Store の current-state selection、保存・置換および stale / historical Store の再適用防止 | Core 管理下 secret の継続 owner、Core authorization または signing authority にはならない。assertion freshness と current Store authority は Application / persistence layer の責任である |
+| Desktop Application / Mobile Application / Node.js Application | UI、利用者への表示、Account 選択、handoff、export、signing の確認・承認取得、opaque Store の current-state selection、保存・置換および stale / historical Store の再適用防止 | Core 管理下 secret の継続 owner、Core authorization または signing authority にはならない。assertion freshness と current Store authority は Application / persistence layer の責任である。Node.js Application は Rust Wallet Core と独立した Wallet Core を実装しない |
 | Web Application / Browser Extension | Web 固有の UI / state、利用者確認、opaque Store の current-state selection、保存・置換および Web 実行環境との連携 | Browser / host の安全性は別責任であり、Core の通常非開示 invariant を弱めない。assertion freshness と historical Store rollback prevention は Application / persistence layer の責任である |
-| Native Binding | Application と Core の間の値・ownership・lifecycle の橋渡し | Core の security decision、認証、暗号、導出、署名意味、Store 意味を代替しない |
+| Native C ABI | Application と Core の間の値・ownership・lifecycle の橋渡し | Core の security decision、認証、暗号、導出、署名意味、Store 意味を代替しない |
+| Node-API Binding | Node.js Application と Core の間の値・ownership・lifecycle の橋渡し | Core の security decision、認証、暗号、導出、署名意味、Store 意味を代替しない。C ABI を JavaScript FFI から呼び出す authority ではない |
 | Web / WASM Binding | Web Application / Browser Extension と Core の間の値・ownership・lifecycle の橋渡し | JavaScript / Browser と同じ実行 context でも、Native と異なる secret policy を持たない |
 | Rust Core | secret ownership、processing-unit authentication、入力 Store の validity、Chain / Network compatibility、signing primitive、成功状態の確定および失敗時保護 | 秘密情報とその security meaning の継続 owner。UI、Transaction 意味、Application assertion freshness、Store currentness または host security を担わない。過去に返した Store を永続記憶しない stateless processor である |
 | Browser | Web の実行環境およびその安全性 | Core の秘密情報隔離境界または host compromise 防止保証ではない |
+| Node.js host process | Node.js Application と Node-API が動作する実行環境およびその安全性 | Core の秘密情報隔離境界または host compromise 防止保証ではない |
 | OS | Desktop / Mobile の実行環境およびその安全性 | Core の host compromise 防止保証ではない |
 | host process | Application と Binding の実行・保持環境 | 侵害防止は Core の保証外。ただし Core / Binding の非開示責任は維持する |
 | persistent storage | Application が選択する opaque Store の保存先および current Store の保持先 | Store の内部を解釈せず、Core の validity 判断を代替しない。Application / persistence layer は current Store の選択、replacement の適用、stale / historical Store の再適用防止を担う。読み込み値は attacker-controlled input になり得る |
@@ -82,7 +84,7 @@ Implementation
 
 ### 3.2 全環境共通 security invariant
 
-Desktop、Mobile、Web、Native および Web / WASM のすべてで、次を共通に維持する。
+Desktop、Mobile、Web、Node.js、Native C ABI、Node-API および Web / WASM のすべてで、次を共通に維持する。
 
 - Mnemonic および Software Key 原本の継続的な secret owner は Core である。
 - Application / Binding は input、初回 handoff または明示的 export の受渡しを一時的に mediation できるが、Core とは別の継続的な secret authority にならない。
@@ -91,7 +93,7 @@ Desktop、Mobile、Web、Native および Web / WASM のすべてで、次を共
 - Handoff confirmation、export confirmation および signing approval の freshness は Application / UI が担う。Core は Application が実際に表示・確認・承認を取得したこと、または assertion が fresh であることを独立には証明しない。
 - Core は過去の operation の authorization、pending または秘密情報を次の operation へ暗黙に持ち越さず、pending を confirmation なしに committed へ昇格させない。
 - Core は stateless な opaque Store processor として、現在の operation に入力された Store の validity、integrity、consistency および mutation を処理する。過去に返した Store を記憶せず、valid historical Store の freshness または rollback を単独では検出・拒否しない。
-- Application、Browser、OS または host process の compromise 自体を Core が防止する保証はない。
+- Application、Browser、OS、Node.js または host process の compromise 自体を Core が防止する保証はない。
 - host compromise を保証しない場合でも、Core / Binding の通常処理における非開示、authorization boundary、failure safety および non-authority の責任は弱まらない。
 
 ## 4. コンポーネント責務と依存方向
@@ -129,10 +131,10 @@ Application / UI は Core 管理下の secret、signing authority、Profile pass
 Binding は入力・出力の型変換、raw / opaque data の受渡し、ownership の橋渡しおよび error / warning の境界変換を担う。依存方向は次のとおりである。
 
 ~~~text
-Application / UI → Native Binding または Web / WASM Binding → Rust Core
+Application / UI → Native C ABI、Node-API または Web / WASM Binding → Rust Core
 ~~~
 
-Binding は暗号、認証、Mnemonic validation、導出、署名、Store / pending の意味、Chain / Network policy、Transaction の意味または Wallet 固有の security policy を複製・補正しない。Native と Web / WASM の経路差は境界の transport / conversion に限定し、Core の ownership、authorization、公開範囲および failure policy を変更しない。
+Binding は暗号、認証、Mnemonic validation、導出、署名、Store / pending の意味、Chain / Network policy、Transaction の意味または Wallet 固有の security policy を複製・補正しない。Native C ABI、Node-API と Web / WASM の経路差は境界の transport / conversion に限定し、Core の ownership、authorization、公開範囲および failure policy を変更しない。Node.js host process の compromise に対する native-isolation guarantee は追加しない。
 
 ## 5. Protected assets、secret ownership および lifecycle
 

@@ -4,7 +4,7 @@
 
 本書は、`symbol-nem-wallet-core` v1 の責務、境界、依存方向、データ所有、主要ライフサイクルおよび設計判断を定める基本設計の現行正本である。上位の Concept / Requirements を、次工程が実装可能な責務配置と security invariant へつなぐ。
 
-対象は、Desktop / Mobile / Web の Symbol / NEM ウォレットから利用する Rust Wallet Core と、Core へ接続する Native / Web WASM Binding である。Web には Web Application と Browser Extension を含める。システムコンテキストには、利用者、各 Application、Browser、OS、host process、persistent storage、Transaction layer および Network layer を含める。
+対象は、Desktop / Mobile / Web / Node.js の Symbol / NEM ウォレットから利用する Rust Wallet Core と、Core へ接続する Native C ABI / Node-API / Web WASM Binding である。Web には Web Application と Browser Extension を含める。システムコンテキストには、利用者、各 Application、Browser、OS、host process、persistent storage、Transaction layer および Network layer を含める。
 
 Core は、Profile を単位として Mnemonic と Software Key の生成、復元、導出、取込み、暗号化保存、署名、個別エクスポートおよび削除を扱う。Profile の Network、Software Key の Chain、Symbol / NEM の違いは明示的に扱い、暗黙に共通化しない。
 
@@ -48,7 +48,7 @@ Concept review や Requirements review は、上流成果物の判定履歴で�
 - **Account**: Software Key を、その Software Key の固定 Chain と Profile の固定 Network 上で利用する概念。利用する Account の選択・提示は Application が担い、対応関係の検証は Core が担う。
 - **Wallet Store**: Core が読み込み、version、整合性および秘密情報保護を検証する opaque な保存データ。保存先は Application の責任である。
 - **Pending / partial state**: Profile または Software Key の成功確定前に存在し得る未確定状態。正常な committed Profile / Software Key ではなく、具体的表現によらずその意味を Core が管理する。
-- **Binding**: Core と Native / Web WASM の実行環境の間で型、buffer、error および ownership を橋渡しする境界層。
+- **Binding**: Core と Native C ABI / Node-API / Web WASM の実行環境の間で型、buffer、error および ownership を橋渡しする境界層。
 - **Signing authority**: 指定された Account / Software Key に対応する秘密鍵を使用して署名できる権限。Profile password の正しさや利用者の署名承認とは別の security property とする。
 
 ## 3. システムコンテキストと trust boundary
@@ -64,8 +64,9 @@ User / 利用者 ──表示・確認・承認──> Application / UI ──> 
                               │                    │              │
                               │                    │              └─ signing / key lifecycle
                               │                    │
-      Desktop Application ───┘              Native Binding       │
+      Desktop Application ───┐              Native C ABI         │
       Mobile Application  ───┘                                  │
+      Node.js Application ──────────────── Node-API Binding      │
       Web Application / Browser Extension ─ Web / WASM Binding   │
                                                                  │
 Rust Wallet Core ──replacement Store──> Application / UI ──opaque 保存──> persistent storage
@@ -79,22 +80,22 @@ Rust Wallet Core ──署名結果──> Application / Transaction layer ─�
 上図の各主体と境界の責任は次のとおりである。
 
 - **利用者**: Mnemonic の初回 handoff における受領確認、署名要求の明示承認および秘密情報を外部へ受け取った後の保管責任を持つ。Core は紙への記録や外部保存を独立検証しない。
-- **Desktop Application / Mobile Application / Web Application / Browser Extension**: UI、利用者への表示、利用者意思の確認、Account の選択、opaque Store の保存および外部層との連携を担う。Application は current Store の authority として、Core が返した replacement Store の正しい適用、stale / historical Store の再適用防止および最新版の backup / snapshot 管理を担う。Application は Core 管理下秘密情報の継続的な管理主体にならない。
-- **Native Binding / Web WASM Binding**: Application と Core の間の transport、型変換、ownership および error の橋渡しを担う。意味、認証、暗号、Chain / Network policy および秘密情報 ownership を決めない。
+- **Desktop Application / Mobile Application / Node.js Application / Web Application / Browser Extension**: UI、利用者への表示、利用者意思の確認、Account の選択、opaque Store の保存および外部層との連携を担う。Application は current Store の authority として、Core が返した replacement Store の正しい適用、stale / historical Store の再適用防止および最新版の backup / snapshot 管理を担う。Application は Core 管理下秘密情報の継続的な管理主体にならない。
+- **Native C ABI / Node-API / Web WASM Binding**: Application と Core の間の transport、型変換、ownership および error の橋渡しを担う。意味、認証、暗号、Chain / Network policy および秘密情報 ownership を決めない。Node-API は C ABI を JavaScript FFI から呼び出す構成ではない。
 - **Rust Wallet Core**: Profile、Mnemonic、Software Key、処理単位認証、Chain / Network compatibility、signing primitive、入力 Store の validity および成功状態の最終確定を担う。Core は stateless な opaque Store processor であり、自身が返した過去 Store を永続記憶せず、valid historical Store の currentness または rollback を単独では判定しない。
-- **Browser / OS / host process**: Application と Binding が動作する host environment であり、Core がその侵害を防止する保証の対象ではない。
+- **Browser / Node.js / OS / host process**: Application と Binding が動作する host environment であり、Core がその侵害を防止する保証の対象ではない。
 - **persistent storage**: Application が選択・利用する Store の保存先であり、Store の内部意味を決めない。Application / persistence layer は current Store の選択・保持を担い、Core はその freshness を保証しない。
 - **Transaction layer**: Transaction の構築、内容およびシリアライズを担う。Core は Transaction の意味を説明・解釈しない。
 - **Network layer**: REST、WebSocket、announce などの通信を担う。Core の秘密情報管理を代替しない。
 
 ### 3.1 全環境共通の security invariant
 
-Desktop、Mobile、Web、Native および Web / WASM の経路で、次の invariant を共通に適用する。
+Desktop、Mobile、Web、Node.js、Native C ABI、Node-API および Web / WASM の経路で、次の invariant を共通に適用する。
 
 - Mnemonic および Software Key 原本の継続的な管理主体は Core である。
 - Binding / Application は、入力や明示的な handoff / export の受渡しを一時的に仲介できるが、Core とは別の継続的な秘密情報管理主体にならない。
 - Core 管理下の秘密情報は、通常処理の結果として Core 外へ返さない。初回 Mnemonic handoff と条件を満たした個別 export だけが明示的な例外である。
-- Desktop / Mobile / Web の違いによって、Core の管理責任、認可責任および通常処理での非開示原則を変えない。Native 経路だから Web より弱い非開示原則にはしない。
+- Desktop / Mobile / Web / Node.js の違いによって、Core の管理責任、認可責任および通常処理での非開示原則を変えない。Native C ABI または Node-API 経路だから Web / WASM より弱い非開示原則にはしない。
 - Application、Browser、OS または host process の compromise 自体を Core が防止する保証はない。
 - host compromise を保証しない場合でも、Core / Binding が不要な秘密情報を返却、共有、継続保持または診断出力することを許容しない責任は維持する。
 - Application / Browser / OS / host process の compromise を理由に、通常処理での秘密情報非開示責任や authorization boundary を弱めない。
@@ -132,7 +133,7 @@ Core は、利用者の紙への記録、Transaction の意味説明、UI、利�
 
 ### 4.2 Binding
 
-Native / Web WASM Binding は、Core の共通動作を各実行環境へ公開するための型変換、raw / opaque data の受渡し、error / warning mapping、lifecycle および ownership の橋渡しだけを行う。
+Native C ABI / Node-API / Web WASM Binding は、Core の共通動作を各実行環境へ公開するための型変換、raw / opaque data の受渡し、error / warning mapping、lifecycle および ownership の橋渡しだけを行う。
 
 Binding は暗号化、認証、Mnemonic validation、導出、署名、重複判定、Chain / Network の意味判定、Store / pending state の意味解釈、Transaction の意味解釈を複製しない。Binding の経路差は Core の秘密情報公開範囲、authorization、failure policy または ownership を変更しない。
 
@@ -162,7 +163,7 @@ Application は、Core 管理下の Mnemonic / Software Key 原本、Core の si
 component の依存方向は次とする。
 
 ```text
-Application / UI → Native Binding または Web WASM Binding → Rust Wallet Core
+Application / UI → Native C ABI、Node-API または Web WASM Binding → Rust Wallet Core
 ```
 
 Application、Binding、Transaction layer および Network layer は Core の secret lifecycle、authorization、signing authority または Store validity を代替しない。Core は UI、Browser API、OS policy または host-specific policy に依存しない。Binding 固有の判断を Core や別 Binding へ横展開せず、秘密情報処理の実装源を Core に集約する。
@@ -323,25 +324,25 @@ retry は、必要な Store、処理入力、現在の operation に対する fr
 - unsupported Chain / Network、不一致または不正な組合せは Core が fail-closed に reject する。reject 時は Profile、Software Key、existing committed Store および秘密情報を変更・返却しない。
 - Core は reject 時に別 Chain / Network へ fallback せず、implicit conversion も行わない。Binding はこの意味判定を代替・補正しない。
 - Symbol / NEM の Chain 固有の鍵、公開鍵、アドレス、署名、HD 導出および Network 処理は Core の責任範囲で扱うが、具体的な Chain identifier、Network identifier、byte 表現、derivation path および protocol contract は下流へ委譲する。
-- Native / Web WASM Binding は同一 Core の Chain / Network policy、authorization および秘密情報公開範囲を共有する。
+- Native C ABI / Node-API / Web WASM Binding は同一 Core の Chain / Network policy、authorization および秘密情報公開範囲を共有する。
 
 ## 8. 運用前提、resource、検証方針
 
 - Core は Store、Profile、Software Key、処理入力および秘密情報を外部入力として扱い、validity と compatibility を検証してから処理する。具体的な parser、validation contract、公開 error および resource limit は下流へ委譲する。
 - Application / persistence layer は opaque Store の current Store authority として、保存先、atomic replacement、current-state selection、stale / historical Store の再適用防止、バックアップ、同期および端末間転送の availability を担う。ただし、その責任は Store schema / version migration の提供を意味しない。Core は valid historical Store の freshness または rollback を保証しない。
 - v1 は Store / Profile version migration を提供しない。unsupported / unknown / corrupt / inconsistent data を別 version と推測せず、安全に扱えない場合は reject して existing committed state を維持する。
-- Web では JavaScript、WASM runtime、Browser process の全 copy 消去を Core が保証しない。Native / Desktop / Mobile でも OS / host process の compromise 防止を保証しない。いずれも通常処理での秘密情報非開示責任を弱めない。
-- Native / Web WASM の検証では、Core の同じ security invariant、責務、authorization、Chain / Network policy および公開範囲が保たれることを確認する。Binding 固有の変換、ownership、free および具体 ABI / WASM 契約は関連設計・仕様へ委譲する。
+- Web では JavaScript、WASM runtime、Browser process の全 copy 消去を Core が保証しない。Node.js では host process の compromise 防止を保証しない。Native / Desktop / Mobile でも OS / host process の compromise 防止を保証しない。いずれも通常処理での秘密情報非開示責任を弱めない。
+- Native C ABI / Node-API / Web WASM の検証では、Core の同じ security invariant、責務、authorization、Chain / Network policy および公開範囲が保たれることを確認する。Binding 固有の変換、ownership、free および具体 ABI / WASM / Node-API 契約は関連設計・仕様へ委譲する。
 - Handoff、explicit export、signing approval、assertion freshness の Application responsibility、Store reject、処理単位 authentication、atomicity、retry / restart、valid historical Store rollback の保証外範囲および fail-closed の外部可視条件を、下流の仕様・実装・テストへ引き渡す。カバレッジだけを仕様適合性または security の単独証拠としない。
 
 ## 9. 採用した設計判断と代替案
 
 ### 9.1 単一 Rust Core と全環境共通 policy
 
-- 判断: Desktop / Mobile / Web から同じ Rust Core を利用し、秘密情報処理、authorization、Chain / Network policy および signing primitive を Binding / Application へ複製しない。全環境で通常処理の秘密情報非開示原則を共通にする。
+- 判断: Desktop / Mobile / Web / Node.js から同じ Rust Core を利用し、秘密情報処理、authorization、Chain / Network policy および signing primitive を Binding / Application へ複製しない。全環境で通常処理の秘密情報非開示原則を共通にする。
 - 根拠: Concept / Requirements が、共通 Core、Core の継続的 secret ownership、Binding / Application の非代替性および環境差によらない責任境界を定めている。
 - 代替案: 実行環境ごとに鍵管理や認証を実装する方式は、責任境界と外部可視動作を分散させるため採用しない。
-- 影響: Host environment の compromise 防止は保証しないが、compromise を理由に Core / Binding の非開示責任を弱めない。Native と Web / WASM の経路差は transport の差に限定する。
+- 影響: Host environment の compromise 防止は保証しないが、compromise を理由に Core / Binding の非開示責任を弱めない。Native C ABI、Node-API および Web / WASM の経路差は transport の差に限定する。
 - 見直し条件: v1 の対象環境、Core の責任または全環境共通 security property を変更する上位要求が承認された場合。
 
 ### 9.2 User intent と Core authorization の分離
@@ -379,7 +380,7 @@ retry は、必要な Store、処理入力、現在の operation に対する fr
 - v1 の対応 version を表す具体的な形式、Store parser、validation、公開 error、resource limit、replacement の具体方式。v1 が migration を提供しない invariant、および Core が valid historical Store の freshness / rollback を保証しないことは本書で確定している。current Store の選択、replacement の適用、stale / historical Store の再適用防止および backup / snapshot の最新版管理の具体方式は Application / persistence layer へ委譲する
 - Mnemonic、HD 導出、Symbol / NEM の鍵・署名・アドレス・Network に関する具体方式、protocol constant、derivation path および署名対象 byte 列
 - KDF、AEAD、salt、nonce、tag、鍵長、署名方式および暗号パラメータ
-- Native / Web WASM の具体的な ABI、JavaScript 境界、byte encoding、memory representation、buffer lifetime、copy、free、zeroize および runtime 制約
+- Native C ABI / Node-API / Web WASM の具体的な ABI、JavaScript 境界、byte encoding、memory representation、buffer lifetime、copy、free、zeroize および runtime 制約
 - timeout、expiry、retry count、pending state の再利用条件および個別のテストケース。Core の authorization / assertion state に challenge、nonce、expiry または one-shot token を追加する方式、ならびに Core の Store rollback detection は v1 では扱わない
 - 対象 OS / Browser、package layout、build、distribution、保存先 API および UI の具体的な方式
 

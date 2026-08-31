@@ -1,12 +1,12 @@
-# Native / WASM Binding 基本設計
+# Native C ABI / Node-API / WASM Binding 基本設計
 
 ## 1. 目的、対象、対象外
 
-本書は、Rust Wallet Core を Desktop / Mobile / Web の Application へ接続する Native Binding と Web / WASM Binding について、責務、依存方向、trust boundary、所有権および lifecycle の配置を定める。Web には Web Application と Browser Extension を含む。
+本書は、Rust Wallet Core を Desktop / Mobile / Web / Node.js の Application へ接続する Native C ABI、Node-API および Web / WASM Binding について、責務、依存方向、trust boundary、所有権および lifecycle の配置を定める。Web には Web Application と Browser Extension を含む。
 
 Binding は、Core が所有する処理と各実行環境の間で、入力、出力、representation、ownership、lifecycle および error / warning を橋渡しする境界層である。Binding は Core の単一の security meaning、成功・失敗境界および authorization boundary を変更しない。
 
-対象は Native Binding と Web / WASM Binding に共通する設計責任である。特定の crate、ABI、JavaScript 型、package、storage API、Browser context または memory technique は本書で決定しない。
+対象は Native C ABI、Node-API および Web / WASM Binding に共通する設計責任である。特定の crate、ABI、JavaScript 型、package、storage API、Browser context または memory technique は本書で決定しない。
 
 対象外は、Core の暗号、Mnemonic / Software Key の生成・導出・検証、Profile password authorization、署名 primitive、Store の内部解釈、Store の currentness / historical rollback の判定、UI / user intent の判定、Browser / OS / host の侵害防止および統合先 Application の architecture である。これらの責任を Binding に複製しない。
 
@@ -60,7 +60,7 @@ Concept / Requirements の review、Architecture / Security Design の review �
                               │
 User / 利用者 ──表示・確認・承認──> Application / UI
                                       │
-                    Native Binding または Web / WASM Binding
+                    Native C ABI、Node-API または Web / WASM Binding
                                       │
                                       ▼
                               Rust Wallet Core
@@ -83,9 +83,9 @@ Binding は thin かつ non-authoritative な境界である。Core / Architectu
 
 Binding は、Core の `result`、`error`、`warning`、`pending`、`replacement` および公開結果を、security meaning を変更せず Application へ伝達する。Binding を通過したこと、値を返せたことまたは Application が値を受け取れたことだけを成功条件に追加しない。
 
-### 3.2 Native / Web 共通の guarantee boundary
+### 3.2 Native / Node.js / Web 共通の guarantee boundary
 
-Native、Desktop、Mobile、Web、WASM の方式差は、実行環境との representation、ownership および lifecycle の橋渡しに限定する。次の invariant は全経路で共通とし、Native Binding を Web / WASM より強い secret isolation boundary と扱わない。
+Native C ABI、Node-API、Desktop、Mobile、Web、WASM の方式差は、実行環境との representation、ownership および lifecycle の橋渡しに限定する。次の invariant は全経路で共通とし、Native C ABI または Node-API を Web / WASM より強い secret isolation boundary と扱わない。
 
 - Mnemonic と Software Key の継続的な secret owner は Core である。
 - Binding は authorization、user intent、signing approval または Core の security policy を持たない。
@@ -95,7 +95,7 @@ Native、Desktop、Mobile、Web、WASM の方式差は、実行環境との repr
 - Binding は過去の Store を保持・比較して currentness または historical rollback を判定する authority を持たない。Core も過去に返した Store を永続記憶しないため、valid historical Store の rollback は v1 の Core / Binding guarantee 外である。
 - Account、Chain、Network の compatibility を補正せず、fallback または implicit conversion を行わない。
 
-Application compromise、Browser compromise、OS compromise および host process compromise の防止は、Core / Binding の guarantee 外である。この limitation は、不要な秘密情報の disclosure / retention、authorization の弱体化、Core の意味の変更または failure safety の弱体化を許可する根拠にならない。host の security architecture は統合先 Application の責任であり、Binding の guarantee に含めない。
+Application compromise、Browser compromise、OS compromise、Node.js host process compromise および host process compromise の防止は、Core / Binding の guarantee 外である。この limitation は、不要な秘密情報の disclosure / retention、authorization の弱体化、Core の意味の変更または failure safety の弱体化を許可する根拠にならない。host の security architecture は統合先 Application の責任であり、Binding の guarantee に含めない。
 
 ## 4. コンポーネント責務と依存方向
 
@@ -120,9 +120,9 @@ Binding は次だけを担う。
 - Application と Core の間の representation、型、opaque data、ownership および lifecycle の mediation
 - Core への入力と Core からの公開結果、error、warning、pending および replacement の transport
 - Binding 自身の境界で検出できる入力・変換・ownership / lifecycle の失敗を安全側に終了させること
-- Native / Web / WASM の経路差が Core の security meaning、secret policy、authorization または failure policy を変更しないことの維持
+- Native C ABI / Node-API / Web WASM の経路差が Core の security meaning、secret policy、authorization または failure policy を変更しないことの維持
 
-Binding は暗号、認証、Mnemonic validation、導出、署名、Store / Profile version の解釈、migration、重複判定、Chain / Network policy、Transaction の意味解釈および UI / permission の判定を複製しない。
+Binding は暗号、認証、Mnemonic validation、導出、署名、Store / Profile version の解釈、migration、重複判定、Chain / Network policy、Transaction の意味解釈および UI / permission の判定を複製しない。Node-API は C ABI を JavaScript FFI から呼び出さず、独立した security authority とならない。
 
 ### 4.3 Application / UI
 
@@ -140,7 +140,7 @@ Application は、Core 管理下の秘密情報の継続 owner、Core の signin
 ### 4.4 依存方向
 
 ```text
-Application / UI → Native Binding または Web / WASM Binding → Rust Wallet Core
+Application / UI → Native C ABI、Node-API または Web / WASM Binding → Rust Wallet Core
 ```
 
 Application と Binding は Core の security authority を代替しない。Core は UI、Browser、OS または host-specific policy に依存しない。Binding は、別の Binding、Application または下流の具体形式へ authority を逆流させない。
@@ -258,7 +258,7 @@ Binding は次を行わない。
 - unsupported な組合せを fallback する
 - Chain / Network の implicit conversion を行う
 
-Native と Web / WASM の representation 差は、Core の compatibility、signing authority、secret ownership、authorization または failure meaning を変更しない。具体的な identifier、byte 表現、address、derivation、protocol および interop contract は下流へ委譲する。
+Native C ABI、Node-API と Web / WASM の representation 差は、Core の compatibility、signing authority、secret ownership、authorization または failure meaning を変更しない。具体的な identifier、byte 表現、address、derivation、protocol および interop contract は下流へ委譲する。
 
 ## 8. Native boundary の安全側責任と guarantee limitation
 
@@ -271,7 +271,7 @@ Binding が受け付ける外部入力境界では、Binding 自身が検証可�
 - ownership / lifecycle conversion failure を fail-safe に扱う
 - Binding 自身が検出可能な境界条件違反を fail-safe に扱う
 
-この責任により、Binding は検証可能な不正入力を意味不明のまま Core へ渡さず、失敗を success に変換せず、Core の result / error / warning の meaning を置き換えない。失敗経路で secret output、secret retention、persistent secret state または partial state を増やさず、existing committed state を成功状態として壊さない。この intent は Native に固有の緩和ではなく、Native / Web / WASM の共通 security invariant と整合する。
+この責任により、Binding は検証可能な不正入力を意味不明のまま Core へ渡さず、失敗を success に変換せず、Core の result / error / warning の meaning を置き換えない。失敗経路で secret output、secret retention、persistent secret state または partial state を増やさず、existing committed state を成功状態として壊さない。この intent は Native C ABI に固有の緩和ではなく、Native C ABI / Node-API / Web WASM の共通 security invariant と整合する。
 
 ### 8.2 Guarantee limitation
 
@@ -290,15 +290,15 @@ Binding は、次を保証する層ではない。
 - **判断**: Binding は representation、ownership、lifecycle、error / warning および transport の mediation に限定し、Core の security meaning を変更しない。
 - **根拠**: Concept / Requirements の Core 継続 ownership と全環境共通責任、および Architecture / Security Design の Binding non-authority。
 - **代替案**: Binding ごとに認証、秘密情報管理、Store 解釈または signing approval を実装する方式は、環境ごとの authority と security architecture を分岐させるため採用しない。
-- **影響**: Native / Web / WASM の具体方式が変わっても、Core ownership、per-operation authorization、non-disclosure、failure safety および compatibility policy を維持できる。
+- **影響**: Native C ABI / Node-API / Web WASM の具体方式が変わっても、Core ownership、per-operation authorization、non-disclosure、failure safety および compatibility policy を維持できる。
 - **見直し条件**: Core と Binding の責任分担を変更する上位 Requirements または Architecture が承認された場合。
 
-### 9.2 Native / Web 共通の guarantee boundary
+### 9.2 Native / Node.js / Web 共通の guarantee boundary
 
-- **判断**: Native と Web / WASM を同一の security invariant、host compromise limitation および non-authority boundary で扱う。Native を Web より強い秘密隔離境界としない。
+- **判断**: Native C ABI、Node-API と Web / WASM を同一の security invariant、host compromise limitation および non-authority boundary で扱う。Native C ABI または Node-API を Web より強い秘密隔離境界としない。
 - **根拠**: Concept / Requirements の全環境共通原則、Architecture の全環境 trust boundary および Security Design の guarantee boundary。
 - **代替案**: Web だけに host compromise limitation を置く方式は、Native / Mobile / Desktop の責任を曖昧にするため採用しない。
-- **影響**: host compromise 防止は保証外のまま、全環境の通常処理 non-disclosure、non-retention、authorization および failure safety を維持する。
+- **影響**: host compromise 防止は保証外のまま、全環境の通常処理 non-disclosure、non-retention、authorization および failure safety を維持する。Node.js host process の compromise に対する native-isolation guarantee は追加しない。
 - **見直し条件**: 対象環境または上位 security responsibility が承認済み資料で変更された場合。
 
 ### 9.3 Store の opaque mediation、current Store authority および v1 no migration
@@ -330,7 +330,7 @@ Binding は、次を保証する層ではない。
 
 ### 10.2 Implementation / release verification へ引き継ぐもの
 
-- Native / Web / WASM の具体 bridge、crate、directory、package、build および distribution
+- Native C ABI / Node-API / WASM の具体 bridge、crate、directory、package、build および distribution
 - exact C ABI、struct、pointer、NULL / length、alias、free、ownership mechanics および panic handling
 - exact JavaScript type、generated binding、raw / UTF-8 / hex / Base64 等の representation、encoding および buffer lifecycle
 - secret copy、memory lifetime、allocator、zeroization、runtime、compiler、target および third-party dependency の検証
@@ -361,8 +361,8 @@ WASM が JavaScript / Browser compromise の secret isolation boundary ではな
 | Store / version / current Store authority / no migration | Requirements FR-012、DR-009、SEC-004〜SEC-005、SEC-018、AC-012、AC-045、AC-048 | §3.3、§5.2、§6.2、§8、§9.3 | §3.2、§5.1、§6.5 | §3.1、§5.1〜§5.2、§6.6、§9.3 |
 | Pending / failure / retry / restart | Requirements SEC-003、SEC-005、SEC-017〜SEC-019、AC-037〜AC-039、AC-046 | §5.3、§6.1〜§6.2、§6.5、§9.4 | §6.6 | §3.1、§6.1、§6.2、§6.6、§8.1 |
 | Account / Chain / Network | Requirements FR-013、FR-024、DR-005、AC-013、AC-047 | §5.1、§7 | §7 | §3.1、§7 |
-| Native / Web 共通 guarantee boundary | Concept §7、§9、Requirements NFR-004、SEC-020 | §3.1、§4.4、§8 | §3、§8 | §3.2、§9.2 |
-| Native boundary safety intent | Requirements NFR-002〜NFR-003、SEC-012、SEC-018 | §4.2、§8 | §3、§10 | §4.2、§8 |
+| Native / Node.js / Web 共通 guarantee boundary | Concept §7、§9、Requirements NFR-004、SEC-020 | §3.1、§4.4、§8 | §3、§8 | §3.2、§9.2 |
+| Native / Node-API boundary safety intent | Requirements NFR-002〜NFR-003、SEC-012、SEC-018 | §4.2、§8 | §3、§10 | §4.2、§8 |
 | Core secret processing の side-channel property | Requirements SEC-023、AC-049、§12.2〜§12.3 | §4.1、§8、§10 | §8.1、§8.3、§10 | §8.1、§10.2 |
 
 ### 11.2 参照資料の役割
