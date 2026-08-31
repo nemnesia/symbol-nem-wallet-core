@@ -10,7 +10,7 @@
 //! `{ value, warnings }`、状態変更結果は`{ store, value, warnings }`のobjectに変換する。
 //! `Result`のエラーは秘密情報を含まないerror code文字列としてJavaScriptへ投げる。
 
-use js_sys::{Array, Object, Reflect, Uint8Array};
+use js_sys::{Array, Function, Object, Reflect, Uint8Array};
 use uuid::Uuid;
 use wasm_bindgen::{prelude::*, JsCast};
 use zeroize::Zeroizing;
@@ -66,21 +66,77 @@ fn set(object: &Object, key: &str, value: JsValue) -> Result<(), JsValue> {
         .map_err(|_| conversion_error())
 }
 
-fn bytes(value: &Uint8Array) -> Zeroizing<Vec<u8>> {
-    // JS管理下の入力をCoreへ渡す一時Vec。Storeにもregistry_keyが含まれるため、
-    // Core処理終了後はBinding側のコピーもzeroizeしてから所有を終える。
-    Zeroizing::new(value.to_vec())
+fn uint8_array_length(value: &Uint8Array) -> Result<usize, JsValue> {
+    let length = Reflect::get(value.as_ref(), &JsValue::from_str("length"))
+        .map_err(|_| conversion_error())?
+        .as_f64()
+        .filter(|length| {
+            length.is_finite() && length.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(length)
+        })
+        .ok_or_else(conversion_error)?;
+    Ok(length as usize)
 }
 
-fn store_bytes(value: &Uint8Array) -> Result<Zeroizing<Vec<u8>>, WalletError> {
+fn backing_buffer_is_detached(value: &Uint8Array) -> Result<bool, JsValue> {
+    let buffer = Reflect::get(value.as_ref(), &JsValue::from_str("buffer"))
+        .map_err(|_| conversion_error())?;
+    let detached =
+        Reflect::get(&buffer, &JsValue::from_str("detached")).map_err(|_| conversion_error())?;
+
+    // Older runtimes may not expose ArrayBuffer.prototype.detached. In that case the
+    // catch-enabled slice below remains the fallback for detached / unreadable buffers.
+    match detached.as_bool() {
+        Some(detached) => Ok(detached),
+        None if detached.is_undefined() => Ok(false),
+        None => Err(conversion_error()),
+    }
+}
+
+fn copy_uint8_array(
+    value: &Uint8Array,
+    max_length: Option<usize>,
+) -> Result<Zeroizing<Vec<u8>>, JsValue> {
+    // Read the representation before allocating. A detached Uint8Array reports length 0,
+    // so length alone must never be used to distinguish it from an attached empty array.
+    let length = uint8_array_length(value)?;
+    if backing_buffer_is_detached(value)? {
+        return Err(conversion_error());
+    }
+    if max_length.is_some_and(|max_length| length > max_length) {
+        return Err(JsValue::from_str(ErrorCode::InvalidStore.as_str()));
+    }
+
+    // Calling slice through Function::call0 gives the binding a catch-enabled JS read path.
+    // This covers runtimes without ArrayBuffer.prototype.detached and any unreadable source
+    // that throws while its contents are being copied.
+    let slice = Reflect::get(value.as_ref(), &JsValue::from_str("slice"))
+        .map_err(|_| conversion_error())?
+        .dyn_into::<Function>()
+        .map_err(|_| conversion_error())?;
+    let copied = slice
+        .call0(value.as_ref())
+        .map_err(|_| conversion_error())?
+        .dyn_into::<Uint8Array>()
+        .map_err(|_| conversion_error())?;
+    if backing_buffer_is_detached(&copied)? || uint8_array_length(&copied)? != length {
+        return Err(conversion_error());
+    }
+
+    let mut output = vec![0u8; length];
+    copied.copy_to(&mut output);
+    // JS管理下の入力をCoreへ渡す一時Vec。Storeにもregistry_keyが含まれるため、
+    // Core処理終了後はBinding側のコピーもzeroizeしてから所有を終える。
+    Ok(Zeroizing::new(output))
+}
+
+fn bytes(value: &Uint8Array) -> Result<Zeroizing<Vec<u8>>, JsValue> {
+    copy_uint8_array(value, None)
+}
+
+fn store_bytes(value: &Uint8Array) -> Result<Zeroizing<Vec<u8>>, JsValue> {
     // Store decoderの上限検査より前にWASM側で入力全体を複製しないよう、
     // Uint8Arrayの長さをRust側のallocation前に確認する。
-    if (value.length() as usize) > MAX_WALLET_STORE_BYTES {
-        return Err(WalletError {
-            code: ErrorCode::InvalidStore,
-        });
-    }
-    Ok(bytes(value))
+    copy_uint8_array(value, Some(MAX_WALLET_STORE_BYTES))
 }
 
 fn uint8_array(value: &[u8]) -> JsValue {
@@ -222,8 +278,9 @@ fn parse_signing_request(value: &JsValue) -> Result<SigningRequest, JsValue> {
     let payload_value = field(value, "payload")?;
     let payload = payload_value
         .dyn_into::<Uint8Array>()
-        .map_err(|_| invalid_argument())?
-        .to_vec();
+        .map_err(|_| invalid_argument())?;
+    let mut payload = bytes(&payload)?;
+    let payload = std::mem::take(&mut *payload);
     let approval_value = field(value, "approval")?;
     let approval = SigningApproval {
         status: match string_field(&approval_value, "status")?.as_str() {
@@ -435,8 +492,8 @@ pub fn prepare_generated_profile(
     network: f64,
 ) -> Result<JsValue, JsValue> {
     let network = parse_network(network).map_err(binding_error)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let password = bytes(password_utf8);
+    let store_bytes = store_bytes(store)?;
+    let password = bytes(password_utf8)?;
     let result =
         core_prepare_generated_profile(&store_bytes, &password, network).map_err(binding_error)?;
     read_result(prepared_profile(result.value)?, result.warnings)
@@ -452,9 +509,9 @@ pub fn finalize_generated_profile(
     password_utf8: &Uint8Array,
     handoff_confirmation: &JsValue,
 ) -> Result<JsValue, JsValue> {
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let pending_bytes = bytes(pending_profile);
-    let password = bytes(password_utf8);
+    let store_bytes = store_bytes(store)?;
+    let pending_bytes = bytes(pending_profile)?;
+    let password = bytes(password_utf8)?;
     let handoff_confirmation = parse_handoff_confirmation(handoff_confirmation)?;
     let result = core_finalize_generated_profile(
         &store_bytes,
@@ -479,9 +536,9 @@ pub fn restore_profile(
     network: f64,
 ) -> Result<JsValue, JsValue> {
     let network = parse_network(network).map_err(binding_error)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let mnemonic = bytes(mnemonic_utf8);
-    let password = bytes(password_utf8);
+    let store_bytes = store_bytes(store)?;
+    let mnemonic = bytes(mnemonic_utf8)?;
+    let password = bytes(password_utf8)?;
     let result =
         core_restore_profile(&store_bytes, &mnemonic, &password, network).map_err(binding_error)?;
     let value = profile_info(&result.value)?;
@@ -499,8 +556,8 @@ pub fn export_mnemonic(
     password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
     let request = parse_export_request(request)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let password = bytes(password_utf8);
+    let store_bytes = store_bytes(store)?;
+    let password = bytes(password_utf8)?;
     let result = core_export_mnemonic(&store_bytes, request, &password).map_err(binding_error)?;
     read_result(mnemonic_export(result.value)?, result.warnings)
 }
@@ -516,8 +573,8 @@ pub fn export_private_key(
     password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
     let request = parse_export_request(request)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let password = bytes(password_utf8);
+    let store_bytes = store_bytes(store)?;
+    let password = bytes(password_utf8)?;
     let result =
         core_export_private_key(&store_bytes, request, &password).map_err(binding_error)?;
     read_result(private_key_export(result.value)?, result.warnings)
@@ -529,7 +586,7 @@ pub fn export_private_key(
 /// payloadのAEAD認証済み情報とは区別する。
 #[wasm_bindgen(js_name = list_profiles)]
 pub fn list_profiles(store: &Uint8Array) -> Result<JsValue, JsValue> {
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
+    let store_bytes = store_bytes(store)?;
     let result = core_list_profiles(&store_bytes).map_err(binding_error)?;
     let array = Array::new();
     for value in &result.value {
@@ -546,7 +603,7 @@ pub fn list_profiles(store: &Uint8Array) -> Result<JsValue, JsValue> {
 #[wasm_bindgen(js_name = list_software_keys)]
 pub fn list_software_keys(store: &Uint8Array, profile_id: &str) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
+    let store_bytes = store_bytes(store)?;
     let result = core_list_software_keys(&store_bytes, profile_id).map_err(binding_error)?;
     let array = Array::new();
     for value in &result.value {
@@ -571,8 +628,8 @@ pub fn derive_software_key(
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let chain = parse_chain(chain).map_err(binding_error)?;
     let account_index = parse_account_index(account_index).map_err(binding_error)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let password = bytes(password_utf8);
+    let store_bytes = store_bytes(store)?;
+    let password = bytes(password_utf8)?;
     let result =
         core_derive_software_key(&store_bytes, profile_id, &password, chain, account_index)
             .map_err(binding_error)?;
@@ -593,9 +650,9 @@ pub fn import_software_key(
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let chain = parse_chain(chain).map_err(binding_error)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let password = bytes(password_utf8);
-    let private_key = bytes(private_key);
+    let store_bytes = store_bytes(store)?;
+    let password = bytes(password_utf8)?;
+    let private_key = bytes(private_key)?;
     let result = core_import_software_key(&store_bytes, profile_id, &password, chain, &private_key)
         .map_err(binding_error)?;
     let value = software_key_info(&result.value)?;
@@ -615,8 +672,8 @@ pub fn generate_software_key(
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let chain = parse_chain(chain).map_err(binding_error)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let password = bytes(password_utf8);
+    let store_bytes = store_bytes(store)?;
+    let password = bytes(password_utf8)?;
     let result = core_generate_software_key(&store_bytes, profile_id, &password, chain)
         .map_err(binding_error)?;
     let value = software_key_info(&result.value)?;
@@ -637,9 +694,9 @@ pub fn get_public_account(
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let key_id = parse_uuid(key_id).map_err(binding_error)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
+    let store_bytes = store_bytes(store)?;
     let requested_context = parse_account_context(requested_context)?;
-    let password = bytes(password_utf8);
+    let password = bytes(password_utf8)?;
     let result = core_get_public_account(
         &store_bytes,
         profile_id,
@@ -662,8 +719,8 @@ pub fn sign(
     password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
     let request = parse_signing_request(request)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let password = bytes(password_utf8);
+    let store_bytes = store_bytes(store)?;
+    let password = bytes(password_utf8)?;
     let result = core_sign(&store_bytes, request, &password).map_err(binding_error)?;
     read_result(signature(&result.value)?, result.warnings)
 }
@@ -680,9 +737,9 @@ pub fn change_profile_password(
     new_password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let current_password = bytes(current_password_utf8);
-    let new_password = bytes(new_password_utf8);
+    let store_bytes = store_bytes(store)?;
+    let current_password = bytes(current_password_utf8)?;
+    let new_password = bytes(new_password_utf8)?;
     let result =
         core_change_profile_password(&store_bytes, profile_id, &current_password, &new_password)
             .map_err(binding_error)?;
@@ -702,8 +759,8 @@ pub fn delete_software_key(
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let key_id = parse_uuid(key_id).map_err(binding_error)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let password = bytes(password_utf8);
+    let store_bytes = store_bytes(store)?;
+    let password = bytes(password_utf8)?;
     let result = core_delete_software_key(&store_bytes, profile_id, key_id, &password)
         .map_err(binding_error)?;
     mutation_result(result, JsValue::NULL)
@@ -720,8 +777,8 @@ pub fn delete_profile(
     password_utf8: &Uint8Array,
 ) -> Result<JsValue, JsValue> {
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
-    let store_bytes = store_bytes(store).map_err(binding_error)?;
-    let password = bytes(password_utf8);
+    let store_bytes = store_bytes(store)?;
+    let password = bytes(password_utf8)?;
     let result = core_delete_profile(&store_bytes, profile_id, &password).map_err(binding_error)?;
     mutation_result(result, JsValue::NULL)
 }

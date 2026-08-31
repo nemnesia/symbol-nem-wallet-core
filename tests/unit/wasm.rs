@@ -1,7 +1,7 @@
 use super::*;
 use crate::cbor::{self, Value};
 use js_sys::{Object, Reflect};
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{closure::Closure, JsCast};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 const MNEMONIC: &[u8] = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
@@ -111,6 +111,48 @@ fn mutation_store(result: &JsValue) -> Vec<u8> {
         .dyn_into::<Uint8Array>()
         .unwrap()
         .to_vec()
+}
+
+fn detached_uint8_array(value: &[u8]) -> Uint8Array {
+    let array = Uint8Array::from(value);
+    let buffer = array.buffer();
+    buffer.transfer().expect("ArrayBuffer.transfer is required");
+    assert!(buffer.detached());
+    array
+}
+
+fn throwing_status_object() -> JsValue {
+    let object = Object::new();
+    let descriptor = Object::new();
+    let getter = Closure::once_into_js(|| -> JsValue {
+        wasm_bindgen::throw_str("test getter failure");
+    });
+    Reflect::set(&descriptor, &JsValue::from_str("get"), &getter).unwrap();
+    assert!(Reflect::define_property(&object, &JsValue::from_str("status"), &descriptor,).unwrap());
+    object.into()
+}
+
+fn unreadable_uint8_array() -> Uint8Array {
+    let array = Uint8Array::new_with_length(1);
+    let descriptor = Object::new();
+    let getter = Closure::once_into_js(|| -> JsValue {
+        wasm_bindgen::throw_str("test unreadable buffer");
+    });
+    Reflect::set(&descriptor, &JsValue::from_str("get"), &getter).unwrap();
+    assert!(Reflect::define_property(
+        array.unchecked_ref::<Object>(),
+        &JsValue::from_str("slice"),
+        &descriptor,
+    )
+    .unwrap());
+    array
+}
+
+fn assert_binding_failure(result: Result<JsValue, JsValue>) {
+    assert_eq!(
+        result.unwrap_err().as_string().as_deref(),
+        Some("BindingFailure")
+    );
 }
 
 fn store_with_unknown_padding(last_padding_len: usize) -> Vec<u8> {
@@ -639,6 +681,104 @@ fn wasm_assertion_context_and_binding_failure_contracts() {
         conversion_error().as_string().as_deref(),
         Some("BindingFailure")
     );
+}
+
+#[wasm_bindgen_test]
+fn wasm_detached_and_unreadable_inputs_fail_closed() {
+    let password = Uint8Array::from(PASSWORD);
+    let empty_store = create_empty_store().unwrap();
+
+    // A transferred Store must not become an empty Store or produce a replacement.
+    let detached_store = detached_uint8_array(&empty_store.to_vec());
+    assert_binding_failure(list_profiles(&detached_store));
+    assert_binding_failure(prepare_generated_profile(&detached_store, &password, 1.0));
+    let unreadable_store = unreadable_uint8_array();
+    assert_binding_failure(list_profiles(&unreadable_store));
+
+    // Mnemonic, password, Pending Profile and imported private key all use the same
+    // binding-side copy path and must fail before Core receives a fabricated empty input.
+    let detached_mnemonic = detached_uint8_array(MNEMONIC);
+    assert_binding_failure(restore_profile(
+        &empty_store,
+        &detached_mnemonic,
+        &password,
+        1.0,
+    ));
+    let detached_password = detached_uint8_array(PASSWORD);
+    assert_binding_failure(prepare_generated_profile(
+        &empty_store,
+        &detached_password,
+        1.0,
+    ));
+    let detached_pending = detached_uint8_array(b"detached pending profile");
+    assert_binding_failure(finalize_generated_profile(
+        &empty_store,
+        &detached_pending,
+        &password,
+        &handoff("confirmed"),
+    ));
+    let detached_private_key = detached_uint8_array(&[0x11; 32]);
+    assert_binding_failure(import_software_key(
+        &empty_store,
+        &Uuid::nil().to_string(),
+        &password,
+        1.0,
+        &detached_private_key,
+    ));
+
+    // A detached signing payload must not reach Core and must not return a signature.
+    let detached_payload = detached_uint8_array(b"detached payload");
+    let detached_signing_request = signing_request(
+        &Uuid::nil().to_string(),
+        &Uuid::nil().to_string(),
+        "symbol",
+        "mainnet",
+        &[],
+        "approved",
+    );
+    Reflect::set(
+        &detached_signing_request,
+        &JsValue::from_str("payload"),
+        &detached_payload,
+    )
+    .unwrap();
+    assert_binding_failure(sign(&empty_store, &detached_signing_request, &password));
+
+    // A throwing DTO getter is an actual Reflect::get conversion failure.
+    let empty_pending = Uint8Array::new_with_length(0);
+    let empty_password = Uint8Array::new_with_length(0);
+    assert_binding_failure(finalize_generated_profile(
+        &empty_store,
+        &empty_pending,
+        &empty_password,
+        &throwing_status_object(),
+    ));
+
+    // An attached zero-length payload remains a real empty byte sequence. With a valid target,
+    // it reaches Core and produces a signature rather than being classified as BindingFailure.
+    let restored =
+        restore_profile(&empty_store, &Uint8Array::from(MNEMONIC), &password, 1.0).unwrap();
+    let restored_store = mutation_store(&restored);
+    let profile_id = string_field(&value(&restored), "profile_id");
+    let derived = derive_software_key(
+        &Uint8Array::from(restored_store.as_slice()),
+        &profile_id,
+        &password,
+        1.0,
+        0.0,
+    )
+    .unwrap();
+    let derived_store = mutation_store(&derived);
+    let key_id = string_field(&value(&derived), "key_id");
+    let empty_payload_request =
+        signing_request(&profile_id, &key_id, "symbol", "mainnet", &[], "approved");
+    let signed = sign(
+        &Uint8Array::from(derived_store.as_slice()),
+        &empty_payload_request,
+        &password,
+    )
+    .unwrap();
+    assert_eq!(bytes_field(&value(&signed), "signature").length(), 64);
 }
 
 #[wasm_bindgen_test]
