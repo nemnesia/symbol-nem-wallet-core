@@ -61,10 +61,10 @@ jobs:
         run: cargo test --workspace --all-features --locked
 
       - name: Run WASM tests with wasm-pack and Node.js
-        run: wasm-pack test --node --locked --features wasm
+        run: wasm-pack test --node crates/core -- --locked --features wasm
 
       - name: Check WASM target
-        run: cargo check --target wasm32-unknown-unknown --features wasm --locked
+        run: cargo check --package symbol-nem-wallet-core --target wasm32-unknown-unknown --features wasm --locked
 
       - name: Build Native C ABI
         run: cargo build --package symbol-nem-wallet-core-native --release --locked
