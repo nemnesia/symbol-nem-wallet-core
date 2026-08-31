@@ -1,6 +1,6 @@
 use super::*;
 use crate::cbor::{self, Value};
-use js_sys::{Object, Reflect};
+use js_sys::{Object, Proxy, Reflect};
 use wasm_bindgen::{closure::Closure, JsCast};
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -34,6 +34,30 @@ fn object(fields: &[(&str, JsValue)]) -> JsValue {
         Reflect::set(&object, &JsValue::from_str(name), value).unwrap();
     }
     object.into()
+}
+
+struct PropertyRestore {
+    object: Object,
+    property: JsValue,
+    original: JsValue,
+}
+
+impl PropertyRestore {
+    fn new(object: Object, property: &str, original: JsValue) -> Self {
+        Self {
+            object,
+            property: JsValue::from_str(property),
+            original,
+        }
+    }
+}
+
+impl Drop for PropertyRestore {
+    fn drop(&mut self) {
+        // Test-only global/instance mutation is restored even when an assertion or runtime
+        // failure unwinds the test.
+        let _ = Reflect::set(&self.object, &self.property, &self.original);
+    }
 }
 
 fn handoff(status: &str) -> JsValue {
@@ -133,19 +157,17 @@ fn throwing_status_object() -> JsValue {
 }
 
 fn unreadable_uint8_array() -> Uint8Array {
-    let array = Uint8Array::new_with_length(1);
-    let descriptor = Object::new();
-    let getter = Closure::once_into_js(|| -> JsValue {
-        wasm_bindgen::throw_str("test unreadable buffer");
-    });
-    Reflect::set(&descriptor, &JsValue::from_str("get"), &getter).unwrap();
-    assert!(Reflect::define_property(
-        array.unchecked_ref::<Object>(),
-        &JsValue::from_str("slice"),
-        &descriptor,
-    )
-    .unwrap());
-    array
+    // A Proxy can pass `instanceof Uint8Array` but is not an actual ArrayBuffer view. The
+    // binding must reject it before any proxy trap can fabricate metadata or bytes.
+    let array = Uint8Array::from([0xA5].as_slice());
+    let handler = Object::new();
+    let getter = Closure::once_into_js(
+        |_target: JsValue, _property: JsValue, _receiver: JsValue| -> JsValue {
+            wasm_bindgen::throw_str("test unreadable buffer");
+        },
+    );
+    Reflect::set(&handler, &JsValue::from_str("get"), &getter).unwrap();
+    Proxy::new(array.as_ref(), &handler).unchecked_into()
 }
 
 fn assert_binding_failure(result: Result<JsValue, JsValue>) {
@@ -779,6 +801,126 @@ fn wasm_detached_and_unreadable_inputs_fail_closed() {
     )
     .unwrap();
     assert_eq!(bytes_field(&value(&signed), "signature").length(), 64);
+}
+
+#[wasm_bindgen_test]
+fn wasm_output_allocation_failure_is_binding_failure_without_result() {
+    let empty_store = create_empty_store().unwrap();
+    allocation_failure_seam::inject();
+    let array_result = list_profiles(&empty_store);
+    assert_binding_failure(array_result);
+
+    allocation_failure_seam::inject();
+    let result = create_empty_store().map(JsValue::from);
+    assert_binding_failure(result);
+}
+
+#[wasm_bindgen_test]
+fn wasm_binary_copy_ignores_overridable_slice_methods() {
+    const PAYLOAD_A: &[u8] = b"application payload A";
+    const PAYLOAD_B: &[u8] = b"replacement payload B";
+    assert_eq!(PAYLOAD_A.len(), PAYLOAD_B.len());
+
+    let password = Uint8Array::from(PASSWORD);
+    let empty_store = create_empty_store().unwrap();
+    let restored =
+        restore_profile(&empty_store, &Uint8Array::from(MNEMONIC), &password, 1.0).unwrap();
+    let restored_store = mutation_store(&restored);
+    let profile_id = string_field(&value(&restored), "profile_id");
+    let derived = derive_software_key(
+        &Uint8Array::from(restored_store.as_slice()),
+        &profile_id,
+        &password,
+        1.0,
+        0.0,
+    )
+    .unwrap();
+    let derived_store = mutation_store(&derived);
+    let key_id = string_field(&value(&derived), "key_id");
+
+    let expected = sign(
+        &Uint8Array::from(derived_store.as_slice()),
+        &signing_request(
+            &profile_id,
+            &key_id,
+            "symbol",
+            "mainnet",
+            PAYLOAD_A,
+            "approved",
+        ),
+        &password,
+    )
+    .unwrap();
+    let expected_signature = bytes_field(&value(&expected), "signature").to_vec();
+
+    // An instance override returns a same-length, different byte sequence. The request must
+    // still be signed with the actual backing bytes from PAYLOAD_A.
+    let instance_payload = Uint8Array::from(PAYLOAD_A);
+    let instance_original =
+        Reflect::get(instance_payload.as_ref(), &JsValue::from_str("slice")).unwrap();
+    let instance_override = Closure::once_into_js(move || Uint8Array::from(PAYLOAD_B));
+    Reflect::set(
+        instance_payload.as_ref(),
+        &JsValue::from_str("slice"),
+        &instance_override,
+    )
+    .unwrap();
+    let _instance_restore = PropertyRestore::new(
+        instance_payload.clone().unchecked_into(),
+        "slice",
+        instance_original,
+    );
+    let instance_request = signing_request(
+        &profile_id,
+        &key_id,
+        "symbol",
+        "mainnet",
+        PAYLOAD_A,
+        "approved",
+    );
+    Reflect::set(
+        &instance_request,
+        &JsValue::from_str("payload"),
+        &instance_payload,
+    )
+    .unwrap();
+    let instance_result = sign(
+        &Uint8Array::from(derived_store.as_slice()),
+        &instance_request,
+        &password,
+    );
+    let instance_signature = bytes_field(&value(&instance_result.unwrap()), "signature").to_vec();
+    assert_eq!(instance_signature, expected_signature);
+
+    // Repeat through the mutable Uint8Array prototype. Restore the original property before
+    // asserting so a failed assertion cannot leave the global prototype modified.
+    let prototype_payload = Uint8Array::from(PAYLOAD_A);
+    let prototype = Object::get_prototype_of(prototype_payload.as_ref());
+    let prototype_original = Reflect::get(&prototype, &JsValue::from_str("slice")).unwrap();
+    let prototype_override = Closure::once_into_js(move || Uint8Array::from(PAYLOAD_B));
+    Reflect::set(&prototype, &JsValue::from_str("slice"), &prototype_override).unwrap();
+    let prototype_request = signing_request(
+        &profile_id,
+        &key_id,
+        "symbol",
+        "mainnet",
+        PAYLOAD_A,
+        "approved",
+    );
+    Reflect::set(
+        &prototype_request,
+        &JsValue::from_str("payload"),
+        &prototype_payload,
+    )
+    .unwrap();
+    let _prototype_restore = PropertyRestore::new(prototype.clone(), "slice", prototype_original);
+    let prototype_result = sign(
+        &Uint8Array::from(derived_store.as_slice()),
+        &prototype_request,
+        &password,
+    );
+    let prototype_signature = bytes_field(&value(&prototype_result.unwrap()), "signature").to_vec();
+    assert_eq!(prototype_signature, expected_signature);
 }
 
 #[wasm_bindgen_test]

@@ -15,7 +15,12 @@
 #![allow(unsafe_code)]
 
 use core::ffi::c_char;
-use std::{panic::AssertUnwindSafe, ptr, slice};
+use std::{
+    alloc::{alloc, dealloc, Layout},
+    marker::PhantomData,
+    panic::AssertUnwindSafe,
+    ptr, slice,
+};
 use zeroize::Zeroizing;
 
 use symbol_nem_wallet_core::{
@@ -190,6 +195,7 @@ pub struct SnwcSigningRequest {
 
 /// 秘密情報を含まないDecodeWarningのC表現。
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct SnwcWarning {
     /// warning codeの静的NUL終端文字列。
     pub code: *const c_char,
@@ -336,15 +342,152 @@ unsafe fn reset_array_output<T>(values: *mut *mut T, len: *mut usize) {
     }
 }
 
-fn owned_bytes(value: Vec<u8>) -> SnwcOwnedBytes {
-    // Vecの所有権をC callerへ移す。解放は必ずsnwc_free_bytesで行う。
-    if value.is_empty() {
-        return SnwcOwnedBytes::default();
+#[cfg(test)]
+mod allocation_failure_seam {
+    use std::cell::Cell;
+
+    thread_local! {
+        // Some successful output allocations may be skipped before the next one fails.
+        static FAIL_AFTER: Cell<Option<usize>> = const { Cell::new(None) };
     }
-    let boxed = value.into_boxed_slice();
-    let len = boxed.len();
-    let ptr = Box::into_raw(boxed).cast();
-    SnwcOwnedBytes { ptr, len }
+
+    pub(super) fn inject(after_successful_allocations: usize) {
+        FAIL_AFTER.with(|value| value.set(Some(after_successful_allocations)));
+    }
+
+    pub(super) fn should_fail() -> bool {
+        FAIL_AFTER.with(|value| match value.get() {
+            Some(0) => {
+                value.set(None);
+                true
+            }
+            Some(remaining) => {
+                value.set(Some(remaining - 1));
+                false
+            }
+            None => false,
+        })
+    }
+}
+
+#[cfg(test)]
+fn output_allocation_should_fail() -> bool {
+    allocation_failure_seam::should_fail()
+}
+
+#[cfg(not(test))]
+#[inline]
+fn output_allocation_should_fail() -> bool {
+    false
+}
+
+fn binding_failure() -> WalletError {
+    WalletError {
+        code: ErrorCode::BindingFailure,
+    }
+}
+
+unsafe fn allocate_output_slice<T>(len: usize) -> Result<OwnedSliceGuard<T>, WalletError> {
+    if len == 0 {
+        return Ok(OwnedSliceGuard::empty());
+    }
+    if output_allocation_should_fail() {
+        return Err(binding_failure());
+    }
+    let layout = Layout::array::<T>(len).map_err(|_| binding_failure())?;
+    let ptr = alloc(layout).cast::<T>();
+    if ptr.is_null() {
+        return Err(binding_failure());
+    }
+    Ok(OwnedSliceGuard {
+        ptr,
+        len,
+        marker: PhantomData,
+    })
+}
+
+unsafe fn deallocate_output_slice<T>(ptr: *mut T, len: usize) {
+    if ptr.is_null() || len == 0 {
+        return;
+    }
+    if let Ok(layout) = Layout::array::<T>(len) {
+        dealloc(ptr.cast(), layout);
+    }
+}
+
+struct OwnedSliceGuard<T> {
+    ptr: *mut T,
+    len: usize,
+    marker: PhantomData<T>,
+}
+
+impl<T> OwnedSliceGuard<T> {
+    fn empty() -> Self {
+        Self {
+            ptr: ptr::null_mut(),
+            len: 0,
+            marker: PhantomData,
+        }
+    }
+
+    fn into_raw_parts(self) -> (*mut T, usize) {
+        let parts = (self.ptr, self.len);
+        std::mem::forget(self);
+        parts
+    }
+
+    unsafe fn write(&mut self, index: usize, value: T) {
+        self.ptr.add(index).write(value);
+    }
+}
+
+impl<T> Drop for OwnedSliceGuard<T> {
+    fn drop(&mut self) {
+        unsafe { deallocate_output_slice(self.ptr, self.len) };
+    }
+}
+
+struct OwnedBytesGuard(SnwcOwnedBytes);
+
+impl OwnedBytesGuard {
+    fn into_inner(mut self) -> SnwcOwnedBytes {
+        let value = std::mem::take(&mut self.0);
+        std::mem::forget(self);
+        value
+    }
+}
+
+impl Drop for OwnedBytesGuard {
+    fn drop(&mut self) {
+        unsafe { release_owned_bytes(&mut self.0) };
+    }
+}
+
+fn owned_bytes_from_slice(value: &[u8]) -> Result<OwnedBytesGuard, WalletError> {
+    let output = unsafe { allocate_output_slice::<u8>(value.len())? };
+    if !value.is_empty() {
+        // The allocation has the exact byte layout used by the release helper.
+        unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output.ptr, value.len()) };
+    }
+    let (ptr, len) = output.into_raw_parts();
+    Ok(OwnedBytesGuard(SnwcOwnedBytes { ptr, len }))
+}
+
+fn owned_bytes(value: Vec<u8>) -> Result<OwnedBytesGuard, WalletError> {
+    // The source may contain encrypted Store material or other sensitive bytes. It is
+    // zeroized even when the binding-owned allocation fails.
+    let value = Zeroizing::new(value);
+    owned_bytes_from_slice(&value)
+}
+
+unsafe fn release_owned_bytes(value: &mut SnwcOwnedBytes) {
+    if !value.ptr.is_null() && value.len != 0 {
+        let bytes = slice::from_raw_parts_mut(value.ptr, value.len);
+        zeroize::Zeroize::zeroize(bytes);
+        deallocate_output_slice(value.ptr, value.len);
+    }
+    value.ptr = ptr::null_mut();
+    value.len = 0;
 }
 
 fn warning_name(value: &str) -> *const c_char {
@@ -383,15 +526,12 @@ fn warning(value: DecodeWarning) -> SnwcWarning {
     }
 }
 
-fn warnings(values: Vec<DecodeWarning>) -> SnwcWarnings {
-    if values.is_empty() {
-        return SnwcWarnings::default();
+fn warnings(values: Vec<DecodeWarning>) -> Result<OwnedSliceGuard<SnwcWarning>, WalletError> {
+    let mut output = unsafe { allocate_output_slice::<SnwcWarning>(values.len())? };
+    for (index, value) in values.into_iter().enumerate() {
+        unsafe { output.write(index, warning(value)) };
     }
-    let values = values.into_iter().map(warning).collect::<Vec<_>>();
-    let boxed = values.into_boxed_slice();
-    let len = boxed.len();
-    let ptr = Box::into_raw(boxed).cast();
-    SnwcWarnings { ptr, len }
+    Ok(output)
 }
 
 fn network(value: Network) -> u8 {
@@ -441,22 +581,39 @@ fn software_key_list_item(value: &SoftwareKeyListItem) -> SnwcSoftwareKeyListIte
     }
 }
 
-fn public_account(value: PublicAccountInfo) -> SnwcPublicAccountInfo {
-    SnwcPublicAccountInfo {
-        key_id: *value.key_id.as_bytes(),
-        chain: chain(value.chain),
-        network: network(value.network),
-        public_key: value.public_key,
-        address: owned_bytes(value.address.into_bytes()),
-    }
+fn public_account(value: PublicAccountInfo) -> Result<SnwcPublicAccountInfo, WalletError> {
+    let PublicAccountInfo {
+        key_id,
+        chain: chain_value,
+        network: network_value,
+        public_key,
+        address,
+    } = value;
+    let address = owned_bytes(address.into_bytes())?;
+    Ok(SnwcPublicAccountInfo {
+        key_id: *key_id.as_bytes(),
+        chain: chain(chain_value),
+        network: network(network_value),
+        public_key,
+        address: address.into_inner(),
+    })
 }
 
-fn read_warnings<T>(value: ReadResult<T>) -> (T, SnwcWarnings) {
-    (value.value, warnings(value.warnings))
+fn read_warnings<T>(
+    value: ReadResult<T>,
+) -> Result<(T, OwnedSliceGuard<SnwcWarning>), WalletError> {
+    Ok((value.value, warnings(value.warnings)?))
 }
 
-fn mutation_warnings<T>(value: MutationResult<T>) -> (Vec<u8>, T, SnwcWarnings) {
-    (value.store, value.value, warnings(value.warnings))
+fn mutation_warnings<T>(
+    value: MutationResult<T>,
+) -> Result<(Vec<u8>, T, OwnedSliceGuard<SnwcWarning>), WalletError> {
+    Ok((value.store, value.value, warnings(value.warnings)?))
+}
+
+fn warnings_output(value: OwnedSliceGuard<SnwcWarning>) -> SnwcWarnings {
+    let (ptr, len) = value.into_raw_parts();
+    SnwcWarnings { ptr, len }
 }
 
 macro_rules! ffi_call {
@@ -483,7 +640,7 @@ pub unsafe extern "C" fn snwc_create_empty_store(out: *mut SnwcOwnedBytes) -> *c
     ffi_call!({
         require_output(out)?;
         let out = output(out)?;
-        *out = owned_bytes(create_empty_store()?);
+        *out = owned_bytes(create_empty_store()?)?.into_inner();
         Ok(success())
     })
 }
@@ -527,7 +684,7 @@ pub unsafe extern "C" fn snwc_prepare_generated_profile(
         let store = input(store)?;
         let password = input(password_utf8)?;
         let value = prepare_generated_profile(store, password, network)?;
-        let (value, warnings_value) = read_warnings(value);
+        let (value, warnings_value) = read_warnings(value)?;
         let out_mnemonic = output(out_mnemonic)?;
         let out_pending = output(out_pending)?;
         let out_warnings = output(out_warnings)?;
@@ -535,11 +692,11 @@ pub unsafe extern "C" fn snwc_prepare_generated_profile(
         // snwc_free_bytesでzeroizeして解放する。
         let mut value = value;
         // すべてのallocationをassignment前に完了させ、途中失敗でpartial outputを残さない。
-        let mnemonic = owned_bytes(std::mem::take(&mut value.mnemonic_utf8));
-        let pending = owned_bytes(std::mem::take(&mut value.pending_profile));
-        *out_mnemonic = mnemonic;
-        *out_pending = pending;
-        *out_warnings = warnings_value;
+        let mnemonic = owned_bytes(std::mem::take(&mut value.mnemonic_utf8))?;
+        let pending = owned_bytes(std::mem::take(&mut value.pending_profile))?;
+        *out_mnemonic = mnemonic.into_inner();
+        *out_pending = pending.into_inner();
+        *out_warnings = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -572,13 +729,13 @@ pub unsafe extern "C" fn snwc_finalize_generated_profile(
             input(password_utf8)?,
             parse_handoff_confirmation(handoff_confirmation)?,
         )?;
-        let (store, profile_value, warnings_value) = mutation_warnings(value);
+        let (store, profile_value, warnings_value) = mutation_warnings(value)?;
         // conversion / allocationを先に済ませてからoutput全体を公開する。
-        let store = owned_bytes(store);
+        let store = owned_bytes(store)?;
         let profile = profile(&profile_value);
-        *output(out_store)? = store;
+        *output(out_store)? = store.into_inner();
         *output(out_profile)? = profile;
-        *output(out_warnings)? = warnings_value;
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -612,10 +769,10 @@ pub unsafe extern "C" fn snwc_restore_profile(
             input(password_utf8)?,
             network,
         )?;
-        let (store, profile_value, warnings_value) = mutation_warnings(value);
-        *output(out_store)? = owned_bytes(store);
+        let (store, profile_value, warnings_value) = mutation_warnings(value)?;
+        *output(out_store)? = owned_bytes(store)?.into_inner();
         *output(out_profile)? = profile(&profile_value);
-        *output(out_warnings)? = warnings_value;
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -643,10 +800,11 @@ pub unsafe extern "C" fn snwc_export_mnemonic(
             parse_export_request(request)?,
             input(password_utf8)?,
         )?;
-        let (value, warnings_value) = read_warnings(value);
+        let (value, warnings_value) = read_warnings(value)?;
         let mut value = value;
-        *output(out_mnemonic)? = owned_bytes(std::mem::take(&mut value.mnemonic_utf8));
-        *output(out_warnings)? = warnings_value;
+        *output(out_mnemonic)? =
+            owned_bytes(std::mem::take(&mut value.mnemonic_utf8))?.into_inner();
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -674,10 +832,9 @@ pub unsafe extern "C" fn snwc_export_private_key(
             parse_export_request(request)?,
             input(password_utf8)?,
         )?;
-        let (value, warnings_value) = read_warnings(value);
-        let mut private_key = Zeroizing::new(value.private_key.to_vec());
-        *output(out_private_key)? = owned_bytes(std::mem::take(&mut *private_key));
-        *output(out_warnings)? = warnings_value;
+        let (value, warnings_value) = read_warnings(value)?;
+        *output(out_private_key)? = owned_bytes_from_slice(&value.private_key)?.into_inner();
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -701,23 +858,21 @@ pub unsafe extern "C" fn snwc_list_profiles(
         require_output(out_len)?;
         require_output(out_warnings)?;
         let value = list_profiles(input(store)?)?;
-        let (values, warnings_value) = read_warnings(value);
+        let (values, warnings_value) = read_warnings(value)?;
         if values.is_empty() {
             *output(out_profiles)? = ptr::null_mut();
             *output(out_len)? = 0;
-            *output(out_warnings)? = warnings_value;
+            *output(out_warnings)? = warnings_output(warnings_value);
             return Ok(success());
         }
-        let values = values
-            .iter()
-            .map(profile)
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
-        let len = values.len();
-        let ptr = Box::into_raw(values).cast();
+        let mut profile_values = unsafe { allocate_output_slice::<SnwcProfileInfo>(values.len())? };
+        for (index, value) in values.iter().enumerate() {
+            unsafe { profile_values.write(index, profile(value)) };
+        }
+        let (ptr, len) = profile_values.into_raw_parts();
         *output(out_profiles)? = ptr;
         *output(out_len)? = len;
-        *output(out_warnings)? = warnings_value;
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -742,23 +897,22 @@ pub unsafe extern "C" fn snwc_list_software_keys(
         require_output(out_len)?;
         require_output(out_warnings)?;
         let value = list_software_keys(input(store)?, uuid::Uuid::from_bytes(profile_id.bytes))?;
-        let (values, warnings_value) = read_warnings(value);
+        let (values, warnings_value) = read_warnings(value)?;
         if values.is_empty() {
             *output(out_keys)? = ptr::null_mut();
             *output(out_len)? = 0;
-            *output(out_warnings)? = warnings_value;
+            *output(out_warnings)? = warnings_output(warnings_value);
             return Ok(success());
         }
-        let values = values
-            .iter()
-            .map(software_key_list_item)
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
-        let len = values.len();
-        let ptr = Box::into_raw(values).cast();
+        let mut key_values =
+            unsafe { allocate_output_slice::<SnwcSoftwareKeyListItem>(values.len())? };
+        for (index, value) in values.iter().enumerate() {
+            unsafe { key_values.write(index, software_key_list_item(value)) };
+        }
+        let (ptr, len) = key_values.into_raw_parts();
         *output(out_keys)? = ptr;
         *output(out_len)? = len;
-        *output(out_warnings)? = warnings_value;
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -906,10 +1060,10 @@ pub unsafe extern "C" fn snwc_derive_software_key(
             parse_chain_value(chain_wire)?,
             account_index,
         )?;
-        let (store, key_value, warnings_value) = mutation_warnings(value);
-        *output(out_store)? = owned_bytes(store);
+        let (store, key_value, warnings_value) = mutation_warnings(value)?;
+        *output(out_store)? = owned_bytes(store)?.into_inner();
         *output(out_key)? = software_key(&key_value);
-        *output(out_warnings)? = warnings_value;
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -944,10 +1098,10 @@ pub unsafe extern "C" fn snwc_import_software_key(
             parse_chain_value(chain_wire)?,
             input(private_key)?,
         )?;
-        let (store, key_value, warnings_value) = mutation_warnings(value);
-        *output(out_store)? = owned_bytes(store);
+        let (store, key_value, warnings_value) = mutation_warnings(value)?;
+        *output(out_store)? = owned_bytes(store)?.into_inner();
         *output(out_key)? = software_key(&key_value);
-        *output(out_warnings)? = warnings_value;
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -980,10 +1134,10 @@ pub unsafe extern "C" fn snwc_generate_software_key(
             input(password_utf8)?,
             parse_chain_value(chain_wire)?,
         )?;
-        let (store, key_value, warnings_value) = mutation_warnings(value);
-        *output(out_store)? = owned_bytes(store);
+        let (store, key_value, warnings_value) = mutation_warnings(value)?;
+        *output(out_store)? = owned_bytes(store)?.into_inner();
         *output(out_key)? = software_key(&key_value);
-        *output(out_warnings)? = warnings_value;
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -1015,9 +1169,9 @@ pub unsafe extern "C" fn snwc_get_public_account(
             parse_account_context(requested_context)?,
             input(password_utf8)?,
         )?;
-        let (value, warnings_value) = read_warnings(value);
-        *output(out_account)? = public_account(value);
-        *output(out_warnings)? = warnings_value;
+        let (value, warnings_value) = read_warnings(value)?;
+        *output(out_account)? = public_account(value)?;
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -1045,9 +1199,9 @@ pub unsafe extern "C" fn snwc_sign(
             parse_signing_request(request)?,
             input(password_utf8)?,
         )?;
-        let (value, warnings_value) = read_warnings(value);
-        *output(out_signature)? = owned_bytes(value.signature.to_vec());
-        *output(out_warnings)? = warnings_value;
+        let (value, warnings_value) = read_warnings(value)?;
+        *output(out_signature)? = owned_bytes_from_slice(&value.signature)?.into_inner();
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -1077,9 +1231,9 @@ pub unsafe extern "C" fn snwc_change_profile_password(
             input(current_password_utf8)?,
             input(new_password_utf8)?,
         )?;
-        let (store, _, warnings_value) = mutation_warnings(value);
-        *output(out_store)? = owned_bytes(store);
-        *output(out_warnings)? = warnings_value;
+        let (store, _, warnings_value) = mutation_warnings(value)?;
+        *output(out_store)? = owned_bytes(store)?.into_inner();
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -1109,9 +1263,9 @@ pub unsafe extern "C" fn snwc_delete_software_key(
             uuid::Uuid::from_bytes(key_id.bytes),
             input(password_utf8)?,
         )?;
-        let (store, _, warnings_value) = mutation_warnings(value);
-        *output(out_store)? = owned_bytes(store);
-        *output(out_warnings)? = warnings_value;
+        let (store, _, warnings_value) = mutation_warnings(value)?;
+        *output(out_store)? = owned_bytes(store)?.into_inner();
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -1139,9 +1293,9 @@ pub unsafe extern "C" fn snwc_delete_profile(
             uuid::Uuid::from_bytes(profile_id.bytes),
             input(password_utf8)?,
         )?;
-        let (store, _, warnings_value) = mutation_warnings(value);
-        *output(out_store)? = owned_bytes(store);
-        *output(out_warnings)? = warnings_value;
+        let (store, _, warnings_value) = mutation_warnings(value)?;
+        *output(out_store)? = owned_bytes(store)?.into_inner();
+        *output(out_warnings)? = warnings_output(warnings_value);
         Ok(success())
     })
 }
@@ -1156,12 +1310,7 @@ pub unsafe extern "C" fn snwc_free_bytes(value: *mut SnwcOwnedBytes) {
     let Some(value) = value.as_mut() else {
         return;
     };
-    if !value.ptr.is_null() && value.len != 0 {
-        let mut buffer = Box::from_raw(ptr::slice_from_raw_parts_mut(value.ptr, value.len));
-        zeroize::Zeroize::zeroize(&mut buffer);
-    }
-    value.ptr = ptr::null_mut();
-    value.len = 0;
+    release_owned_bytes(value);
 }
 
 /// warning配列を解放する。
@@ -1174,11 +1323,7 @@ pub unsafe extern "C" fn snwc_free_warnings(value: *mut SnwcWarnings) {
     let Some(value) = value.as_mut() else {
         return;
     };
-    if !value.ptr.is_null() && value.len != 0 {
-        drop(Box::from_raw(ptr::slice_from_raw_parts_mut(
-            value.ptr, value.len,
-        )));
-    }
+    deallocate_output_slice(value.ptr, value.len);
     value.ptr = ptr::null_mut();
     value.len = 0;
 }
@@ -1197,12 +1342,7 @@ pub unsafe extern "C" fn snwc_free_profiles(
     let (Some(values_ptr), Some(len)) = (values_ptr.as_mut(), len.as_mut()) else {
         return;
     };
-    if !(*values_ptr).is_null() && *len != 0 {
-        drop(Box::from_raw(ptr::slice_from_raw_parts_mut(
-            *values_ptr,
-            *len,
-        )));
-    }
+    deallocate_output_slice(*values_ptr, *len);
     *values_ptr = ptr::null_mut();
     *len = 0;
 }
@@ -1221,12 +1361,7 @@ pub unsafe extern "C" fn snwc_free_software_key_list(
     let (Some(values_ptr), Some(len)) = (values_ptr.as_mut(), len.as_mut()) else {
         return;
     };
-    if !(*values_ptr).is_null() && *len != 0 {
-        drop(Box::from_raw(ptr::slice_from_raw_parts_mut(
-            *values_ptr,
-            *len,
-        )));
-    }
+    deallocate_output_slice(*values_ptr, *len);
     *values_ptr = ptr::null_mut();
     *len = 0;
 }
@@ -1234,6 +1369,7 @@ pub unsafe extern "C" fn snwc_free_software_key_list(
 #[cfg(test)]
 mod binding_tests {
     use super::*;
+    use std::ffi::CStr;
 
     #[test]
     fn ffi_panic_maps_to_binding_failure() {
@@ -1242,5 +1378,48 @@ mod binding_tests {
         });
         let code = unsafe { std::ffi::CStr::from_ptr(result) };
         assert_eq!(code.to_bytes(), b"BindingFailure");
+    }
+
+    #[test]
+    fn output_allocation_failure_maps_to_binding_failure_without_partial_output() {
+        const PASSWORD: &[u8] = b"correct horse battery staple";
+
+        unsafe {
+            let mut store = SnwcOwnedBytes::default();
+            allocation_failure_seam::inject(0);
+            let error = snwc_create_empty_store(&mut store);
+            assert_eq!(CStr::from_ptr(error).to_bytes(), b"BindingFailure");
+            assert!(store.ptr.is_null());
+            assert_eq!(store.len, 0);
+
+            let mut input_store = SnwcOwnedBytes::default();
+            assert!(snwc_create_empty_store(&mut input_store).is_null());
+
+            // Fail at the second output allocation. The first allocation must be reclaimed
+            // by its guard, and neither secret output may become visible to the C caller.
+            let mut mnemonic = SnwcOwnedBytes::default();
+            let mut pending = SnwcOwnedBytes::default();
+            let mut warnings = SnwcWarnings::default();
+            allocation_failure_seam::inject(1);
+            let error = snwc_prepare_generated_profile(
+                SnwcBytes {
+                    ptr: input_store.ptr,
+                    len: input_store.len,
+                },
+                SnwcBytes {
+                    ptr: PASSWORD.as_ptr(),
+                    len: PASSWORD.len(),
+                },
+                1,
+                &mut mnemonic,
+                &mut pending,
+                &mut warnings,
+            );
+            assert_eq!(CStr::from_ptr(error).to_bytes(), b"BindingFailure");
+            assert!(mnemonic.ptr.is_null() && mnemonic.len == 0);
+            assert!(pending.ptr.is_null() && pending.len == 0);
+            assert!(warnings.ptr.is_null() && warnings.len == 0);
+            snwc_free_bytes(&mut input_store);
+        }
     }
 }

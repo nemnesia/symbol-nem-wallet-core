@@ -10,7 +10,7 @@
 //! `{ value, warnings }`、状態変更結果は`{ store, value, warnings }`のobjectに変換する。
 //! `Result`のエラーは秘密情報を含まないerror code文字列としてJavaScriptへ投げる。
 
-use js_sys::{Array, Function, Object, Reflect, Uint8Array};
+use js_sys::{Array, ArrayBuffer, Object, Reflect, Uint8Array};
 use uuid::Uuid;
 use wasm_bindgen::{prelude::*, JsCast};
 use zeroize::Zeroizing;
@@ -66,30 +66,34 @@ fn set(object: &Object, key: &str, value: JsValue) -> Result<(), JsValue> {
         .map_err(|_| conversion_error())
 }
 
-fn uint8_array_length(value: &Uint8Array) -> Result<usize, JsValue> {
-    let length = Reflect::get(value.as_ref(), &JsValue::from_str("length"))
-        .map_err(|_| conversion_error())?
-        .as_f64()
-        .filter(|length| {
-            length.is_finite() && length.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(length)
-        })
-        .ok_or_else(conversion_error)?;
-    Ok(length as usize)
-}
-
-fn backing_buffer_is_detached(value: &Uint8Array) -> Result<bool, JsValue> {
-    let buffer = Reflect::get(value.as_ref(), &JsValue::from_str("buffer"))
-        .map_err(|_| conversion_error())?;
-    let detached =
-        Reflect::get(&buffer, &JsValue::from_str("detached")).map_err(|_| conversion_error())?;
-
-    // Older runtimes may not expose ArrayBuffer.prototype.detached. In that case the
-    // catch-enabled slice below remains the fallback for detached / unreadable buffers.
-    match detached.as_bool() {
-        Some(detached) => Ok(detached),
-        None if detached.is_undefined() => Ok(false),
-        None => Err(conversion_error()),
+fn checked_uint8_array_view(value: &Uint8Array) -> Result<(ArrayBuffer, u32, u32), JsValue> {
+    // ArrayBuffer.isView is an engine-level typed-array check. It rejects a Proxy even when
+    // `proxy instanceof Uint8Array` is true, so proxy traps cannot substitute the view metadata.
+    if !try_is_uint8_array_view(value).map_err(|_| conversion_error())? {
+        return Err(conversion_error());
     }
+
+    // The JS bridge invokes captured intrinsic accessors. This avoids input own-properties and
+    // mutable prototypes shadowing length, byteLength, byteOffset, buffer, or detached.
+    let buffer = try_uint8_array_buffer(value).map_err(|_| conversion_error())?;
+    if try_array_buffer_detached(&buffer).map_err(|_| conversion_error())? {
+        return Err(conversion_error());
+    }
+
+    // These are the typed-array accessors, not properties/methods obtained from the input
+    // object. Validate both the view byte length and its bounds against the actual backing
+    // buffer before reading any bytes.
+    let length = try_uint8_array_length(value).map_err(|_| conversion_error())?;
+    let byte_length = try_uint8_array_byte_length(value).map_err(|_| conversion_error())?;
+    let byte_offset = try_uint8_array_byte_offset(value).map_err(|_| conversion_error())?;
+    let buffer_length = try_array_buffer_byte_length(&buffer).map_err(|_| conversion_error())?;
+    if byte_length != length
+        || (byte_offset as usize) > (buffer_length as usize)
+        || (byte_length as usize) > (buffer_length as usize) - (byte_offset as usize)
+    {
+        return Err(conversion_error());
+    }
+    Ok((buffer, byte_offset, length))
 }
 
 fn copy_uint8_array(
@@ -98,32 +102,24 @@ fn copy_uint8_array(
 ) -> Result<Zeroizing<Vec<u8>>, JsValue> {
     // Read the representation before allocating. A detached Uint8Array reports length 0,
     // so length alone must never be used to distinguish it from an attached empty array.
-    let length = uint8_array_length(value)?;
-    if backing_buffer_is_detached(value)? {
-        return Err(conversion_error());
-    }
+    let (buffer, byte_offset, length) = checked_uint8_array_view(value)?;
+    let length = length as usize;
     if max_length.is_some_and(|max_length| length > max_length) {
         return Err(JsValue::from_str(ErrorCode::InvalidStore.as_str()));
     }
 
-    // Calling slice through Function::call0 gives the binding a catch-enabled JS read path.
-    // This covers runtimes without ArrayBuffer.prototype.detached and any unreadable source
-    // that throws while its contents are being copied.
-    let slice = Reflect::get(value.as_ref(), &JsValue::from_str("slice"))
-        .map_err(|_| conversion_error())?
-        .dyn_into::<Function>()
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(length)
         .map_err(|_| conversion_error())?;
-    let copied = slice
-        .call0(value.as_ref())
-        .map_err(|_| conversion_error())?
-        .dyn_into::<Uint8Array>()
+    // The capacity was reserved successfully and is at least `length`. Constructing a fresh
+    // view from the validated backing ArrayBuffer makes the copy independent of all methods on
+    // the input object and its mutable prototype. The inline bridge captures the native
+    // Uint8Array.prototype.set once when the binding module is initialized, then uses it with
+    // the fresh view and the Wasm destination; it never reads a method from the input object.
+    output.resize(length, 0);
+    try_copy_uint8_array(&buffer, byte_offset, length as u32, &mut output)
         .map_err(|_| conversion_error())?;
-    if backing_buffer_is_detached(&copied)? || uint8_array_length(&copied)? != length {
-        return Err(conversion_error());
-    }
-
-    let mut output = vec![0u8; length];
-    copied.copy_to(&mut output);
     // JS管理下の入力をCoreへ渡す一時Vec。Storeにもregistry_keyが含まれるため、
     // Core処理終了後はBinding側のコピーもzeroizeしてから所有を終える。
     Ok(Zeroizing::new(output))
@@ -139,8 +135,129 @@ fn store_bytes(value: &Uint8Array) -> Result<Zeroizing<Vec<u8>>, JsValue> {
     copy_uint8_array(value, Some(MAX_WALLET_STORE_BYTES))
 }
 
-fn uint8_array(value: &[u8]) -> JsValue {
-    Uint8Array::from(value).into()
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(
+    inline_js = "const snwcObject = Object; const snwcArray = Array; const snwcUint8Array = Uint8Array; const snwcTypedArrayPrototype = Object.getPrototypeOf(snwcUint8Array.prototype); const snwcArrayBuffer = ArrayBuffer; const snwcArrayBufferIsView = snwcArrayBuffer.isView; const snwcUint8ArrayLength = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'length').get; const snwcUint8ArrayByteLength = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'byteLength').get; const snwcUint8ArrayByteOffset = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'byteOffset').get; const snwcUint8ArrayBuffer = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'buffer').get; const snwcArrayBufferByteLength = Object.getOwnPropertyDescriptor(snwcArrayBuffer.prototype, 'byteLength').get; const snwcArrayBufferDetached = Object.getOwnPropertyDescriptor(snwcArrayBuffer.prototype, 'detached').get; const snwcUint8ArraySet = snwcUint8Array.prototype.set; export function snwc_new_object() { return new snwcObject(); } export function snwc_new_array() { return new snwcArray(); } export function snwc_array_push(array, value) { array[array.length] = value; } export function snwc_new_uint8_array(value) { return new snwcUint8Array(value); } export function snwc_is_uint8_array_view(value) { return snwcArrayBufferIsView(value); } export function snwc_uint8_array_length(value) { return snwcUint8ArrayLength.call(value); } export function snwc_uint8_array_byte_length(value) { return snwcUint8ArrayByteLength.call(value); } export function snwc_uint8_array_byte_offset(value) { return snwcUint8ArrayByteOffset.call(value); } export function snwc_uint8_array_buffer(value) { return snwcUint8ArrayBuffer.call(value); } export function snwc_array_buffer_byte_length(value) { return snwcArrayBufferByteLength.call(value); } export function snwc_array_buffer_detached(value) { return snwcArrayBufferDetached.call(value); } export function snwc_copy_uint8_array(buffer, byteOffset, length, destination) { const view = new snwcUint8Array(buffer, byteOffset, length); snwcUint8ArraySet.call(destination, view); }"
+)]
+extern "C" {
+    #[wasm_bindgen(catch, js_name = snwc_new_object)]
+    fn try_new_object() -> Result<Object, JsValue>;
+
+    #[wasm_bindgen(catch, js_name = snwc_new_array)]
+    fn try_new_array() -> Result<Array, JsValue>;
+
+    #[wasm_bindgen(catch, js_name = snwc_array_push)]
+    fn try_array_push(array: &Array, value: &JsValue) -> Result<(), JsValue>;
+
+    // Uint8Array construction is a JS exception-capable representation boundary. The catch
+    // ABI maps a constructor exception to the caller's BindingFailure path.
+    #[wasm_bindgen(catch, js_name = snwc_new_uint8_array)]
+    fn try_new_uint8_array(value: &[u8]) -> Result<Uint8Array, JsValue>;
+
+    #[wasm_bindgen(catch, js_name = snwc_is_uint8_array_view)]
+    fn try_is_uint8_array_view(value: &Uint8Array) -> Result<bool, JsValue>;
+
+    #[wasm_bindgen(catch, js_name = snwc_uint8_array_length)]
+    fn try_uint8_array_length(value: &Uint8Array) -> Result<u32, JsValue>;
+
+    #[wasm_bindgen(catch, js_name = snwc_uint8_array_byte_length)]
+    fn try_uint8_array_byte_length(value: &Uint8Array) -> Result<u32, JsValue>;
+
+    #[wasm_bindgen(catch, js_name = snwc_uint8_array_byte_offset)]
+    fn try_uint8_array_byte_offset(value: &Uint8Array) -> Result<u32, JsValue>;
+
+    #[wasm_bindgen(catch, js_name = snwc_uint8_array_buffer)]
+    fn try_uint8_array_buffer(value: &Uint8Array) -> Result<ArrayBuffer, JsValue>;
+
+    #[wasm_bindgen(catch, js_name = snwc_array_buffer_byte_length)]
+    fn try_array_buffer_byte_length(value: &ArrayBuffer) -> Result<u32, JsValue>;
+
+    #[wasm_bindgen(catch, js_name = snwc_array_buffer_detached)]
+    fn try_array_buffer_detached(value: &ArrayBuffer) -> Result<bool, JsValue>;
+
+    #[wasm_bindgen(catch, js_name = snwc_copy_uint8_array)]
+    fn try_copy_uint8_array(
+        buffer: &ArrayBuffer,
+        byte_offset: u32,
+        length: u32,
+        destination: &mut [u8],
+    ) -> Result<(), JsValue>;
+}
+
+#[cfg(test)]
+mod allocation_failure_seam {
+    use std::cell::Cell;
+
+    thread_local! {
+        static FAIL_NEXT: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(super) fn inject() {
+        FAIL_NEXT.with(|value| value.set(true));
+    }
+
+    pub(super) fn should_fail() -> bool {
+        FAIL_NEXT.with(|value| value.replace(false))
+    }
+}
+
+#[cfg(test)]
+fn output_allocation_should_fail() -> bool {
+    allocation_failure_seam::should_fail()
+}
+
+#[cfg(not(test))]
+#[inline]
+fn output_allocation_should_fail() -> bool {
+    false
+}
+
+fn js_object() -> Result<Object, JsValue> {
+    if output_allocation_should_fail() {
+        return Err(conversion_error());
+    }
+    #[cfg(target_arch = "wasm32")]
+    let object = try_new_object().map_err(|_| conversion_error())?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let object = Object::new();
+    Ok(object)
+}
+
+fn js_array() -> Result<Array, JsValue> {
+    if output_allocation_should_fail() {
+        return Err(conversion_error());
+    }
+    #[cfg(target_arch = "wasm32")]
+    let array = try_new_array().map_err(|_| conversion_error())?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let array = Array::new();
+    Ok(array)
+}
+
+fn js_array_push(array: &Array, value: &JsValue) -> Result<(), JsValue> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        try_array_push(array, value).map_err(|_| conversion_error())?;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        array.push(value);
+    }
+    Ok(())
+}
+
+fn uint8_array(value: &[u8]) -> Result<JsValue, JsValue> {
+    // Rust reservation and the catch-enabled JS constructor cover allocation/construction
+    // failures that return to the binding. A host/runtime OOM that aborts execution before an
+    // exception can be delivered is outside this guarantee and cannot be mapped to BindingFailure.
+    if output_allocation_should_fail() {
+        return Err(conversion_error());
+    }
+    #[cfg(target_arch = "wasm32")]
+    let array = try_new_uint8_array(value).map_err(|_| conversion_error())?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let array = Uint8Array::from(value);
+    Ok(array.into())
 }
 
 fn parse_network(value: f64) -> Result<Network, WalletError> {
@@ -311,7 +428,7 @@ fn chain_text(value: Chain) -> &'static str {
 }
 
 fn origin_object(origin: SoftwareKeyOrigin) -> Result<JsValue, JsValue> {
-    let object = Object::new();
+    let object = js_object()?;
     match origin {
         SoftwareKeyOrigin::Derived { account_index } => {
             set(&object, "kind", JsValue::from_str("derived"))?;
@@ -329,9 +446,9 @@ fn origin_object(origin: SoftwareKeyOrigin) -> Result<JsValue, JsValue> {
 
 fn warning_array(warnings: &[DecodeWarning]) -> Result<JsValue, JsValue> {
     // Warningは診断情報として変換し、Mnemonicやprivate keyなどの秘密値はコピーしない。
-    let array = Array::new();
+    let array = js_array()?;
     for warning in warnings {
-        let object = Object::new();
+        let object = js_object()?;
         set(&object, "code", JsValue::from_str(warning.code))?;
         set(
             &object,
@@ -350,14 +467,14 @@ fn warning_array(warnings: &[DecodeWarning]) -> Result<JsValue, JsValue> {
             Some(field) => set(&object, "field", JsValue::from_str(field))?,
             None => set(&object, "field", JsValue::UNDEFINED)?,
         }
-        array.push(object.as_ref());
+        js_array_push(&array, object.as_ref())?;
     }
     Ok(array.into())
 }
 
 fn read_result(value: JsValue, warnings: Vec<DecodeWarning>) -> Result<JsValue, JsValue> {
     // CoreのReadResult<T>をJavaScript objectへ変換する共通経路。
-    let object = Object::new();
+    let object = js_object()?;
     set(&object, "value", value)?;
     set(&object, "warnings", warning_array(&warnings)?)?;
     Ok(object.into())
@@ -369,15 +486,15 @@ fn mutation_result<T>(result: MutationResult<T>, value: JsValue) -> Result<JsVal
         store, warnings, ..
     } = result;
     let store = Zeroizing::new(store);
-    let object = Object::new();
-    set(&object, "store", uint8_array(&store))?;
+    let object = js_object()?;
+    set(&object, "store", uint8_array(&store)?)?;
     set(&object, "value", value)?;
     set(&object, "warnings", warning_array(&warnings)?)?;
     Ok(object.into())
 }
 
 fn profile_info(value: &ProfileInfo) -> Result<JsValue, JsValue> {
-    let object = Object::new();
+    let object = js_object()?;
     set(
         &object,
         "profile_id",
@@ -397,7 +514,7 @@ fn profile_info(value: &ProfileInfo) -> Result<JsValue, JsValue> {
 }
 
 fn software_key_info(value: &SoftwareKeyInfo) -> Result<JsValue, JsValue> {
-    let object = Object::new();
+    let object = js_object()?;
     set(
         &object,
         "key_id",
@@ -409,7 +526,7 @@ fn software_key_info(value: &SoftwareKeyInfo) -> Result<JsValue, JsValue> {
 }
 
 fn software_key_list_item(value: &SoftwareKeyListItem) -> Result<JsValue, JsValue> {
-    let object = Object::new();
+    let object = js_object()?;
     set(
         &object,
         "key_id",
@@ -420,7 +537,7 @@ fn software_key_list_item(value: &SoftwareKeyListItem) -> Result<JsValue, JsValu
 }
 
 fn public_account(value: &PublicAccountInfo) -> Result<JsValue, JsValue> {
-    let object = Object::new();
+    let object = js_object()?;
     set(
         &object,
         "key_id",
@@ -432,40 +549,40 @@ fn public_account(value: &PublicAccountInfo) -> Result<JsValue, JsValue> {
         "network",
         JsValue::from_str(network_text(value.network)),
     )?;
-    set(&object, "public_key", uint8_array(&value.public_key))?;
+    set(&object, "public_key", uint8_array(&value.public_key)?)?;
     set(&object, "address", JsValue::from_str(&value.address))?;
     Ok(object.into())
 }
 
 fn signature(value: &Signature) -> Result<JsValue, JsValue> {
-    let object = Object::new();
-    set(&object, "signature", uint8_array(&value.signature))?;
+    let object = js_object()?;
+    set(&object, "signature", uint8_array(&value.signature)?)?;
     Ok(object.into())
 }
 
 fn mnemonic_export(value: MnemonicExport) -> Result<JsValue, JsValue> {
-    let object = Object::new();
+    let object = js_object()?;
     // DTO自身が所有するbufferを参照し、JS向け変換のための一時Rustコピーを作らない。
     // 関数終了時にはMnemonicExport::dropが元bufferをzeroizeする。
-    set(&object, "mnemonic_utf8", uint8_array(&value.mnemonic_utf8))?;
+    set(&object, "mnemonic_utf8", uint8_array(&value.mnemonic_utf8)?)?;
     Ok(object.into())
 }
 
 fn private_key_export(value: PrivateKeyExport) -> Result<JsValue, JsValue> {
-    let object = Object::new();
+    let object = js_object()?;
     // Uint8Array生成時のJS側コピーは仕様上の返却値。その後、DTO側のraw keyを破棄する。
-    set(&object, "private_key", uint8_array(&value.private_key[..]))?;
+    set(&object, "private_key", uint8_array(&value.private_key[..])?)?;
     Ok(object.into())
 }
 
 fn prepared_profile(value: PreparedProfile) -> Result<JsValue, JsValue> {
-    let object = Object::new();
+    let object = js_object()?;
     // Pending ProfileもDTOのDropでzeroizeし、binding内で別の通常Vecを保持しない。
-    set(&object, "mnemonic_utf8", uint8_array(&value.mnemonic_utf8))?;
+    set(&object, "mnemonic_utf8", uint8_array(&value.mnemonic_utf8)?)?;
     set(
         &object,
         "pending_profile",
-        uint8_array(&value.pending_profile),
+        uint8_array(&value.pending_profile)?,
     )?;
     Ok(object.into())
 }
@@ -478,7 +595,9 @@ fn prepared_profile(value: PreparedProfile) -> Result<JsValue, JsValue> {
 pub fn create_empty_store() -> Result<Uint8Array, JsValue> {
     let value = core_create_empty_store().map_err(binding_error)?;
     let value = Zeroizing::new(value);
-    Ok(Uint8Array::from(value.as_slice()))
+    Ok(uint8_array(&value)?
+        .dyn_into()
+        .map_err(|_| conversion_error())?)
 }
 
 /// Mnemonic生成の初回段階を実行し、Storeを変更せずにPending Profileを返す。
@@ -588,10 +707,10 @@ pub fn export_private_key(
 pub fn list_profiles(store: &Uint8Array) -> Result<JsValue, JsValue> {
     let store_bytes = store_bytes(store)?;
     let result = core_list_profiles(&store_bytes).map_err(binding_error)?;
-    let array = Array::new();
+    let array = js_array()?;
     for value in &result.value {
         let object = profile_info(value)?;
-        array.push(&object);
+        js_array_push(&array, &object)?;
     }
     read_result(array.into(), result.warnings)
 }
@@ -605,10 +724,10 @@ pub fn list_software_keys(store: &Uint8Array, profile_id: &str) -> Result<JsValu
     let profile_id = parse_uuid(profile_id).map_err(binding_error)?;
     let store_bytes = store_bytes(store)?;
     let result = core_list_software_keys(&store_bytes, profile_id).map_err(binding_error)?;
-    let array = Array::new();
+    let array = js_array()?;
     for value in &result.value {
         let object = software_key_list_item(value)?;
-        array.push(&object);
+        js_array_push(&array, &object)?;
     }
     read_result(array.into(), result.warnings)
 }
