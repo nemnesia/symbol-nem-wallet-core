@@ -63,20 +63,44 @@ impl Drop for PropertyRestore {
 struct PropertyDeleteRestore {
     object: Object,
     property: JsValue,
+    original: Option<Object>,
+    restored: bool,
 }
 
 impl PropertyDeleteRestore {
     fn new(object: Object, property: Symbol) -> Self {
+        let property: JsValue = property.into();
+        let original = Reflect::get_own_property_descriptor(&object, &property).unwrap();
         Self {
             object,
-            property: property.into(),
+            property,
+            original: (!original.is_undefined()).then(|| original.unchecked_into()),
+            restored: false,
+        }
+    }
+
+    fn restore(&mut self) -> Result<(), JsValue> {
+        if self.restored {
+            return Ok(());
+        }
+
+        let restored = match &self.original {
+            Some(original) => Reflect::define_property(&self.object, &self.property, original),
+            None => Reflect::delete_property(&self.object, &self.property),
+        }?;
+        if restored {
+            self.restored = true;
+            Ok(())
+        } else {
+            Err(JsValue::from_str("test property restoration failed"))
         }
     }
 }
 
 impl Drop for PropertyDeleteRestore {
     fn drop(&mut self) {
-        let _ = Reflect::delete_property(&self.object, &self.property);
+        // Do not panic from Drop: an assertion may already be unwinding the test.
+        let _ = self.restore();
     }
 }
 
@@ -876,11 +900,19 @@ fn wasm_binary_inputs_require_exact_uint8_array_brand() {
     )
     .unwrap());
     let prototype = Object::get_prototype_of(actual.as_ref());
+    let mut prototype_tag_restore =
+        PropertyDeleteRestore::new(prototype.clone(), Symbol::to_string_tag());
     let prototype_tag_descriptor = Object::new();
     Reflect::set(
         &prototype_tag_descriptor,
         &JsValue::from_str("value"),
         &JsValue::from_str("Uint8ClampedArray"),
+    )
+    .unwrap();
+    Reflect::set(
+        &prototype_tag_descriptor,
+        &JsValue::from_str("configurable"),
+        &JsValue::TRUE,
     )
     .unwrap();
     assert!(Reflect::define_property(
@@ -889,8 +921,14 @@ fn wasm_binary_inputs_require_exact_uint8_array_brand() {
         &prototype_tag_descriptor,
     )
     .unwrap());
-    let _prototype_tag_restore = PropertyDeleteRestore::new(prototype, Symbol::to_string_tag());
     assert!(list_profiles(&actual).is_ok());
+
+    prototype_tag_restore.restore().unwrap();
+    assert!(
+        Reflect::get_own_property_descriptor(&prototype, &Symbol::to_string_tag().into(),)
+            .unwrap()
+            .is_undefined()
+    );
 }
 
 #[wasm_bindgen_test]
