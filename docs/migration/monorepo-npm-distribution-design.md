@@ -19,7 +19,7 @@
 - Node.js では Node-API native addon を優先し、Browser では WASM を使用する静的 routing を定める。native addon が明示的に無効、対象外または配布対象に含まれない場合に WASM へ安全にフォールバックできるようにする。
 - native および WASM artifact を npm install 時の外部 URL download、postinstall build または postinstall script に依存させず、配布物の integrity、再現性、SBOM および provenance を検証できるようにする。
 - Core、C ABI、WASM、Node-API および npm facade を v1 では同一 release version で管理する。
-- 各 migration 段階で既存の Core、Native C ABI、WASM、fuzz および interop 検証を維持し、段階ごとに回帰を検出できるようにする。
+- 各 migration 段階で、その段階の maintained topology に対応する Core、Native C ABI、WASM、fuzz および interop 検証を成立させ、段階ごとに回帰を検出できるようにする。旧 root raw WASM build interface は DD-002 により compatibility contract として維持せず、WASM は Stage 4 以降の `crates/wasm` 経路で検証する。
 
 ### 1.2 Non-goals
 
@@ -105,6 +105,8 @@ Node.js 経路は同じ Rust Wallet Core を利用する v1 supported environmen
 ```
 
 現行 manifest では、root package が `rlib` / `cdylib` を提供し、workspace member は `bindings/native` である。root package の `wasm` feature が `wasm-bindgen` / `js-sys` を有効化し、WASM-specific source は `src/wasm.rs` に存在する。Native package は `symbol-nem-wallet-core-native` という package name で root Core に path dependency を持ち、`staticlib` / `cdylib` を生成する。Node-API crate、npm facade、root `package.json` および `pnpm-workspace.yaml` はまだ存在しない。
+
+現行の WASM 利用経路は、root package の `wasm` feature と `cdylib`、`scripts/build-wasm.sh`、root `pkg/` および README に記載された `wasm-bindgen` generated module の組み合わせである。この経路は現行 repository の利用者向け build / distribution interface だが、最終構成の consumer-facing entry point ではない。互換方針は §14.3 および DD-002 で定める。
 
 fuzz は独自の `[workspace]` と `fuzz/Cargo.lock` を持つため、root Cargo workspace とは別の cargo-fuzz workspace として扱う。生成される `pkg/` は現行でも repository の仕様正本ではない。
 
@@ -283,6 +285,8 @@ license = "MIT"
 ```
 
 実際の dependency version、feature、metadata は migration 時に現行 manifest と lockfile を差分確認して移す。workspace centralization を理由に、暗号 dependency、protocol behavior または public API を変更しない。
+
+ここで示す virtual workspace は最終構成であり、migration Stage 1 の準備状態を表さない。Stage 1 では root の `[package]` と `symbol-nem-wallet-core` package を維持する。root package を virtual workspace へ切り替えるのは、Core relocation、現行 Native Binding と fuzz の path dependency 更新、およびそれらを解決する workspace member 更新を同じ atomic stage で完了できる Stage 2 に限る。
 
 `fuzz/` は cargo-fuzz の独立 workspace として維持し、Core の path dependency を `../crates/core` へ変更する。root の `Cargo.lock` は release workspace の正本、`fuzz/Cargo.lock` は fuzz workspace の lockfile として分離する。
 
@@ -553,6 +557,21 @@ npm registry の package integrity、tarball contents allowlist、artifact diges
 
 runtime hash verification を facade の公開動作として追加するかは、本書では固定しない。追加する場合も、検証失敗を Core の `InvalidStore`、`AuthenticationFailed` または別の security meaning へ変換せず、package / backend initialization failure として仕様化する。
 
+### 14.3 旧 root raw WASM 経路の互換方針（DD-002 / DR-002 対応）
+
+v1 の JavaScript 向け正式な consumer-facing 配布は `@nemnesia/symbol-nem-wallet-core` の root entry point だけとする。したがって、次の現行 repository-level raw WASM build / distribution interface は compatibility contract として維持しない。
+
+- root Cargo package の `--features wasm`。
+- root Core `cdylib` を利用する WASM 生成。
+- root `pkg/` を既定または前提とする build output。
+- `scripts/build-wasm.sh` の旧 invocation、旧 output layout および README に記載された raw generated package の利用手順。
+
+root package を廃止する Stage 2 の boundary で、root package に属する `wasm` feature、root Core `cdylib` および root `pkg/` を利用する旧 root interface を維持しない。これは DR-001 の atomic workspace cutover に伴う意図的な distribution interface cutover であり、root package が存在しないまま旧 feature や旧 output layout を compatibility shim として残す中間状態を作らないことを意味する。Core package の source / manifest を移す都合で、Stage 2 の `crates/core` に WASM-specific source、feature または `cdylib` の一時的な内部 wiring が残ることは許容するが、これは consumer compatibility ではなく Stage 4 で必ず除去する transitional state である。Stage 2 では `scripts/build-wasm.sh` の旧 root invocation / output contract を廃止し、必要な内部検証 helper があっても新しい非公開経路として扱う。Stage 4 では一時的な Core wiring も `crates/wasm` へ抽出し、旧 interface の廃止を検証上も完了させる。旧 script は実装時に削除または新しい内部 build helper へ置換できるが、旧 command / output contract は引き継がない。
+
+`crates/wasm` は `wasm-bindgen` glue と WASM artifact の内部 Binding / artifact source であり、npm facade の Browser / universal fallback backend を生成するためにだけ使用する。raw generated wasm-bindgen package、generated module、低レベル `.wasm` artifact および `pkg/` directory は consumer-facing public entry point または public subpath にしない。新しい WASM artifact は `packages/wallet-core` の同梱物として assembly され、consumer は npm facade の root entry point だけを利用する。
+
+この cutover は、Core cryptographic behavior、Core Rust public operation semantics、Store format、error semantics、authorization、secret ownership または signing behavior の breaking change ではない。変更されるのは pre-monorepo の repository / build / distribution interface から正式な npm distribution interface への切替である。旧 raw WASM 経路を利用している外部 consumer が存在する可能性は compatibility risk として記録するが、未確認 consumer のために旧 interface を無期限に残さない。Stage 4 の cutover 時に README を新しい npm facade と低レベル `crates/wasm` の位置付けへ更新し、release / migration note では旧 raw WASM build path、new npm facade、low-level WASM artifact の非公開位置付けを説明する。
+
 ## 15. Versioning policy
 
 ### 15.1 v1 fixed-version policy
@@ -694,35 +713,38 @@ protected tag vX.Y.Z
 
 今回の Node.js scope clarification により、Node.js support は既存 v1 scope と正式に整合した。`OPEN-009` は解消済みであり、実装者が Node.js を独立した Wallet Core と解釈する余地を残さない。
 
-未決定事項は、物理的なモノレポ構造移行、Node/npm 実装、公開 release の異なる gate に分類する。
+DR-001 と DR-002 は、本書の migration invariant、sequence および resolved design decision に反映済みとする。未決定事項は、物理的なモノレポ構造移行、Node/npm 実装、公開 release の異なる gate に分類する。旧 root raw WASM 経路の compatibility 方針は未決定事項ではなく DD-002 で確定しており、残るのは外部 consumer の存在可能性を compatibility risk として inventory / migration note に記録することである。
 
 | Gate | 対象 | 段階 1〜5 の structural migration への扱い |
 | --- | --- | --- |
-| monorepo structural migration gate | upstream impact review、target tree、依存方向、責務境界、既存 consumer inventory。`OPEN-003` は package name を変更する場合だけ該当する。 | `OPEN-001`、`OPEN-002`、`OPEN-004`、`OPEN-005`、`OPEN-006`、`OPEN-007`、`OPEN-008` は blocker にしない。`OPEN-003` が未解決でも、既存 package name を維持して path migration を進められる。 |
+| monorepo structural migration gate | upstream impact review、target tree、依存方向、責務境界、Rust / Native / fuzz / 旧 raw WASM を含む既存 consumer inventory、DD-001 / DD-002、および各段階の buildable dependency graph。`OPEN-003` は package name を変更する場合だけ該当する。 | DR-001 / DR-002 の設計上の未解決は残さない。`OPEN-001`、`OPEN-002`、`OPEN-004`、`OPEN-005`、`OPEN-006`、`OPEN-007`、`OPEN-008` は blocker にしない。`OPEN-003` が未解決でも、既存 package name を維持して path migration を進められる。正式な Design Review の再承認と Stage 0 gate の完了は、実装開始前に必要である。 |
 | Node/npm implementation gate | `OPEN-001`、`OPEN-002`、`OPEN-004`、`OPEN-005`、`OPEN-008` | crates/core、crates/c-abi、crates/wasm の structural migration 開始条件にはしない。`crates/node` と npm facade の実装開始前に解決する。 |
 | release gate | `OPEN-006`、`OPEN-007` と release candidate の全 artifact / package 検証 | structural migration および Node/npm 実装の開始条件にはしない。publish、GitHub release asset 提供および provenance 完了前に解決する。 |
 
-Node-API wrapper library、exact Node.js version matrix、Browser bundler baseline、artifact size threshold、runtime hash verification および SBOM / provenance の具体方式は、Core / C ABI / WASM の物理的な path move を段階 1 から開始する blocker ではない。
+Node-API wrapper library、exact Node.js version matrix、Browser bundler baseline、artifact size threshold、runtime hash verification および SBOM / provenance の具体方式は、Core / C ABI / WASM の物理的な path move を Stage 1 から開始する blocker ではない。旧 raw WASM interface の廃止方針そのものは DD-002 で確定しているため、implementation が compatibility shim の有無を再判断してはならない。
 
-### 19.2 12 段階
+### 19.2 Migration stages
 
 | 段階 | 作業 | 完了 gate |
 | --- | --- | --- |
-| 0 | 本書、上流 impact、crate / package name、target tree、依存方向、公開範囲および gate 分類を review し、structural migration 開始を承認する。 | Node.js scope clarification と `OPEN-009` の解消、structural migration gate の承認、source code 未変更。 |
-| 1 | root Cargo virtual workspace、workspace version、root npm private package、`pnpm-workspace.yaml` および lockfile policy を準備する。 | 既存 Core / Native / fuzz の build と test が維持される。 |
-| 2 | root Core package と `src/` / Core tests を `crates/core` へ移す。Core package name と Rust public API を維持する。 | `cargo test`、clippy、format、WASM 依存分離前の Core parity が通る。 |
-| 3 | `bindings/native` を `crates/c-abi` へ移す。header、C symbols、ownership / free、C runtime tests を最小差分で移す。既存 package name の変更は `OPEN-003` の確認後に別差分で扱う。 | C header compile、runtime、sanitizer、C ABI compatibility review が通る。 |
-| 4 | `src/wasm.rs`、WASM feature、`wasm-bindgen` / `js-sys` を `crates/wasm` へ抽出する。Core から WASM-specific dependency を除く。 | wasm target build、generated export parity、WASM boundary tests、Core の host-neutral dependency check が通る。 |
-| 5 | root `tests/`、fuzz path、scripts、fixture path、README の内部参照を段階的に修正する。 | Core / C ABI / WASM / fuzz の既存検証が新 path で通り、fixture scope が変わっていない。 |
+| 0 | 本書、上流 impact、crate / package name、target tree、依存方向、公開範囲、既存 consumer inventory および gate 分類を review し、structural migration 開始を承認する。旧 raw WASM interface を維持しない DD-002 と、各段階の buildable dependency graph を含む DD-001 を確認する。 | Node.js scope clarification と `OPEN-009` の解消、DR-001 / DR-002 を反映した本書の正式 Design Review 再承認、structural migration gate の承認、source code 未変更。 |
+| 1 | **workspace preparation**。root Rust package はまだ virtual workspace 化しない。root npm private package、`pnpm-workspace.yaml`、lockfile policy、`crates/` / `packages/` の配置準備および migration に必要な非破壊的 tooling preparation だけを行う。root `Cargo.toml` の `[package]`、`symbol-nem-wallet-core`、`src/`、現行 workspace member、Native / fuzz の root path dependency を維持する。 | 既存 root Core / Native / WASM / fuzz topology が成立し、既存の対応する build / test gate を維持できる。root package を消す変更、root virtual workspace 化、Core / Native / fuzz の path 変更はこの段階に含めない。 |
+| 2 | **Core relocation + Rust workspace cutover**。root の `symbol-nem-wallet-core` package と package-owned source / tests を `crates/core` へ移し、package name と Rust public API を維持する。同じ atomic stage で root `Cargo.toml` を virtual workspace 化し、`crates/core` と既存の `bindings/native` を workspace member とする。`bindings/native` の Core path dependency を `../../crates/core`、独立 fuzz workspace の Core path dependency を `../crates/core` へ更新し、Core relocation に直接必要な script / test path を更新する。この stage の boundary で、root package を消したが Core、Native または fuzz の参照が旧 path のまま残る state を作らない。Core package を移した直後に WASM-specific source / feature / `cdylib` の一時的な内部 wiring が残る場合も、root package の外部 interface や root `pkg/` は維持しない。 | root virtual workspace の Cargo dependency graph が `crates/core` と existing `bindings/native` で成立し、Native と fuzz が新しい `crates/core` を一意に解決する。Core / Native / fuzz の対応する build、test、format / lint および必要な path validation が通る。root `--features wasm`、root Core `cdylib`、root `pkg/`、および `scripts/build-wasm.sh` の旧 invocation / output contract を consumer compatibility として維持することはこの gate に含めず、DD-002 に従って旧 root interface は廃止対象として扱う。 |
+| 3 | **C ABI relocation**。`bindings/native` を `crates/c-abi` へ移す。header、C symbols、ownership / free、C runtime tests を最小差分で移し、workspace member と Core path dependency を更新する。既存 package name の変更は `OPEN-003` の確認後に別差分で扱う。 | C header compile、runtime、sanitizer、C ABI compatibility review が通り、`crates/c-abi -> crates/core` の dependency graph が成立する。 |
+| 4 | **WASM extraction / raw interface cutover completion**。Stage 2 で `crates/core` に一時的に残った `src/wasm.rs`、WASM feature、`wasm-bindgen` / `js-sys` および WASM-specific wiring を `crates/wasm` へ抽出し、Core から WASM-specific dependency と Core 自身の WASM 配布用 `cdylib` を除く。`scripts/build-wasm.sh` の旧 root invocation / output contract を廃止済みとして確認し、root `pkg/` を生成・復活させない。新しい WASM build は `crates/wasm` を artifact source とする内部経路へ切り替える。README をこの実際の cutover に合わせて更新し、旧 raw WASM build path と新 npm facade の migration note 方針を記載する。 | `crates/wasm -> crates/core` の dependency graph、wasm target build、generated export parity、WASM boundary tests、Core の host-neutral dependency check が通る。root `wasm` feature、root Core `cdylib`、root `pkg/` および旧 raw build interface が存在しないことを確認する。新しい raw generated wasm-bindgen package を consumer-facing entry point にしない。 |
+| 5 | root / moved package の remaining tests、fuzz path、scripts、fixture path および README の内部参照を、Stage 2〜4 で確定した path と public distribution policy に合わせて整理する。旧 raw WASM への参照は移行案内以外に残さない。 | Core / C ABI / `crates/wasm` / fuzz の対応検証が新 path で通り、fixture scope が変わっていない。raw WASM compatibility shim、旧 `pkg/` layout または旧 root command への暗黙の fallback がない。 |
 | 6 | `crates/node` を作り、Node-API wrapper library、Node-API version、target build、JS value / error / ownership bridge を実装する。C ABI は再利用しない。 | Node-API addon load、Core operation parity、Node version / target matrix が通る。 |
 | 7 | `packages/wallet-core` の TypeScript facade、統一 declaration、ESM / CJS wrapper、conditional exports、WASM asset assembly、native manifest assembly を作る。 | public root import、raw backend non-export、type resolution、WASM default routing が通る。 |
 | 8 | Node native、Node WASM fallback、Browser WASM の contract parity tests を追加し、wrong password、Store corruption、confirmation、approval、Chain / Network mismatch を比較する。 | security meaning、error、replacement Store、signature bytes、secret return condition が一致する。 |
 | 9 | Rust / WASM / Node-API / C ABI の build matrix、npm pack、clean install、ESM / CJS、bundler、`--no-addons`、unsupported target smoke を CI へ組み込む。 | release candidate が同一 source snapshot から再生成できる。 |
 | 10 | artifact digest、SBOM、license / dependency review、provenance、GitHub Actions protected release、npm trusted publishing、C ABI release asset を実装する。 | publish 前の supply-chain review が完了し、秘密情報や不要ファイルがない。 |
-| 11 | README、仕様・Design の impact review、migration compatibility note、deprecation / package name note を更新し、公開前の release-readiness review を行う。 | upstream security meaning / public contract の差分がないことを確認し、実装移行を完了とする。 |
+| 11 | 仕様・Design の impact review、migration compatibility note、package name note を更新し、公開前の release-readiness review を行う。README は Stage 4 の raw WASM cutover で更新済みであることを確認する。 | upstream security meaning / public contract の差分がないことを確認し、実装移行を完了とする。 |
 
 ### 19.3 各段階の共通ルール
 
+- **Buildable dependency graph invariant**: 各段階の完了時点で、repository のその段階における maintained topology の Cargo dependency graph は buildable でなければならない。特に package を廃止・移動する段階では、全ての in-scope path dependency、workspace member、fuzz workspace および直接必要な script / test path が同じ段階内で新しい package を参照することを確認する。root package を先に消し、Core relocation や参照更新を後段へ残す intermediate broken state を stage boundary として定義しない。
+- Stage 1 は root Rust package を維持する準備段階である。root virtual workspace 化は Stage 2 の Core relocation、existing Native Binding / fuzz path 更新および workspace member 更新と同時にだけ行う。
+- DD-002 により、Stage 2 の root package cutover 以後、旧 root raw WASM build interface は maintained public contract ではない。Stage 4 は `crates/wasm` への extraction、旧 `wasm` wiring / root `cdylib` / root `pkg/` の廃止確認および新しい内部 artifact source への切替を完了する段階である。旧 interface をつなぐ compatibility shim を追加して各段階の graph を見かけ上維持しない。
 - 新しい Binding を追加する段階でも Core の authorization、secret ownership、Store semantics、failure semantics を再実装しない。
 - path move と package rename は別の変更として扱い、既存利用者に影響し得る package name は registry / repository consumer inventory 後に決める。
 - ある段階で test / build が失敗した場合、その段階の error を解消してから次へ進み、後段の facade や release workflow で隠さない。
@@ -735,7 +757,7 @@ Node-API wrapper library、exact Node.js version matrix、Browser bundler baseli
 | --- | --- | --- |
 | root crate の path change | Rust consumer の path dependency、README、fuzz、CI が壊れる。 | Core package name と API を維持し、`git mv` と manifest update を段階化する。 |
 | `symbol-nem-wallet-core-native` の package name change | 既存 Cargo consumer / registry user が解決できなくなる可能性。 | external usage inventory。未確認のまま `-c-abi` へ rename しない。C symbol / header は維持する。 |
-| WASM feature の Core からの分離 | root crate の直接 `--features wasm` consumer、raw generated package、script が壊れる可能性。 | facade contract と raw binding の互換範囲を明示し、移行期間の compatibility path を別判断する。 |
+| 旧 root raw WASM 経路の廃止 | root package の `--features wasm`、root Core `cdylib`、`scripts/build-wasm.sh`、root `pkg/` および raw generated package を前提とする外部 consumer が利用不能になる可能性。 | DD-002 として互換維持しない意図的な repository / build / distribution interface cutover を確定する。Stage 2 で root package cutover に伴う旧 root interface の維持をやめ、Stage 4 で `crates/wasm` への extraction、旧 interface の廃止確認、README 更新を行う。外部 consumer の存在可能性は inventory と compatibility risk に記録し、旧 interface を無期限に残さない。 |
 | `getrandom` target wiring | Browser CSPRNG、native CSPRNG、cross build が変わる可能性。 | Core host-neutral dependency check と target matrix、randomness regression を gate にする。 |
 | Node-API ABI / external native dependency | Node version、OS、CPU、libc の一部で addon が load できない可能性。 | Node-API 限定、明示的 target matrix、artifact manifest、unsupported target の WASM fallback。 |
 | `node-addons` condition の tool support | 古い Node / TypeScript / bundler が exports を解釈しない可能性。 | supported version floor、`main` / `module` fallback、ESM / CJS / bundler smoke。 |
@@ -753,6 +775,8 @@ Node-API wrapper library、exact Node.js version matrix、Browser bundler baseli
 ### 21.1 Resolved
 
 - **OPEN-009 — 解消**: Node.js は Node-API Binding 経由で同じ Rust Wallet Core を利用する v1 supported environment である。`Node.js 代替実装` は Rust Wallet Core と独立した Node.js / TypeScript 等による Wallet Core implementation を意味し、Node-API Binding はこれに含めない。この判断を Concept、Requirements、Architecture、Security Design、Bindings Design および Specification に反映した。
+- **DD-001 / DR-001 対応 — 各段階の buildable dependency graph**: Stage 1 は root `symbol-nem-wallet-core` package と現行 Rust / Native / WASM / fuzz topology を維持する workspace preparation とする。Stage 2 で Core package / source / tests の `crates/core` への relocation、root Cargo virtual workspace 化、`crates/core` と existing `bindings/native` の workspace member 化、Native / fuzz の Core path dependency 更新および直接必要な script / test path 更新を同じ atomic stage として完了する。root package を消した後に Core relocation または Native / fuzz path 更新を行う intermediate broken state は定義しない。この判断を §8.1、§19.2、§19.3、§23 に反映した。
+- **DD-002 / DR-002 対応 — 旧 root raw WASM interface の意図的 cutover**: v1 の JavaScript 向け正式な consumer-facing entry point は `@nemnesia/symbol-nem-wallet-core` の root entry point だけとする。root `--features wasm`、root Core `cdylib`、root `pkg/`、旧 `scripts/build-wasm.sh` invocation / output contract および raw generated wasm-bindgen package は compatibility contract として維持しない。Stage 2 の root package cutover 以後、旧 root interface を互換 shim で残さず、Stage 4 で `crates/wasm` を内部 Binding / artifact source として完成させ、旧 interface の廃止を検証する。これは Core cryptographic behavior、Core Rust public operation semantics、Store format、error semantics、authorization、secret ownership または signing behavior の変更ではなく、repository / build / distribution interface の意図的な切替である。旧 raw WASM consumer の存在可能性は compatibility risk として記録し、Stage 4 の README 更新と release / migration note で旧 path、新 npm facade、low-level WASM artifact の位置付けを説明する。この判断を §14.3、§19.1〜§19.3、§20、§23 に反映した。
 
 ### 21.2 Remaining open decisions
 
@@ -782,7 +806,14 @@ OPEN-001、OPEN-002、OPEN-004、OPEN-005 および OPEN-008 は Node/npm 実装
 | Symbol / NEM、Mainnet / Testnet、signature / interop | `docs/requirements/requirements.md` §3; `docs/specifications/specification.md` §3〜§5、§9、§14 |
 | Rust / Native C ABI / Node-API / WASM の既存・下流契約 | `docs/design/bindings.md` §4〜§10; `docs/specifications/specification.md` §13; current `bindings/native/`、`src/wasm.rs`、README。Node-API の具体契約は未確定であり、本書の下流 gate で決定する。 |
 
-### 22.2 External primary references
+### 22.2 Review finding への対応
+
+| Finding | 本書での resolved decision / 対応箇所 | 次回 review での確認点 |
+| --- | --- | --- |
+| [DR-001](../reviews/design/monorepo-npm-distribution-design-review-001.md#L76) | DD-001、§8.1、§19.1〜§19.3、§23。Stage 1 は root package 維持、Stage 2 は Core relocation・root virtual workspace 化・Native / fuzz path 更新を atomic に扱う。 | Stage boundary ごとの buildable dependency graph と、root virtual workspace 時点の `crates/core` / existing Native Binding / fuzz の解決先が一意であること。 |
+| [DR-002](../reviews/design/monorepo-npm-distribution-design-review-001.md#L88) | DD-002、§14.3、§19.1〜§19.3、§20、§23。旧 root raw WASM interface は互換維持せず、`crates/wasm` は npm facade の内部 source とする。 | root `wasm` feature / Core `cdylib` / root `pkg/` / 旧 build contract の廃止方針、raw consumer risk、Stage 4 gate、README / migration note の更新順が決定済みであること。 |
+
+### 22.3 External primary references
 
 - [Node.js Modules: Packages](https://nodejs.org/api/packages.html): `exports`、`types`、`node-addons`、`default`、condition order および `--no-addons`。
 - [Node.js Node-API](https://nodejs.org/api/n-api.html): ABI stability と Node-API 以外の native API / external library の制約。
@@ -793,11 +824,11 @@ OPEN-001、OPEN-002、OPEN-004、OPEN-005 および OPEN-008 は Node/npm 実装
 
 ## 23. Implementation migration readiness
 
-現時点では、上流資料の scope 整合と target tree / gate の設計を完了したため、monorepo の structural migration は開始可能である。Node/npm implementation と release は、それぞれの gate が解決するまで開始しない。開始条件は次のとおりである。
+DR-001 と DR-002 の設計上の修正は本書へ反映済みであり、次回の正式 Design Review に再提出できる状態である。ただし、再レビューの承認前に monorepo の structural migration を開始しない。Node/npm implementation と release も、それぞれの gate が解決するまで開始しない。開始条件と残存事項は次のとおりである。
 
-- monorepo structural migration gate として、本書の target tree、依存方向、responsibility、既存 Rust / C ABI / WASM public contract および必要な external consumer inventory を review・承認する。`OPEN-003` 未解決時は既存 C ABI package name を維持する。
+- monorepo structural migration gate として、次回の正式 Design Review を承認し、本書の target tree、依存方向、responsibility、各段階の buildable dependency graph、既存 Rust / C ABI / WASM public contract および Rust / Native / fuzz / 旧 raw WASM を含む external consumer inventory を確認する。`OPEN-003` 未解決時は既存 C ABI package name を維持し、package rename だけを延期する。DR-001 / DR-002 の設計判断自体は追加の OPEN 項目として残さない。
 - Node/npm implementation gate として、`OPEN-001`、`OPEN-002`、`OPEN-004`、`OPEN-005` および `OPEN-008` を解決し、必要な下流仕様・package contract への impact を記録する。
 - release gate として、`OPEN-006`、`OPEN-007`、全 target artifact、package contents、integrity、SBOM、provenance および release workflow の review を完了する。
-- migration 段階 0 の structural gate を満たし、段階 1 以降を個別差分として開始する。
+- structural gate 承認後にのみ migration Stage 1 を開始し、Stage 1 は root Rust package を維持する。Stage 2 では DD-001 に従い Core relocation、root virtual workspace 化、existing Native Binding / fuzz path 更新を一つの atomic stage として実施する。Stage 4 では DD-002 に従い旧 root raw WASM interface を廃止し、`crates/wasm` を npm facade の内部 source として確立する。
 
-したがって、本ブランチでの作業完了時点の判定は **Node.js v1 scope の整合および設計 gate の確定、monorepo structural migration は開始可能、Node/npm implementation と release は未開始** である。
+したがって、本設計修正の完了時点の判定は **DR-001 / DR-002 の対応を反映し、正式 Design Review の再レビューが可能、monorepo structural migration は未開始、Node/npm implementation と release も未開始** である。旧 raw WASM consumer の存在可能性は残存 compatibility risk だが、互換維持を未決定事項としては扱わない。
