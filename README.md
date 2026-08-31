@@ -96,25 +96,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 新規 Profile は一段階で作成しません。`prepare_generated_profile` は Store を変更せず、`PreparedProfile` として Mnemonic と opaque な `PendingProfileBlob` を返します。Application は Mnemonic 全体を利用者へ提示し、利用者の受領確認が成立した場合だけ、同じ Pending と Store に対して `HandoffConfirmation { status: Confirmed }` を付けて `finalize_generated_profile` を呼びます。
 
+次の例にある `obtain_explicit_handoff_confirmation` は Application が実装する placeholder です。Application はこの処理で `mnemonic_utf8` 全体を現在の利用者へ提示し、明示的な受領確認を取得してください。確認を取得できない場合は `false` またはエラーを返し、`finalize_generated_profile` を呼び出しません。この例は UI framework を仮定せず、placeholder を実装しない限り handoff を確定できない形にしています。
+
 ```rust
 use symbol_nem_wallet_core::{
     create_empty_store, finalize_generated_profile, prepare_generated_profile,
     HandoffConfirmation, HandoffConfirmationStatus, Network,
 };
 
+fn obtain_explicit_handoff_confirmation(
+    mnemonic_utf8: &[u8],
+) -> Result<bool, Box<dyn std::error::Error>> {
+    // Application が mnemonic_utf8 全体を現在の利用者へ提示し、明示的な受領確認を取得する。
+    let _ = mnemonic_utf8;
+    Err(std::io::Error::other("Application must implement the user handoff confirmation").into())
+}
+
 fn create_generated_profile() -> Result<(), Box<dyn std::error::Error>> {
     let password = std::env::var("WALLET_PASSWORD")?;
     let mut store = create_empty_store()?;
 
-    // Application が prepared.value.mnemonic_utf8 全体を提示し、利用者の受領を確認した後だけ実行する。
     let prepared = prepare_generated_profile(&store, password.as_bytes(), Network::Mainnet)?;
+    let user_confirmed =
+        obtain_explicit_handoff_confirmation(&prepared.value.mnemonic_utf8)?;
+    if !user_confirmed {
+        return Err("handoff confirmation was not obtained".into());
+    }
+
+    // 明示確認の guard を通過した後だけ Confirmed を構築する。
+    let handoff_confirmation = HandoffConfirmation {
+        status: HandoffConfirmationStatus::Confirmed,
+    };
     let finalized = finalize_generated_profile(
         &store,
         &prepared.value.pending_profile,
         password.as_bytes(),
-        HandoffConfirmation {
-            status: HandoffConfirmationStatus::Confirmed,
-        },
+        handoff_confirmation,
     )?;
     store = finalized.store;
     let _ = store;
@@ -223,6 +240,44 @@ Native Binding は `bindings/native` の `symbol-nem-wallet-core-native` package
 cargo build --package symbol-nem-wallet-core-native --release --locked
 ```
 
+repository root から build した場合、C/C++ から link する対象は `target/release/` 配下の Native library です。`staticlib` は `libsymbol_nem_wallet_core_native.a`、`cdylib` は Linux では `libsymbol_nem_wallet_core_native.so`（macOS は `.dylib`、Windows は `.dll`）として生成されます。C/C++ 側では公開 header を include し、static link の場合は例えば次のように link します。
+
+```c
+#include "symbol_nem_wallet_core.h"
+
+int main(void) {
+    SnwcOwnedBytes store = {NULL, 0};
+    const char *error = snwc_create_empty_store(&store);
+    if (error != NULL) {
+        /* error は Binding 所有の静的文字列で、free しない。 */
+        snwc_free_bytes(&store);
+        return 1;
+    }
+    if (store.ptr == NULL || store.len == 0) {
+        snwc_free_bytes(&store);
+        return 1;
+    }
+
+    /* store は Binding-owned output。利用後は専用 release API を使う。 */
+    snwc_free_bytes(&store);
+    return 0;
+}
+```
+
+上の例を `native_example.c` として保存した場合の POSIX 系の static link 例です。環境に応じて loader の設定や dynamic library の配置を行ってください。
+
+```bash
+cc -std=c11 -Wall -Wextra -Werror \
+  -I bindings/native/include \
+  native_example.c \
+  target/release/libsymbol_nem_wallet_core_native.a \
+  -ldl -lpthread -lm \
+  -o native_example
+./native_example
+```
+
+`snwc_create_empty_store` は成功時に `NULL`、失敗時に error code 文字列を返します。成功した `SnwcOwnedBytes` の `ptr` / `len` は Binding-owned output なので、`malloc` / `free` や別 allocator を使わず、必ず `snwc_free_bytes(&store)` で解放してください。ほかの operation に渡す `SnwcBytes` は caller-owned の借用 input であり、Binding が ownership を取得するものではありません。
+
 Rust Core と同じ operation を、`snwc_` prefix の関数として公開します。関数一覧は header の次の symbols です。
 
 ```text
@@ -270,6 +325,25 @@ cargo install wasm-bindgen-cli --version 0.2.127 --locked
 ```
 
 出力先は第1引数で変更できます。相対パスは repository root から解決されます。
+
+第1引数を省略した場合の出力先は `pkg/` です。`--target web` の生成物は、同じディレクトリにある JavaScript glue module と `symbol_nem_wallet_core_bg.wasm` を組み合わせて使用します。生成された web module の default initialization API と `create_empty_store` の最小例は次のとおりです。
+
+```javascript
+import init, { create_empty_store } from "./pkg/symbol_nem_wallet_core.js";
+
+// default init は同じディレクトリの symbol_nem_wallet_core_bg.wasm を読み込む。
+await init();
+
+const store = create_empty_store();
+if (!(store instanceof Uint8Array)) {
+    throw new TypeError("create_empty_store() did not return Uint8Array");
+}
+
+// store は新しい caller-owned copy。opaque のまま次の Core operation へ渡す。
+console.log(store.byteLength);
+```
+
+この例は `pkg/` を web server から module として配信する前提です。`symbol_nem_wallet_core.js` と `symbol_nem_wallet_core_bg.wasm` を別の場所へ出力した場合は、import path と生成された module から WASM を取得できる配置を合わせてください。
 
 `wasm-bindgen` の JavaScript 境界では、Wallet Store、Pending、Mnemonic、Profile password、private key、payload、public key、signature は `Uint8Array` 相当です。UUID と address は string、入力の `network` は `0 = testnet, 1 = mainnet`、`chain` は `0 = nem, 1 = symbol` の number です。出力 DTO の文字列表現は `"testnet"` / `"mainnet"`、`"nem"` / `"symbol"` です。
 
