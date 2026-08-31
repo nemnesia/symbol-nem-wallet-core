@@ -14,8 +14,8 @@ if test "${SNWC_C_ABI_SANITIZERS:-0}" = 1; then
 fi
 cc "${cc_flags[@]}" \
     "${sanitizer_flags[@]}" \
-    -I "$repo_root/bindings/native/include" \
-    "$repo_root/bindings/native/tests/caller_runtime.c" \
+    -I "$repo_root/crates/c-abi/include" \
+    "$repo_root/crates/c-abi/tests/caller_runtime.c" \
     "$repo_root/target/debug/libsymbol_nem_wallet_core_native.a" \
     -ldl -lpthread -lm \
     "${sanitizer_flags[@]}" \

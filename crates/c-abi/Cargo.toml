@@ -9,7 +9,7 @@ description = "C ABI binding for symbol-nem-wallet-core"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
-symbol-nem-wallet-core = { path = "../../crates/core" }
+symbol-nem-wallet-core = { path = "../core" }
 uuid = { version = "1.18.1", default-features = false }
 zeroize = "1.8.2"
 

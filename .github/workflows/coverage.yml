@@ -70,15 +70,15 @@ jobs:
         run: cargo build --package symbol-nem-wallet-core-native --release --locked
 
       - name: Compile public C ABI header
-        run: cc -std=c11 -Wall -Wextra -Werror -I bindings/native/include -fsyntax-only bindings/native/tests/header_compile.c
+        run: cc -std=c11 -Wall -Wextra -Werror -I crates/c-abi/include -fsyntax-only crates/c-abi/tests/header_compile.c
 
       - name: Run Native C ABI runtime test
-        run: ./bindings/native/tests/run_c_abi_runtime.sh
+        run: ./crates/c-abi/tests/run_c_abi_runtime.sh
 
       - name: Run Native C ABI runtime test with sanitizers
         env:
           SNWC_C_ABI_SANITIZERS: "1"
-        run: ./bindings/native/tests/run_c_abi_runtime.sh
+        run: ./crates/c-abi/tests/run_c_abi_runtime.sh
 
   core-coverage:
     name: Core coverage
