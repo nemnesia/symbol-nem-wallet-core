@@ -240,7 +240,7 @@ Native Binding は `bindings/native` の `symbol-nem-wallet-core-native` package
 cargo build --package symbol-nem-wallet-core-native --release --locked
 ```
 
-repository root から build した場合、C/C++ から link する対象は `target/release/` 配下の Native library です。`staticlib` は `libsymbol_nem_wallet_core_native.a`、`cdylib` は Linux では `libsymbol_nem_wallet_core_native.so`（macOS は `.dylib`、Windows は `.dll`）として生成されます。C/C++ 側では公開 header を include し、static link の場合は例えば次のように link します。
+repository root から build した場合、build artifact は `target/release/` 配下に生成されます。実際の library filename / extension は target / toolchain に依存します。Linux では例として、`staticlib` は `libsymbol_nem_wallet_core_native.a`、`cdylib` は `libsymbol_nem_wallet_core_native.so` です。macOS / Windows では platform / toolchain に応じた artifact を使用してください。C/C++ 側では公開 header を include し、static link の場合は例えば次のように link します。
 
 ```c
 #include "symbol_nem_wallet_core.h"
@@ -264,7 +264,7 @@ int main(void) {
 }
 ```
 
-上の例を `native_example.c` として保存した場合の POSIX 系の static link 例です。環境に応じて loader の設定や dynamic library の配置を行ってください。
+上の例を `native_example.c` として保存した場合の Linux の static-link example です。環境に応じて loader の設定や dynamic library の配置を行ってください。
 
 ```bash
 cc -std=c11 -Wall -Wextra -Werror \
