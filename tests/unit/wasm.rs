@@ -1,6 +1,6 @@
 use super::*;
 use crate::cbor::{self, Value};
-use js_sys::{Object, Proxy, Reflect};
+use js_sys::{DataView, Int8Array, Object, Proxy, Reflect, Symbol, Uint16Array, Uint8ClampedArray};
 use wasm_bindgen::{closure::Closure, JsCast};
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -57,6 +57,26 @@ impl Drop for PropertyRestore {
         // Test-only global/instance mutation is restored even when an assertion or runtime
         // failure unwinds the test.
         let _ = Reflect::set(&self.object, &self.property, &self.original);
+    }
+}
+
+struct PropertyDeleteRestore {
+    object: Object,
+    property: JsValue,
+}
+
+impl PropertyDeleteRestore {
+    fn new(object: Object, property: Symbol) -> Self {
+        Self {
+            object,
+            property: property.into(),
+        }
+    }
+}
+
+impl Drop for PropertyDeleteRestore {
+    fn drop(&mut self) {
+        let _ = Reflect::delete_property(&self.object, &self.property);
     }
 }
 
@@ -804,6 +824,76 @@ fn wasm_detached_and_unreadable_inputs_fail_closed() {
 }
 
 #[wasm_bindgen_test]
+fn wasm_binary_inputs_require_exact_uint8_array_brand() {
+    let empty_store = create_empty_store().unwrap();
+    let empty_store_buffer = empty_store.buffer();
+    let store_length = empty_store.length();
+
+    // The clamped view has the exact same valid Store bytes and backing buffer as the accepted
+    // Uint8Array, but its internal [[TypedArrayName]] is different.
+    let clamped_store = Uint8ClampedArray::new_with_byte_offset_and_length(
+        empty_store_buffer.as_ref(),
+        empty_store.byte_offset(),
+        store_length,
+    );
+    assert_binding_failure(list_profiles(&clamped_store.unchecked_into()));
+
+    // Keep these views non-empty where their element width permits it. Uint16Array is also
+    // checked with an empty view below so the rejection is attributable to its brand, not only
+    // to the byteLength/length invariant.
+    let int8 = Int8Array::new_with_length(1);
+    assert_binding_failure(list_profiles(&int8.unchecked_into()));
+    let uint16 = Uint16Array::new_with_length(0);
+    assert_binding_failure(list_profiles(&uint16.unchecked_into()));
+
+    let data_view = DataView::new(&empty_store_buffer, 0, 1);
+    assert_binding_failure(list_profiles(&data_view.unchecked_into()));
+
+    // The exact brand check runs before any intrinsic view accessor, so the existing Proxy
+    // fail-closed behavior remains explicit in the same public-API test.
+    assert_binding_failure(list_profiles(&unreadable_uint8_array()));
+
+    // Own constructor / Symbol.toStringTag values and a mutable prototype property do not
+    // participate in the captured internal-brand check.
+    let actual = Uint8Array::from(empty_store.to_vec().as_slice());
+    Reflect::set(
+        actual.as_ref(),
+        &JsValue::from_str("constructor"),
+        &JsValue::from_str("not Uint8Array"),
+    )
+    .unwrap();
+    let own_tag_descriptor = Object::new();
+    Reflect::set(
+        &own_tag_descriptor,
+        &JsValue::from_str("value"),
+        &JsValue::from_str("Uint8ClampedArray"),
+    )
+    .unwrap();
+    assert!(Reflect::define_property(
+        actual.as_ref(),
+        &Symbol::to_string_tag(),
+        &own_tag_descriptor,
+    )
+    .unwrap());
+    let prototype = Object::get_prototype_of(actual.as_ref());
+    let prototype_tag_descriptor = Object::new();
+    Reflect::set(
+        &prototype_tag_descriptor,
+        &JsValue::from_str("value"),
+        &JsValue::from_str("Uint8ClampedArray"),
+    )
+    .unwrap();
+    assert!(Reflect::define_property(
+        &prototype,
+        &Symbol::to_string_tag(),
+        &prototype_tag_descriptor,
+    )
+    .unwrap());
+    let _prototype_tag_restore = PropertyDeleteRestore::new(prototype, Symbol::to_string_tag());
+    assert!(list_profiles(&actual).is_ok());
+}
+
+#[wasm_bindgen_test]
 fn wasm_output_allocation_failure_is_binding_failure_without_result() {
     let empty_store = create_empty_store().unwrap();
     allocation_failure_seam::inject();
@@ -921,6 +1011,33 @@ fn wasm_binary_copy_ignores_overridable_slice_methods() {
     );
     let prototype_signature = bytes_field(&value(&prototype_result.unwrap()), "signature").to_vec();
     assert_eq!(prototype_signature, expected_signature);
+
+    // A signing payload with a different typed-array brand must not be accepted as raw bytes.
+    let wrong_payload = Int8Array::new_with_length(PAYLOAD_A.len() as u32);
+    let wrong_payload_request = signing_request(
+        &profile_id,
+        &key_id,
+        "symbol",
+        "mainnet",
+        PAYLOAD_A,
+        "approved",
+    );
+    Reflect::set(
+        &wrong_payload_request,
+        &JsValue::from_str("payload"),
+        &wrong_payload,
+    )
+    .unwrap();
+    let wrong_payload_error = sign(
+        &Uint8Array::from(derived_store.as_slice()),
+        &wrong_payload_request,
+        &password,
+    )
+    .unwrap_err();
+    assert_eq!(
+        wrong_payload_error.as_string().as_deref(),
+        Some("InvalidArgument")
+    );
 }
 
 #[wasm_bindgen_test]

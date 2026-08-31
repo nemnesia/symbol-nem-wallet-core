@@ -67,9 +67,10 @@ fn set(object: &Object, key: &str, value: JsValue) -> Result<(), JsValue> {
 }
 
 fn checked_uint8_array_view(value: &Uint8Array) -> Result<(ArrayBuffer, u32, u32), JsValue> {
-    // ArrayBuffer.isView is an engine-level typed-array check. It rejects a Proxy even when
-    // `proxy instanceof Uint8Array` is true, so proxy traps cannot substitute the view metadata.
-    if !try_is_uint8_array_view(value).map_err(|_| conversion_error())? {
+    // ArrayBuffer.isView is an engine-level view check. The captured TypedArray brand getter
+    // distinguishes Uint8Array from Uint8ClampedArray and the other typed-array element types.
+    // It also rejects a Proxy before any proxy trap can substitute the view metadata.
+    if !try_is_exact_uint8_array(value).map_err(|_| conversion_error())? {
         return Err(conversion_error());
     }
 
@@ -137,7 +138,7 @@ fn store_bytes(value: &Uint8Array) -> Result<Zeroizing<Vec<u8>>, JsValue> {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(
-    inline_js = "const snwcObject = Object; const snwcArray = Array; const snwcUint8Array = Uint8Array; const snwcTypedArrayPrototype = Object.getPrototypeOf(snwcUint8Array.prototype); const snwcArrayBuffer = ArrayBuffer; const snwcArrayBufferIsView = snwcArrayBuffer.isView; const snwcUint8ArrayLength = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'length').get; const snwcUint8ArrayByteLength = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'byteLength').get; const snwcUint8ArrayByteOffset = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'byteOffset').get; const snwcUint8ArrayBuffer = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'buffer').get; const snwcArrayBufferByteLength = Object.getOwnPropertyDescriptor(snwcArrayBuffer.prototype, 'byteLength').get; const snwcArrayBufferDetached = Object.getOwnPropertyDescriptor(snwcArrayBuffer.prototype, 'detached').get; const snwcUint8ArraySet = snwcUint8Array.prototype.set; export function snwc_new_object() { return new snwcObject(); } export function snwc_new_array() { return new snwcArray(); } export function snwc_array_push(array, value) { array[array.length] = value; } export function snwc_new_uint8_array(value) { return new snwcUint8Array(value); } export function snwc_is_uint8_array_view(value) { return snwcArrayBufferIsView(value); } export function snwc_uint8_array_length(value) { return snwcUint8ArrayLength.call(value); } export function snwc_uint8_array_byte_length(value) { return snwcUint8ArrayByteLength.call(value); } export function snwc_uint8_array_byte_offset(value) { return snwcUint8ArrayByteOffset.call(value); } export function snwc_uint8_array_buffer(value) { return snwcUint8ArrayBuffer.call(value); } export function snwc_array_buffer_byte_length(value) { return snwcArrayBufferByteLength.call(value); } export function snwc_array_buffer_detached(value) { return snwcArrayBufferDetached.call(value); } export function snwc_copy_uint8_array(buffer, byteOffset, length, destination) { const view = new snwcUint8Array(buffer, byteOffset, length); snwcUint8ArraySet.call(destination, view); }"
+    inline_js = "const snwcObject = Object; const snwcArray = Array; const snwcUint8Array = Uint8Array; const snwcTypedArrayPrototype = Object.getPrototypeOf(snwcUint8Array.prototype); const snwcArrayBuffer = ArrayBuffer; const snwcArrayBufferIsView = snwcArrayBuffer.isView; const snwcTypedArrayTagGetter = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, Symbol.toStringTag).get; const snwcUint8ArrayLength = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'length').get; const snwcUint8ArrayByteLength = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'byteLength').get; const snwcUint8ArrayByteOffset = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'byteOffset').get; const snwcUint8ArrayBuffer = Object.getOwnPropertyDescriptor(snwcTypedArrayPrototype, 'buffer').get; const snwcArrayBufferByteLength = Object.getOwnPropertyDescriptor(snwcArrayBuffer.prototype, 'byteLength').get; const snwcArrayBufferDetached = Object.getOwnPropertyDescriptor(snwcArrayBuffer.prototype, 'detached').get; const snwcUint8ArraySet = snwcUint8Array.prototype.set; export function snwc_new_object() { return new snwcObject(); } export function snwc_new_array() { return new snwcArray(); } export function snwc_array_push(array, value) { array[array.length] = value; } export function snwc_new_uint8_array(value) { return new snwcUint8Array(value); } export function snwc_is_exact_uint8_array(value) { return snwcArrayBufferIsView(value) && snwcTypedArrayTagGetter.call(value) === 'Uint8Array'; } export function snwc_uint8_array_length(value) { return snwcUint8ArrayLength.call(value); } export function snwc_uint8_array_byte_length(value) { return snwcUint8ArrayByteLength.call(value); } export function snwc_uint8_array_byte_offset(value) { return snwcUint8ArrayByteOffset.call(value); } export function snwc_uint8_array_buffer(value) { return snwcUint8ArrayBuffer.call(value); } export function snwc_array_buffer_byte_length(value) { return snwcArrayBufferByteLength.call(value); } export function snwc_array_buffer_detached(value) { return snwcArrayBufferDetached.call(value); } export function snwc_copy_uint8_array(buffer, byteOffset, length, destination) { const view = new snwcUint8Array(buffer, byteOffset, length); snwcUint8ArraySet.call(destination, view); }"
 )]
 extern "C" {
     #[wasm_bindgen(catch, js_name = snwc_new_object)]
@@ -154,8 +155,8 @@ extern "C" {
     #[wasm_bindgen(catch, js_name = snwc_new_uint8_array)]
     fn try_new_uint8_array(value: &[u8]) -> Result<Uint8Array, JsValue>;
 
-    #[wasm_bindgen(catch, js_name = snwc_is_uint8_array_view)]
-    fn try_is_uint8_array_view(value: &Uint8Array) -> Result<bool, JsValue>;
+    #[wasm_bindgen(catch, js_name = snwc_is_exact_uint8_array)]
+    fn try_is_exact_uint8_array(value: &Uint8Array) -> Result<bool, JsValue>;
 
     #[wasm_bindgen(catch, js_name = snwc_uint8_array_length)]
     fn try_uint8_array_length(value: &Uint8Array) -> Result<u32, JsValue>;
