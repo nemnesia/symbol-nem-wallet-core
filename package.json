@@ -1,4 +1,9 @@
 {
   "name": "symbol-nem-wallet-core-monorepo",
-  "private": true
+  "private": true,
+  "packageManager": "pnpm@11.18.0",
+  "scripts": {
+    "build:npm": "node scripts/build-npm-package.mjs",
+    "test:npm": "node --test packages/wallet-core/test/*.test.mjs"
+  }
 }

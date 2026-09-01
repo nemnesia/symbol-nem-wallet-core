@@ -312,7 +312,11 @@ snwc_delete_profile
 
 Stage 4で旧root raw WASM配布経路を廃止しました。root Cargo packageの`--features wasm`、root CoreのWASM用`cdylib`、`scripts/build-wasm.sh`、root `pkg/`およびraw `wasm-bindgen` generated packageを、現在サポートされている利用方法として扱いません。
 
-`crates/wasm` は、後続のnpm facadeへ組み込むための内部WASM Binding / artifact sourceです。ここから生成される`.wasm`、JavaScript glueおよびgenerated moduleはconsumer-facing entry pointやpublic npm subpathではありません。正式なJavaScript facadeは後続migration stageで提供します。
+`@nemnesia/symbol-nem-wallet-core` は、Node.js と Browser から package root だけを import して利用する同期 TypeScript facade です。runtime export は `create_empty_store`、`prepare_generated_profile`、`finalize_generated_profile`、`restore_profile`、`list_profiles`、`export_mnemonic`、`export_private_key`、`list_software_keys`、`derive_software_key`、`import_software_key`、`generate_software_key`、`get_public_account`、`sign`、`change_profile_password`、`delete_software_key`、`delete_profile` の16 functionです。
+
+Node.js では対象platformの有効なmanifest entryがある場合にpackage-local Node-API native addonを優先し、`node --no-addons`、unsupported targetおよびBrowser ESMでは同じpackage-local WASM assetを使用します。宣言済みnative artifactの欠落・破損・読込失敗はWASMへ再試行せず、backend initialization failureとして扱います。native/WASM backend、manifest、raw artifact、backend選択APIはpublic package subpathとして公開しません。
+
+`crates/wasm` は、このfacadeへ組み込むための内部WASM Binding / artifact sourceです。ここから生成される`.wasm`、JavaScript glueおよびgenerated moduleはconsumer-facing entry pointやpublic npm subpathではありません。
 
 `wasm-bindgen` の JavaScript 境界では、Wallet Store、Pending、Mnemonic、Profile password、private key、payload、public key、signature は `Uint8Array` 相当です。UUID と address は string、入力の `network` は `0 = testnet, 1 = mainnet`、`chain` は `0 = nem, 1 = symbol` の number です。出力 DTO の文字列表現は `"testnet"` / `"mainnet"`、`"nem"` / `"symbol"` です。
 
