@@ -254,7 +254,10 @@ assert.equal(deleted.value, null);
 assert.deepEqual(addon.list_profiles(deleted.store).value, []);
 
 // Invalid representations are rejected by N-API type inspection, before Core input promotion.
+expectCode("InvalidStore", () => addon.list_profiles(Uint8Array.from([0])));
 expectBinaryRejected(() => addon.list_profiles(new Uint16Array([0])));
+expectBinaryRejected(() => addon.list_profiles(new Uint8ClampedArray([0])));
+expectBinaryRejected(() => addon.list_profiles(new DataView(new ArrayBuffer(1))));
 expectBinaryRejected(() => addon.list_profiles(new Proxy(new Uint8Array(emptyStore), {})));
 
 // Store size is checked from the typed-array length before the Rust copy/allocation.
