@@ -758,6 +758,11 @@ native v1 mandatory target は次の 4 個だけとする。
 | `darwin`           | `arm64`        | なし             | `darwin-arm64`        | `macos`   | `arm64` | `darwin` | `aarch64-apple-darwin`     |
 | `linux`            | `x64`          | recognized glibc | `linux-x64-gnu`       | `linux`   | `x64`   | `gnu`    | `x86_64-unknown-linux-gnu` |
 
+`linux-x64-gnu` の v1 minimum runtime baseline は **glibc >= 2.28** とする。この target
+policy は Node.js 22.x / 24.x の GNU/Linux x64 support baseline と整合させる。これは
+manifest schema に minimum glibc version field を追加するものではなく、Stage 9 release
+validation で確認する target policy である。
+
 native non-supported / WASM fallback target は次の通りである。
 
 ```text
@@ -777,6 +782,10 @@ probe または artifact filename の推測で決めない。
 Linux では native load を試して libc を判定してはならない。Node 22.x で利用可能な
 `process.report.getReport()` を同期的に呼び、返却された report の
 `header.glibcVersionRuntime` が非空 string の場合だけ `glibc` と判定する。
+
+`process.report.getReport().header.glibcVersionRuntime` は libc の種別判定に使用するもので
+あり、native artifact の build-time compatibility を保証するものではない。`linux-x64-gnu`
+の glibc >= 2.28 baseline への適合性は、Stage 9 release validation で確認する。
 
 次の場合は `recognized glibc` ではない。
 
@@ -907,9 +916,13 @@ Stage 7 local manifest は、現在の assembly に実際に供給された arti
 
 ### 13.2 Stage 9 の責務
 
-Stage 9 release candidate では、次を別の release gate とする。
+Stage 9 release candidate では、4 mandatory target の実際の build と compatibility
+verification を含め、次を別の release gate とする。
 
 - `win32-x64-msvc`、`darwin-x64`、`darwin-arm64`、`linux-x64-gnu` の build
+- `linux-x64-gnu` artifact が glibc 2.28 より新しい runtime を暗黙に要求しないことの確認
+- newer glibc 環境で偶然 build できただけの artifact を `linux-x64-gnu` supported artifact
+  として release しないことの確認
 - 全 artifact の収集と manifest 完全性
 - final package assembly と `npm pack`
 - clean install
@@ -918,7 +931,9 @@ Stage 9 release candidate では、次を別の release gate とする。
 
 Stage 9 では manifest に mandatory 4 target の entry と実 binary が揃っていることを要求
 する。Stage 9 の release matrix 責務、Stage 8 の Node native / Node WASM / Browser WASM
-parity 責務を Stage 7 local build へ逆流させない。
+parity 責務を Stage 7 local build へ逆流させない。glibc baseline 不適合を runtime WASM
+fallback で隠してはならず、manifest entry が存在する supported artifact の load failure
+は従来どおり fail closed とする。
 
 ## 14. WASM artifact と initialization
 
@@ -970,8 +985,8 @@ native-vs-WASM の backend routing、network probing または operation retry �
 Browser main-thread では async initialization を使用する。同期 instantiation は Node の
 local file path または worker 等、該当 host で許可される方式に限定する。wasm-bindgen の
 同期 instantiation の `initSync({ module: bytes })` と main-thread 制約は [wasm-bindgen
-synchronous instantiation documentation](https://rustwasm.github.io/docs/wasm-bindgen/examples/synchronous-instantiation.html)
-および [wasm-bindgen deployment documentation](https://rustwasm.github.io/docs/wasm-bindgen/reference/deployment.html)
+synchronous instantiation documentation](https://wasm-bindgen.github.io/wasm-bindgen/examples/synchronous-instantiation.html)
+および [wasm-bindgen deployment documentation](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html)
 を根拠とする。
 
 ### 14.3 Initialization failure
@@ -1109,9 +1124,11 @@ Stage 7A の仕様書は次を満たすことを acceptance condition とする�
   authorization の representation と authority boundary を固定している。
 - §8 で現行 18 ErrorCode と backend initialization failure を分離している。
 - §9〜§11 で conditional exports、public subpath、Node target mapping、Linux libc lookup、
-  permitted fallback と fail-closed rule を固定している。
+  `linux-x64-gnu` の glibc >= 2.28 minimum runtime baseline、permitted fallback と
+  fail-closed rule を固定している。
 - §12〜§13 で manifest truth rule、SHA-256 metadata と deferred runtime verification、
-  Stage 7 / Stage 9 boundary を固定している。
+  Stage 7 / Stage 9 boundary、および Stage 9 の4 target build / compatibility verification
+  責務を固定している。
 - §14 で `crates/wasm`、single WASM binary、Browser ESM、Node ESM `--no-addons`、Node CJS
   `--no-addons` および synchronous operation shape を固定している。
 - §16〜§18 で package contents、postinstall 禁止、facade non-authority、README planned
@@ -1145,5 +1162,5 @@ Stage 7A の仕様書は次を満たすことを acceptance condition とする�
 
 - [Node.js Packages: Conditional exports](https://nodejs.org/download/release/v22.17.0/docs/api/packages.html)
 - [Node.js Diagnostic report](https://nodejs.org/api/report.html)
-- [wasm-bindgen deployment](https://rustwasm.github.io/docs/wasm-bindgen/reference/deployment.html)
-- [wasm-bindgen synchronous instantiation](https://rustwasm.github.io/docs/wasm-bindgen/examples/synchronous-instantiation.html)
+- [wasm-bindgen deployment](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html)
+- [wasm-bindgen synchronous instantiation](https://wasm-bindgen.github.io/wasm-bindgen/examples/synchronous-instantiation.html)
