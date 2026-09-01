@@ -1,0 +1,20 @@
+[package]
+name = "symbol-nem-wallet-core-node"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Node-API binding for Symbol and NEM wallet core"
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "=3.12.2", default-features = false, features = ["napi8", "dyn-symbols"] }
+napi-derive = "=3.6.3"
+symbol-nem-wallet-core = { path = "../core" }
+uuid = { version = "1.18.1", default-features = false }
+zeroize = "1.8.2"
+
+[build-dependencies]
+napi-build = "=2.4.1"
