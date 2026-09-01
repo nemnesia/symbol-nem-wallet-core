@@ -238,6 +238,7 @@ expectCode("InvalidArgument", () =>
 expectCode("InvalidArgument", () => addon.list_software_keys(store, "not-a-uuid"));
 expectCode("BindingFailure", () => addon.list_software_keys(store, 1));
 expectCode("BindingFailure", () => addon.prepare_generated_profile(emptyStore, PASSWORD, "1"));
+expectCode("InvalidArgument", () => addon.prepare_generated_profile(emptyStore, PASSWORD, 2));
 expectCode("InvalidArgument", () =>
   addon.sign(
     store,
