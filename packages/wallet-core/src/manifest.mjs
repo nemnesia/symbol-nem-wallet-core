@@ -51,6 +51,10 @@ function nonEmptyString(value) {
   return typeof value === "string" && value.length > 0;
 }
 
+function hasNativeTarget(targetId) {
+  return Object.prototype.hasOwnProperty.call(NATIVE_TARGETS, targetId);
+}
+
 export function validateNativeManifest(manifest, packageMeta) {
   if (!isPlainObject(manifest) || !isPlainObject(packageMeta)) {
     manifestError();
@@ -82,10 +86,10 @@ export function validateNativeManifest(manifest, packageMeta) {
     if (!isPlainObject(artifact) || !nonEmptyString(artifact.target_id) || seen.has(artifact.target_id)) {
       manifestError();
     }
-    const target = NATIVE_TARGETS[artifact.target_id];
-    if (!target) {
+    if (!hasNativeTarget(artifact.target_id)) {
       manifestError();
     }
+    const target = NATIVE_TARGETS[artifact.target_id];
     const keys = [
       "target_id",
       "os",

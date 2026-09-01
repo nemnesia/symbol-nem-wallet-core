@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { basename } from "node:path";
 
 import {
@@ -45,30 +45,7 @@ export function assembleNativeManifest({
     assemblyError();
   }
 
-  const orderedArtifacts = [];
-  const seen = new Set();
-  for (const item of artifacts) {
-    if (
-      item === null ||
-      typeof item !== "object" ||
-      typeof item.targetId !== "string" ||
-      !NATIVE_TARGETS[item.targetId] ||
-      seen.has(item.targetId) ||
-      typeof item.path !== "string" ||
-      !item.path.endsWith(".node") ||
-      !existsSync(item.path) ||
-      !statSync(item.path).isFile()
-    ) {
-      assemblyError();
-    }
-    const artifactFilename = basename(item.path);
-    if (artifactFilename !== item.path.split(/[\\/]/).pop() || artifactFilename.length === 0) {
-      assemblyError();
-    }
-    seen.add(item.targetId);
-    orderedArtifacts.push({ ...item, artifactFilename });
-  }
-
+  const orderedArtifacts = validateNativeArtifactInputs(artifacts);
   orderedArtifacts.sort(
     (left, right) =>
       CANONICAL_TARGET_ORDER.indexOf(left.targetId) -
@@ -110,4 +87,47 @@ export function assembleNativeManifest({
     assemblyError();
   }
   return manifest;
+}
+
+export function validateNativeArtifactInputs(artifacts) {
+  if (!Array.isArray(artifacts)) {
+    assemblyError();
+  }
+
+  const seen = new Set();
+  return artifacts.map((item) => {
+    if (
+      item === null ||
+      typeof item !== "object" ||
+      typeof item.targetId !== "string" ||
+      !Object.prototype.hasOwnProperty.call(NATIVE_TARGETS, item.targetId) ||
+      seen.has(item.targetId) ||
+      typeof item.path !== "string" ||
+      !item.path.endsWith(".node")
+    ) {
+      assemblyError();
+    }
+
+    let sourceStat;
+    try {
+      sourceStat = statSync(item.path);
+    } catch {
+      assemblyError();
+    }
+    if (!sourceStat.isFile()) {
+      assemblyError();
+    }
+
+    const artifactFilename = basename(item.path);
+    if (
+      artifactFilename.length === 0 ||
+      artifactFilename !== item.path.split(/[\\/]/).pop() ||
+      !artifactFilename.endsWith(".node")
+    ) {
+      assemblyError();
+    }
+
+    seen.add(item.targetId);
+    return { ...item, artifactFilename };
+  });
 }

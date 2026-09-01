@@ -1,10 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, cpSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { assembleNativeManifest } from "./native-manifest.mjs";
+import {
+  assembleNativeManifest,
+  validateNativeArtifactInputs,
+} from "./native-manifest.mjs";
 import { validatePackageContents } from "./package-contents.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -128,6 +131,7 @@ function inlineRuntime(entryPath, runtimePaths) {
 }
 
 function build(options) {
+  const nativeArtifacts = validateNativeArtifactInputs(options.nativeArtifacts);
   const packageMeta = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
   rmSync(distRoot, { recursive: true, force: true });
   mkdirSync(resolve(distRoot, "node"), { recursive: true });
@@ -182,14 +186,14 @@ function build(options) {
     ]),
   );
 
-  for (const item of options.nativeArtifacts) {
+  for (const item of nativeArtifacts) {
     const targetRoot = resolve(distRoot, "native", item.targetId);
     mkdirSync(targetRoot, { recursive: true });
-    cpSync(item.path, resolve(targetRoot, basename(item.path)));
+    cpSync(item.path, resolve(targetRoot, item.artifactFilename));
   }
-  const suppliedArtifacts = options.nativeArtifacts.map((item) => ({
+  const suppliedArtifacts = nativeArtifacts.map((item) => ({
     targetId: item.targetId,
-    path: resolve(distRoot, "native", item.targetId, basename(item.path)),
+    path: resolve(distRoot, "native", item.targetId, item.artifactFilename),
   }));
   const manifest = assembleNativeManifest({
     packageVersion: packageMeta.version,

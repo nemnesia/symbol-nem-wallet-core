@@ -58,8 +58,16 @@ function bindingFailure() {
   return walletError("BindingFailure");
 }
 
+function invalidArgument() {
+  throw walletError("InvalidArgument");
+}
+
+function invalidAccountIndex() {
+  throw walletError("InvalidAccountIndex");
+}
+
 function isObject(value) {
-  return (typeof value === "object" && value !== null) || typeof value === "function";
+  return typeof value === "object" && value !== null;
 }
 
 function property(value, name) {
@@ -78,6 +86,22 @@ function requiredObject(value) {
     throw bindingFailure();
   }
   return value;
+}
+
+function requiredField(value, name) {
+  const field = property(value, name);
+  if (field === undefined) {
+    invalidArgument();
+  }
+  return field;
+}
+
+function requiredStringField(value, name) {
+  const field = requiredField(value, name);
+  if (typeof field !== "string") {
+    throw bindingFailure();
+  }
+  return field;
 }
 
 function requiredString(value) {
@@ -285,47 +309,129 @@ function normalizeOperationError(error) {
   return CORE_ERROR_CODES.has(candidate) ? walletError(candidate) : bindingFailure();
 }
 
-function validateUuidString(value) {
-  if (typeof value === "string" && !UUID_PATTERN.test(value)) {
-    throw walletError("InvalidArgument");
+function validateUuidValue(value) {
+  if (typeof value !== "string") {
+    throw bindingFailure();
+  }
+  if (!UUID_PATTERN.test(value)) {
+    invalidArgument();
   }
 }
 
 function validateDirectId(value) {
-  validateUuidString(value);
+  validateUuidValue(value);
 }
 
-function validateTargetIds(value) {
-  if (!isObject(value)) {
-    return;
-  }
-  validateUuidString(property(value, "profile_id"));
-  validateUuidString(property(value, "key_id"));
+function validateUuidField(value, name) {
+  validateUuidValue(requiredStringField(value, name));
 }
 
-function validateExportRequestIds(value) {
-  if (!isObject(value)) {
-    return;
-  }
-  validateTargetIds(property(value, "target"));
-  const userRequest = property(value, "user_request");
-  if (isObject(userRequest)) {
-    validateTargetIds(property(userRequest, "target"));
-  }
-  const confirmation = property(value, "application_confirmation");
-  if (isObject(confirmation)) {
-    validateTargetIds(property(confirmation, "target"));
+function validateLiteralField(value, name, literals) {
+  const field = requiredStringField(value, name);
+  if (!literals.has(field)) {
+    invalidArgument();
   }
 }
 
-function validateSigningRequestIds(value) {
-  if (!isObject(value)) {
+function validateObjectField(value, name, validator) {
+  const field = requiredField(value, name);
+  validator(requiredObject(field));
+}
+
+function validateHandoffConfirmation(value) {
+  requiredObject(value);
+  validateLiteralField(value, "status", new Set(["unconfirmed", "confirmed"]));
+}
+
+function validateExportTarget(value) {
+  requiredObject(value);
+  const kind = requiredStringField(value, "kind");
+  if (kind !== "mnemonic" && kind !== "software_key") {
+    invalidArgument();
+  }
+  validateUuidField(value, "profile_id");
+  const keyId = property(value, "key_id");
+  if (kind === "mnemonic") {
+    if (keyId !== undefined) {
+      if (typeof keyId !== "string") {
+        throw bindingFailure();
+      }
+      invalidArgument();
+    }
     return;
   }
-  const target = property(value, "target");
-  if (isObject(target)) {
-    validateUuidString(property(target, "profile_id"));
-    validateUuidString(property(target, "key_id"));
+  if (keyId === undefined) {
+    invalidArgument();
+  }
+  validateUuidValue(keyId);
+}
+
+function validateExportUserRequest(value) {
+  requiredObject(value);
+  validateObjectField(value, "target", validateExportTarget);
+  validateLiteralField(value, "status", new Set(["not_requested", "requested"]));
+}
+
+function validateExportApplicationConfirmation(value) {
+  requiredObject(value);
+  validateObjectField(value, "target", validateExportTarget);
+  validateLiteralField(value, "status", new Set(["not_confirmed", "confirmed"]));
+}
+
+function validateExportRequest(value) {
+  requiredObject(value);
+  validateObjectField(value, "target", validateExportTarget);
+  validateObjectField(value, "user_request", validateExportUserRequest);
+  validateObjectField(
+    value,
+    "application_confirmation",
+    validateExportApplicationConfirmation,
+  );
+}
+
+function validateAccountContext(value) {
+  requiredObject(value);
+  validateLiteralField(value, "chain", new Set(["nem", "symbol"]));
+  validateLiteralField(value, "network", new Set(["testnet", "mainnet"]));
+}
+
+function validateSigningTarget(value) {
+  requiredObject(value);
+  validateUuidField(value, "profile_id");
+  validateUuidField(value, "key_id");
+  validateObjectField(value, "context", validateAccountContext);
+}
+
+function validateSigningApproval(value) {
+  requiredObject(value);
+  validateLiteralField(value, "status", new Set(["not_approved", "approved"]));
+}
+
+function validateSigningRequest(value) {
+  requiredObject(value);
+  validateObjectField(value, "target", validateSigningTarget);
+  const payload = requiredField(value, "payload");
+  if (!(payload instanceof Uint8Array)) {
+    throw bindingFailure();
+  }
+  validateObjectField(value, "approval", validateSigningApproval);
+}
+
+function validateNetworkOrChain(value) {
+  if (typeof value !== "number") {
+    throw bindingFailure();
+  }
+  if (!Number.isFinite(value) || !Number.isInteger(value) || (value !== 0 && value !== 1)) {
+    invalidArgument();
+  }
+}
+
+function validateAccountIndex(value) {
+  if (typeof value !== "number") {
+    throw bindingFailure();
+  }
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0 || value > 2_147_483_647) {
+    invalidAccountIndex();
   }
 }
 
@@ -345,35 +451,41 @@ export function createFacade(backend) {
   return {
     create_empty_store: () => invoke(backend, "create_empty_store", [], (value) => outputBytes(value)),
 
-    prepare_generated_profile: (store, passwordUtf8, network) =>
-      invoke(
+    prepare_generated_profile: (store, passwordUtf8, network) => {
+      validateNetworkOrChain(network);
+      return invoke(
         backend,
         "prepare_generated_profile",
         [store, passwordUtf8, network],
         (value) => outputReadResult(value, outputPreparedProfile),
-      ),
+      );
+    },
 
-    finalize_generated_profile: (store, pendingProfile, passwordUtf8, handoffConfirmation) =>
-      invoke(
+    finalize_generated_profile: (store, pendingProfile, passwordUtf8, handoffConfirmation) => {
+      validateHandoffConfirmation(handoffConfirmation);
+      return invoke(
         backend,
         "finalize_generated_profile",
         [store, pendingProfile, passwordUtf8, handoffConfirmation],
         (value) => outputMutationResult(value, outputProfileInfo),
-      ),
+      );
+    },
 
-    restore_profile: (store, mnemonicUtf8, passwordUtf8, network) =>
-      invoke(
+    restore_profile: (store, mnemonicUtf8, passwordUtf8, network) => {
+      validateNetworkOrChain(network);
+      return invoke(
         backend,
         "restore_profile",
         [store, mnemonicUtf8, passwordUtf8, network],
         (value) => outputMutationResult(value, outputProfileInfo),
-      ),
+      );
+    },
 
     list_profiles: (store) =>
       invoke(backend, "list_profiles", [store], (value) => outputReadResult(value, outputProfiles)),
 
     export_mnemonic: (store, request, passwordUtf8) => {
-      validateExportRequestIds(request);
+      validateExportRequest(request);
       return invoke(
         backend,
         "export_mnemonic",
@@ -383,7 +495,7 @@ export function createFacade(backend) {
     },
 
     export_private_key: (store, request, passwordUtf8) => {
-      validateExportRequestIds(request);
+      validateExportRequest(request);
       return invoke(
         backend,
         "export_private_key",
@@ -404,6 +516,8 @@ export function createFacade(backend) {
 
     derive_software_key: (store, profileId, passwordUtf8, chain, accountIndex) => {
       validateDirectId(profileId);
+      validateNetworkOrChain(chain);
+      validateAccountIndex(accountIndex);
       return invoke(
         backend,
         "derive_software_key",
@@ -414,6 +528,7 @@ export function createFacade(backend) {
 
     import_software_key: (store, profileId, passwordUtf8, chain, privateKey) => {
       validateDirectId(profileId);
+      validateNetworkOrChain(chain);
       return invoke(
         backend,
         "import_software_key",
@@ -424,6 +539,7 @@ export function createFacade(backend) {
 
     generate_software_key: (store, profileId, passwordUtf8, chain) => {
       validateDirectId(profileId);
+      validateNetworkOrChain(chain);
       return invoke(
         backend,
         "generate_software_key",
@@ -435,6 +551,7 @@ export function createFacade(backend) {
     get_public_account: (store, profileId, keyId, requestedContext, passwordUtf8) => {
       validateDirectId(profileId);
       validateDirectId(keyId);
+      validateAccountContext(requestedContext);
       return invoke(
         backend,
         "get_public_account",
@@ -444,7 +561,7 @@ export function createFacade(backend) {
     },
 
     sign: (store, request, passwordUtf8) => {
-      validateSigningRequestIds(request);
+      validateSigningRequest(request);
       return invoke(
         backend,
         "sign",

@@ -4,6 +4,6 @@
   "packageManager": "pnpm@11.18.0",
   "scripts": {
     "build:npm": "node scripts/build-npm-package.mjs",
-    "test:npm": "node --test packages/wallet-core/test/*.test.mjs"
+    "test:npm": "node scripts/test-npm-package.mjs"
   }
 }

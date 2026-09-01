@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 
-import { assembleNativeManifest } from "../../../scripts/native-manifest.mjs";
+import {
+  assembleNativeManifest,
+  validateNativeArtifactInputs,
+} from "../../../scripts/native-manifest.mjs";
 import {
   CANONICAL_TARGET_ORDER,
   targetForRuntime,
@@ -79,6 +82,43 @@ test("assembler records only supplied artifacts, hashes bytes, and canonicalizes
         toolchainIdentifier: "rustc test",
         artifacts: [{ targetId: "linux-x64-gnu", path: resolve(directory, "missing.node") }],
       }),
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("native artifact preflight rejects unsafe or non-canonical inputs before assembly", () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "snwc-native-preflight-"));
+  try {
+    const validPath = resolve(directory, "native.node");
+    const nonNodePath = resolve(directory, "native.so");
+    writeFileSync(validPath, Buffer.from([1]));
+    writeFileSync(nonNodePath, Buffer.from([2]));
+    const directoryNamedAsNode = resolve(directory, "folder.node");
+    mkdirSync(directoryNamedAsNode);
+
+    assert.deepEqual(
+      validateNativeArtifactInputs([{ targetId: "linux-x64-gnu", path: validPath }]),
+      [{ targetId: "linux-x64-gnu", path: validPath, artifactFilename: "native.node" }],
+    );
+    assert.throws(() =>
+      validateNativeArtifactInputs([{ targetId: "../outside", path: validPath }]),
+    );
+    assert.throws(() =>
+      validateNativeArtifactInputs([
+        { targetId: "linux-x64-gnu", path: validPath },
+        { targetId: "linux-x64-gnu", path: validPath },
+      ]),
+    );
+    assert.throws(() =>
+      validateNativeArtifactInputs([{ targetId: "linux-x64-gnu", path: resolve(directory, "missing.node") }]),
+    );
+    assert.throws(() =>
+      validateNativeArtifactInputs([{ targetId: "linux-x64-gnu", path: nonNodePath }]),
+    );
+    assert.throws(() =>
+      validateNativeArtifactInputs([{ targetId: "linux-x64-gnu", path: directoryNamedAsNode }]),
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });
