@@ -9,13 +9,17 @@ const packageName = "@nemnesia/symbol-nem-wallet-core";
 const browserModule = "/packages/wallet-core/dist/wasm/index.mjs";
 const scenarioModule = "/packages/wallet-core/test/parity-scenarios.mjs";
 const browserCandidates = ["chromium", "chromium-browser", "google-chrome", "chrome", "firefox"];
+const BROWSER_BLOCKED_REASON = "BLOCKED / Browser WASM runtime parity evidence unavailable";
 
 function findBrowser() {
   const candidates = process.env.SNWC_BROWSER ? [process.env.SNWC_BROWSER] : browserCandidates;
   for (const candidate of candidates) {
-    const probe = spawnSync(candidate, ["--version"], { stdio: "ignore" });
-    if (probe.status === 0) {
-      return candidate;
+    const probe = spawnSync(candidate, ["--version"], { encoding: "utf8" });
+    const version = `${probe.stdout ?? ""}${probe.stderr ?? ""}`
+      .split(/\r?\n/, 1)[0]
+      .trim();
+    if (probe.status === 0 && version.length > 0) {
+      return { command: candidate, version };
     }
   }
   return null;
@@ -81,7 +85,7 @@ async function serveStatic(request, response, pathname) {
 export async function runBrowserParity() {
   const browser = findBrowser();
   if (browser === null) {
-    return { status: "blocked", reason: "BLOCKED / Browser WASM runtime parity evidence unavailable" };
+    return { status: "blocked", reason: BROWSER_BLOCKED_REASON };
   }
 
   let report;
@@ -129,22 +133,36 @@ export async function runBrowserParity() {
     if (address === null || typeof address === "string") {
       throw new Error("browser parity server address unavailable");
     }
-    const browserArgs = browser.toLowerCase().endsWith("firefox")
+    const browserArgs = browser.command.toLowerCase().endsWith("firefox")
       ? ["--headless", `http://127.0.0.1:${address.port}/`]
       : ["--headless", "--no-sandbox", "--disable-gpu", `http://127.0.0.1:${address.port}/`];
-    child = spawn(browser, browserArgs, { stdio: "ignore" });
-    const childExit = new Promise((resolveExit) => child.once("exit", resolveExit));
-    await Promise.race([
-      reportPromise,
-      childExit.then(() => {
-        throw new Error("browser parity runtime exited before report");
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("browser parity runtime timed out")), 30_000)),
-    ]);
-    if (report?.status !== "ok" || report.result === undefined) {
-      throw new Error("browser parity scenario failed");
+    child = spawn(browser.command, browserArgs, { stdio: "ignore" });
+    const childExit = new Promise((resolveExit, rejectExit) => {
+      child.once("exit", resolveExit);
+      child.once("error", rejectExit);
+    });
+    let timeout;
+    try {
+      await Promise.race([
+        reportPromise,
+        childExit.then(() => {
+          throw new Error("browser parity runtime exited before report");
+        }),
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("browser parity runtime timed out")), 30_000);
+        }),
+      ]);
+    } catch {
+      return { status: "blocked", reason: BROWSER_BLOCKED_REASON };
+    } finally {
+      clearTimeout(timeout);
     }
-    return { status: "ok", result: report.result };
+    if (report?.status !== "ok" || report.result === undefined) {
+      return { status: "failed", reason: "Browser WASM parity failure" };
+    }
+    return { status: "ok", browser, result: report.result };
+  } catch {
+    return { status: "blocked", reason: BROWSER_BLOCKED_REASON };
   } finally {
     if (child !== undefined && child.exitCode === null) {
       child.kill("SIGTERM");

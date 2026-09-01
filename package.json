@@ -4,6 +4,7 @@
   "packageManager": "pnpm@11.18.0",
   "scripts": {
     "build:npm": "node scripts/build-npm-package.mjs",
-    "test:npm": "node scripts/test-npm-package.mjs"
+    "test:npm": "node scripts/test-npm-package.mjs",
+    "test:npm:parity": "node scripts/test-npm-parity.mjs"
   }
 }

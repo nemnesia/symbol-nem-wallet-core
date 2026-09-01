@@ -1,13 +1,28 @@
+import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { targetForRuntime } from "../packages/wallet-core/src/manifest.mjs";
+import { targetForRuntime, validateNativeManifest } from "../packages/wallet-core/src/manifest.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageTestRoot = resolve(repositoryRoot, "packages/wallet-core/test");
+const packageRoot = resolve(repositoryRoot, "packages/wallet-core");
+const nodeParityRunner = resolve(packageTestRoot, "parity-node-runner.mjs");
+const formalParity = process.argv.slice(2).includes("--formal-parity");
+const NODE_NATIVE_BLOCKED_REASON = "BLOCKED / Node native parity evidence unavailable";
 
 function run(command, args) {
   execFileSync(command, args, {
@@ -87,6 +102,94 @@ function testFiles() {
     .map((name) => resolve(packageTestRoot, name));
 }
 
+function nativeEvidence(nativeTarget) {
+  if (nativeTarget === null) {
+    throw new Error(NODE_NATIVE_BLOCKED_REASON);
+  }
+  try {
+    const packageMeta = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
+    const manifest = JSON.parse(
+      readFileSync(resolve(packageRoot, "dist/native/artifact-manifest.json"), "utf8"),
+    );
+    validateNativeManifest(manifest, packageMeta);
+    const entry = manifest.artifacts.find((artifact) => artifact.target_id === nativeTarget);
+    if (entry === undefined) {
+      throw new Error("native target manifest entry is missing");
+    }
+    const artifactPath = resolve(packageRoot, entry.relative_path);
+    if (!existsSync(artifactPath) || !statSync(artifactPath).isFile()) {
+      throw new Error("native target artifact is missing");
+    }
+    return {
+      target_id: nativeTarget,
+      manifest_entry_present: true,
+      native_artifact_present: true,
+    };
+  } catch (error) {
+    if (error?.message === NODE_NATIVE_BLOCKED_REASON) {
+      throw error;
+    }
+    throw new Error(NODE_NATIVE_BLOCKED_REASON);
+  }
+}
+
+function runParityResult(args) {
+  const directory = mkdtempSync(resolve(tmpdir(), "snwc-formal-parity-"));
+  const output = resolve(directory, "stdout");
+  const outputDescriptor = openSync(output, "w");
+  try {
+    execFileSync(process.execPath, args, {
+      cwd: packageRoot,
+      stdio: ["ignore", outputDescriptor, outputDescriptor],
+    });
+    return JSON.parse(readFileSync(output, "utf8"));
+  } finally {
+    closeSync(outputDescriptor);
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+async function runFormalParity(nativeTarget) {
+  const evidence = nativeEvidence(nativeTarget);
+  const native = runParityResult([nodeParityRunner]);
+  const wasm = runParityResult(["--no-addons", nodeParityRunner]);
+  assert.deepEqual(wasm, native);
+
+  const nodeEvidence = {
+    node_native: {
+      ...evidence,
+      native_root_execution_success: true,
+    },
+    node_wasm: {
+      execution_success: true,
+    },
+  };
+
+  const { runBrowserParity } = await import("../packages/wallet-core/test/browser-parity.mjs");
+  const browser = await runBrowserParity();
+  if (browser.status === "blocked") {
+    console.log(JSON.stringify({ ...nodeEvidence, browser }));
+    throw new Error(browser.reason);
+  }
+  if (browser.status !== "ok") {
+    console.log(JSON.stringify({ ...nodeEvidence, browser }));
+    throw new Error(browser.reason ?? "Browser WASM parity failure");
+  }
+  assert.deepEqual(browser.result, native);
+
+  console.log(
+    JSON.stringify({
+      ...nodeEvidence,
+      browser: {
+        command: browser.browser.command,
+        version: browser.browser.version,
+        status: "ok",
+      },
+      canonical_result_equal: true,
+    }),
+  );
+}
+
 if (!process.env.SNWC_SOURCE_COMMIT) {
   process.env.SNWC_SOURCE_COMMIT = sourceCommitFromGit();
 }
@@ -97,6 +200,9 @@ try {
   run("cargo", ["build", "--locked", "-p", "symbol-nem-wallet-core-wasm", "--target", "wasm32-unknown-unknown", "--release"]);
 
   const nativeTarget = currentNativeTarget();
+  if (formalParity && nativeTarget === null) {
+    throw new Error(NODE_NATIVE_BLOCKED_REASON);
+  }
   const nativeArguments = [];
   if (nativeTarget !== null) {
     run("cargo", ["build", "--locked", "-p", "symbol-nem-wallet-core-node", "--release"]);
@@ -112,8 +218,12 @@ try {
     wasmBindgen,
     ...nativeArguments,
   ]);
-  for (const file of testFiles()) {
-    run(process.execPath, [file]);
+  if (formalParity) {
+    await runFormalParity(nativeTarget);
+  } else {
+    for (const file of testFiles()) {
+      run(process.execPath, [file]);
+    }
   }
 } finally {
   if (nativeStagingDirectory !== undefined) {
