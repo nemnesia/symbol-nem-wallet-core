@@ -234,7 +234,7 @@ Symbol と NEM は、HD 導出、public key、address、署名 scheme を同一�
 
 ## Native C ABI
 
-Native Binding は `bindings/native` の `symbol-nem-wallet-core-native` package と、[公開 header](bindings/native/include/symbol_nem_wallet_core.h) で提供します。
+Native Binding は `crates/c-abi` の `symbol-nem-wallet-core-native` package と、[公開 header](crates/c-abi/include/symbol_nem_wallet_core.h) で提供します。
 
 ```bash
 cargo build --package symbol-nem-wallet-core-native --release --locked
@@ -268,7 +268,7 @@ int main(void) {
 
 ```bash
 cc -std=c11 -Wall -Wextra -Werror \
-  -I bindings/native/include \
+  -I crates/c-abi/include \
   native_example.c \
   target/release/libsymbol_nem_wallet_core_native.a \
   -ldl -lpthread -lm \
@@ -385,9 +385,9 @@ cargo test --workspace --all-features --locked
 cargo check --package symbol-nem-wallet-core-wasm --target wasm32-unknown-unknown --locked
 cargo check --manifest-path fuzz/Cargo.toml --locked --bin wallet_store_decode
 cargo build --package symbol-nem-wallet-core-native --release --locked
-cc -std=c11 -Wall -Wextra -Werror -I bindings/native/include \
-  -fsyntax-only bindings/native/tests/header_compile.c
-./bindings/native/tests/run_c_abi_runtime.sh
+cc -std=c11 -Wall -Wextra -Werror -I crates/c-abi/include \
+  -fsyntax-only crates/c-abi/tests/header_compile.c
+./crates/c-abi/tests/run_c_abi_runtime.sh
 wasm-pack test --node --mode no-install crates/wasm --locked
 cargo audit
 ```

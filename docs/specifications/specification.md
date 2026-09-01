@@ -854,7 +854,7 @@ Binding は、handoff / export / signing の status を生成せず、password �
 
 Binding に暗号化、password authentication、Mnemonic validation、key derivation、signing、duplicate detection を再実装しない。
 
-v1 Native C ABI Binding は `bindings/native` の C ABI (`cdylib` / `staticlib`) を使用し、v1 WASM Binding は `wasm-bindgen` を使用する。各 Binding は §9.2 の各 operation を 1 対 1 で公開し、operation の入力条件、confirmation / approval、Core error、success boundary および `ReadResult` / `MutationResult` の意味を変更・省略してはならない。Binding方式を変更する場合は、本仕様と `docs/design/bindings.md` を更新する。秘密情報処理ロジックを Core と重複させない。
+v1 Native C ABI Binding は `crates/c-abi` の C ABI (`cdylib` / `staticlib`) を使用し、v1 WASM Binding は `wasm-bindgen` を使用する。各 Binding は §9.2 の各 operation を 1 対 1 で公開し、operation の入力条件、confirmation / approval、Core error、success boundary および `ReadResult` / `MutationResult` の意味を変更・省略してはならない。Binding方式を変更する場合は、本仕様と `docs/design/bindings.md` を更新する。秘密情報処理ロジックを Core と重複させない。
 
 WASM public API は `Uint8Array` を binary data の基本型とする。Wallet Store blob、PendingProfileBlob、署名 payload、signature、public key、Mnemonic UTF-8 bytes、Profile password UTF-8 bytes、import / export private key は `Uint8Array` 相当とする。
 
