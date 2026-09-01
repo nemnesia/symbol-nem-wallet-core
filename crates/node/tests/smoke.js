@@ -47,13 +47,6 @@ function expectCode(code, callback) {
   });
 }
 
-function expectBinaryRejected(callback) {
-  assert.throws(callback, (error) => {
-    assert.match(error.message, /(?:Uint8Array|TypedArray)/);
-    return true;
-  });
-}
-
 function exportTarget(profileId, keyId) {
   return {
     kind: keyId === undefined ? "mnemonic" : "software_key",
@@ -82,6 +75,9 @@ const emptyStoreSnapshot = Uint8Array.from(emptyStore);
 const emptyList = addon.list_profiles(Buffer.from(emptyStore));
 assert.deepEqual(emptyList.value, []);
 assert.deepEqual(emptyList.warnings, []);
+const ordinaryUint8ArrayList = addon.list_profiles(Uint8Array.from(emptyStore));
+assert.deepEqual(ordinaryUint8ArrayList.value, []);
+assert.deepEqual(ordinaryUint8ArrayList.warnings, []);
 
 // The input is copied for Core; mutating the caller-owned value afterwards cannot mutate output.
 const inputCopyProbe = Buffer.from(emptyStore);
@@ -92,6 +88,16 @@ assert.deepEqual(inputCopyResult.value, []);
 const prepared = addon.prepare_generated_profile(emptyStore, PASSWORD, 1);
 assert.ok(prepared.value.mnemonic_utf8 instanceof Uint8Array);
 assert.ok(prepared.value.pending_profile instanceof Uint8Array);
+// DTO representation failures are owned by the binding, while a well-formed DTO with an
+// invalid status remains a Core-level InvalidArgument.
+expectCode("BindingFailure", () =>
+  addon.finalize_generated_profile(
+    emptyStore,
+    prepared.value.pending_profile,
+    PASSWORD,
+    null,
+  ),
+);
 expectCode("InvalidArgument", () =>
   addon.finalize_generated_profile(
     emptyStore,
@@ -156,6 +162,15 @@ const publicAccount = addon.get_public_account(
 assert.equal(publicAccount.value.chain, "symbol");
 assert.equal(publicAccount.value.network, "mainnet");
 assert.equal(publicAccount.value.public_key.length, 32);
+expectCode("BindingFailure", () =>
+  addon.get_public_account(
+    store,
+    profileId,
+    symbolKeyId,
+    null,
+    PASSWORD,
+  ),
+);
 
 const signed = addon.sign(
   store,
@@ -171,12 +186,14 @@ const signed = addon.sign(
   PASSWORD,
 );
 assert.equal(signed.value.signature.length, 64);
+expectCode("BindingFailure", () => addon.sign(store, null, PASSWORD));
 
 const mnemonicExport = addon.export_mnemonic(
   store,
   exportRequest(profileId),
   PASSWORD,
 );
+expectCode("BindingFailure", () => addon.export_mnemonic(store, null, PASSWORD));
 assert.deepEqual(
   Array.from(mnemonicExport.value.mnemonic_utf8),
   Array.from(MNEMONIC),
@@ -219,6 +236,8 @@ expectCode("InvalidArgument", () =>
   addon.generate_software_key(store, profileId, NEW_PASSWORD, 2),
 );
 expectCode("InvalidArgument", () => addon.list_software_keys(store, "not-a-uuid"));
+expectCode("BindingFailure", () => addon.list_software_keys(store, 1));
+expectCode("BindingFailure", () => addon.prepare_generated_profile(emptyStore, PASSWORD, "1"));
 expectCode("InvalidArgument", () =>
   addon.sign(
     store,
@@ -253,23 +272,34 @@ const deleted = addon.delete_profile(store, profileId, NEW_PASSWORD);
 assert.equal(deleted.value, null);
 assert.deepEqual(addon.list_profiles(deleted.store).value, []);
 
-// Invalid representations are rejected by N-API type inspection, before Core input promotion.
+// Invalid representations are rejected by the binding-owned validation boundary, before Core
+// input promotion, with the stable binding error code.
 expectCode("InvalidStore", () => addon.list_profiles(Uint8Array.from([0])));
-expectBinaryRejected(() => addon.list_profiles(new Uint16Array([0])));
-expectBinaryRejected(() => addon.list_profiles(new Uint8ClampedArray([0])));
-expectBinaryRejected(() => addon.list_profiles(new DataView(new ArrayBuffer(1))));
-expectBinaryRejected(() => addon.list_profiles(new Proxy(new Uint8Array(emptyStore), {})));
+expectCode("BindingFailure", () => addon.list_profiles(new Uint16Array([0])));
+expectCode("BindingFailure", () => addon.list_profiles(new Uint8ClampedArray([0])));
+expectCode("BindingFailure", () => addon.list_profiles(new DataView(new ArrayBuffer(1))));
+expectCode("BindingFailure", () => addon.list_profiles(new Proxy(new Uint8Array(emptyStore), {})));
+expectCode("BindingFailure", () => addon.list_profiles({}));
 
 // Store size is checked from the typed-array length before the Rust copy/allocation.
 expectCode("InvalidStore", () =>
   addon.list_profiles(Buffer.alloc(16 * 1024 * 1024 + 1)),
 );
 
-// Detached typed arrays remain a failed input and are never promoted as Store bytes.
+// Detached typed arrays remain a binding failure and are never promoted as Store bytes.
 const detachedBuffer = new ArrayBuffer(1);
 const detached = new Uint8Array(detachedBuffer);
 structuredClone(detachedBuffer, { transfer: [detachedBuffer] });
 assert.equal(detached.byteLength, 0);
-assert.throws(() => addon.list_profiles(detached));
+expectCode("BindingFailure", () => addon.list_profiles(detached));
+
+// SharedArrayBuffer-backed views are rejected before napi-rs creates a Rust slice.  The Buffer
+// view uses the same shared backing where the runtime supports that construction.
+const sab = new SharedArrayBuffer(emptyStore.length);
+const shared = new Uint8Array(sab);
+shared.set(emptyStore);
+expectCode("BindingFailure", () => addon.list_profiles(shared));
+const sharedBuffer = Buffer.from(sab, 0, sab.byteLength);
+expectCode("BindingFailure", () => addon.list_profiles(sharedBuffer));
 
 console.log(`Node-API v${process.versions.napi} addon smoke passed (${OPERATION_NAMES.length} operations)`);

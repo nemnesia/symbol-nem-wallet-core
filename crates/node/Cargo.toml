@@ -10,7 +10,7 @@ build = "build.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { version = "=3.12.2", default-features = false, features = ["napi8", "dyn-symbols"] }
+napi = { version = "=3.12.2", default-features = false, features = ["compat-mode", "napi8", "dyn-symbols"] }
 napi-derive = "=3.6.3"
 symbol-nem-wallet-core = { path = "../core" }
 uuid = { version = "1.18.1", default-features = false }
