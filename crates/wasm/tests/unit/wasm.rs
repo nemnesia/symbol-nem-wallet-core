@@ -1,6 +1,7 @@
 use super::*;
-use crate::cbor::{self, Value};
 use js_sys::{DataView, Int8Array, Object, Proxy, Reflect, Symbol, Uint16Array, Uint8ClampedArray};
+use symbol_nem_wallet_core as wallet_core;
+use symbol_nem_wallet_core::MAX_WALLET_STORE_BYTES;
 use wasm_bindgen::{closure::Closure, JsCast};
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -221,24 +222,78 @@ fn assert_binding_failure(result: Result<JsValue, JsValue>) {
     );
 }
 
-fn store_with_unknown_padding(last_padding_len: usize) -> Vec<u8> {
-    let mut fields = vec![
-        (0, Value::Bytes(b"SNWC".to_vec())),
-        (1, Value::UInt(1)),
-        (2, Value::Bytes(vec![0x11; 32])),
-        (3, Value::Array(Vec::new())),
-    ];
-    for key in 4..19 {
-        fields.push((key, Value::Bytes(vec![0xA5; cbor::MAX_BYTE_OR_TEXT_LENGTH])));
+const FIXTURE_MAX_BYTE_OR_TEXT_LENGTH: usize = 1024 * 1024;
+
+fn encode_fixture_uint(value: usize) -> Vec<u8> {
+    match value {
+        0..=23 => vec![value as u8],
+        24..=255 => vec![0x18, value as u8],
+        256..=65_535 => {
+            let value = value as u16;
+            vec![0x19, (value >> 8) as u8, value as u8]
+        }
+        _ => {
+            let value = value as u32;
+            vec![
+                0x1a,
+                (value >> 24) as u8,
+                (value >> 16) as u8,
+                (value >> 8) as u8,
+                value as u8,
+            ]
+        }
     }
-    fields.push((19, Value::Bytes(vec![0xA5; last_padding_len])));
-    cbor::encode(&Value::Map(fields)).unwrap()
+}
+
+fn encode_fixture_bytes(value: &[u8]) -> Vec<u8> {
+    let mut encoded = match value.len() {
+        0..=23 => vec![0x40 | value.len() as u8],
+        24..=255 => vec![0x58, value.len() as u8],
+        256..=65_535 => {
+            let length = value.len() as u16;
+            vec![0x59, (length >> 8) as u8, length as u8]
+        }
+        _ => {
+            let length = value.len() as u32;
+            vec![
+                0x5a,
+                (length >> 24) as u8,
+                (length >> 16) as u8,
+                (length >> 8) as u8,
+                length as u8,
+            ]
+        }
+    };
+    encoded.extend_from_slice(value);
+    encoded
+}
+
+fn store_with_unknown_padding(last_padding_len: usize) -> Vec<u8> {
+    let mut encoded = vec![0xb4];
+    encoded.push(0);
+    encoded.extend_from_slice(&encode_fixture_bytes(b"SNWC"));
+    encoded.push(1);
+    encoded.extend_from_slice(&encode_fixture_uint(1));
+    encoded.push(2);
+    encoded.extend_from_slice(&encode_fixture_bytes(&[0x11; 32]));
+    encoded.push(3);
+    encoded.push(0x80);
+    for key in 4..19 {
+        encoded.push(key);
+        encoded.extend_from_slice(&encode_fixture_bytes(&vec![
+            0xA5;
+            FIXTURE_MAX_BYTE_OR_TEXT_LENGTH
+        ]));
+    }
+    encoded.push(19);
+    encoded.extend_from_slice(&encode_fixture_bytes(&vec![0xA5; last_padding_len]));
+    encoded
 }
 
 fn max_sized_store() -> Vec<u8> {
-    let limit = crate::store::MAX_WALLET_STORE_BYTES;
+    let limit = MAX_WALLET_STORE_BYTES;
     let mut low = 0;
-    let mut high = cbor::MAX_BYTE_OR_TEXT_LENGTH;
+    let mut high = FIXTURE_MAX_BYTE_OR_TEXT_LENGTH;
     let mut best = Vec::new();
     let mut best_padding = 0;
     while low <= high {
@@ -317,17 +372,17 @@ fn wasm_secret_boundaries_and_core_parity() {
     .unwrap();
     let exported_private_key = bytes_field(&value(&exported), "private_key");
     assert_eq!(exported_private_key.length(), 32);
-    let core_private_key = crate::export_private_key(
+    let core_private_key = wallet_core::export_private_key(
         &derived_store,
-        crate::ExportRequest {
-            target: crate::ExportTarget::SoftwareKeyTarget { profile_id, key_id },
-            user_request: crate::ExportUserRequest {
-                target: crate::ExportTarget::SoftwareKeyTarget { profile_id, key_id },
-                status: crate::ExportUserRequestStatus::Requested,
+        wallet_core::ExportRequest {
+            target: wallet_core::ExportTarget::SoftwareKeyTarget { profile_id, key_id },
+            user_request: wallet_core::ExportUserRequest {
+                target: wallet_core::ExportTarget::SoftwareKeyTarget { profile_id, key_id },
+                status: wallet_core::ExportUserRequestStatus::Requested,
             },
-            application_confirmation: crate::ExportApplicationConfirmation {
-                target: crate::ExportTarget::SoftwareKeyTarget { profile_id, key_id },
-                status: crate::ExportApplicationConfirmationStatus::Confirmed,
+            application_confirmation: wallet_core::ExportApplicationConfirmation {
+                target: wallet_core::ExportTarget::SoftwareKeyTarget { profile_id, key_id },
+                status: wallet_core::ExportApplicationConfirmationStatus::Confirmed,
             },
         },
         PASSWORD,
@@ -356,13 +411,13 @@ fn wasm_secret_boundaries_and_core_parity() {
     )
     .unwrap();
     let wasm_account_value = value(&wasm_account);
-    let core_account = crate::get_public_account(
+    let core_account = wallet_core::get_public_account(
         &derived_store,
         profile_id,
         key_id,
-        crate::AccountContext {
-            chain: crate::Chain::Symbol,
-            network: crate::Network::Mainnet,
+        wallet_core::AccountContext {
+            chain: wallet_core::Chain::Symbol,
+            network: wallet_core::Network::Mainnet,
         },
         PASSWORD,
     )
@@ -405,13 +460,13 @@ fn wasm_secret_boundaries_and_core_parity() {
         &password,
     )
     .unwrap();
-    let core_nem_account = crate::get_public_account(
+    let core_nem_account = wallet_core::get_public_account(
         &nem_derived_store,
         profile_id,
         parse_uuid(&nem_key_id_text).unwrap(),
-        crate::AccountContext {
-            chain: crate::Chain::Nem,
-            network: crate::Network::Mainnet,
+        wallet_core::AccountContext {
+            chain: wallet_core::Chain::Nem,
+            network: wallet_core::Network::Mainnet,
         },
         PASSWORD,
     )
@@ -439,20 +494,20 @@ fn wasm_secret_boundaries_and_core_parity() {
         &password,
     )
     .unwrap();
-    let core_nem_signature = crate::sign(
+    let core_nem_signature = wallet_core::sign(
         &nem_derived_store,
-        crate::SigningRequest {
-            target: crate::SigningTarget {
+        wallet_core::SigningRequest {
+            target: wallet_core::SigningTarget {
                 profile_id,
                 key_id: parse_uuid(&nem_key_id_text).unwrap(),
-                context: crate::AccountContext {
-                    chain: crate::Chain::Nem,
-                    network: crate::Network::Mainnet,
+                context: wallet_core::AccountContext {
+                    chain: wallet_core::Chain::Nem,
+                    network: wallet_core::Network::Mainnet,
                 },
             },
             payload: b"wasm NEM fixture payload".to_vec(),
-            approval: crate::SigningApproval {
-                status: crate::SigningApprovalStatus::Approved,
+            approval: wallet_core::SigningApproval {
+                status: wallet_core::SigningApprovalStatus::Approved,
             },
         },
         PASSWORD,
@@ -478,20 +533,20 @@ fn wasm_secret_boundaries_and_core_parity() {
         &password,
     )
     .unwrap();
-    let core_signature = crate::sign(
+    let core_signature = wallet_core::sign(
         &derived_store,
-        crate::SigningRequest {
-            target: crate::SigningTarget {
+        wallet_core::SigningRequest {
+            target: wallet_core::SigningTarget {
                 profile_id,
                 key_id,
-                context: crate::AccountContext {
-                    chain: crate::Chain::Symbol,
-                    network: crate::Network::Mainnet,
+                context: wallet_core::AccountContext {
+                    chain: wallet_core::Chain::Symbol,
+                    network: wallet_core::Network::Mainnet,
                 },
             },
             payload: b"wasm fixture payload".to_vec(),
-            approval: crate::SigningApproval {
-                status: crate::SigningApprovalStatus::Approved,
+            approval: wallet_core::SigningApproval {
+                status: wallet_core::SigningApprovalStatus::Approved,
             },
         },
         PASSWORD,
@@ -1081,7 +1136,7 @@ fn wasm_binary_copy_ignores_overridable_slice_methods() {
 #[wasm_bindgen_test]
 fn wasm_store_size_boundary_uses_public_api() {
     let at_limit = max_sized_store();
-    assert_eq!(at_limit.len(), crate::store::MAX_WALLET_STORE_BYTES);
+    assert_eq!(at_limit.len(), MAX_WALLET_STORE_BYTES);
 
     let at_limit_js = Uint8Array::from(at_limit.as_slice());
     let accepted = list_profiles(&at_limit_js).unwrap();

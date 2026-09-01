@@ -605,14 +605,11 @@ dependencies = [
  "getrandom",
  "hex",
  "hmac",
- "js-sys",
  "ripemd",
  "sha2",
  "sha3",
  "unicode-normalization",
  "uuid",
- "wasm-bindgen",
- "wasm-bindgen-test",
  "zeroize",
 ]
 
@@ -623,6 +620,20 @@ dependencies = [
  "hex",
  "symbol-nem-wallet-core",
  "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "symbol-nem-wallet-core-wasm"
+version = "0.1.0"
+dependencies = [
+ "getrandom",
+ "hex",
+ "js-sys",
+ "symbol-nem-wallet-core",
+ "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
  "zeroize",
 ]
 

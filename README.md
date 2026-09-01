@@ -310,40 +310,9 @@ snwc_delete_profile
 
 ## WASM / TypeScript
 
-WASM Binding は `wasm` feature と `wasm32-unknown-unknown` target で有効です。Core と同じ operation を、Rust の public name と同じ snake_case の export として提供します。
+Stage 4で旧root raw WASM配布経路を廃止しました。root Cargo packageの`--features wasm`、root CoreのWASM用`cdylib`、`scripts/build-wasm.sh`、root `pkg/`およびraw `wasm-bindgen` generated packageを、現在サポートされている利用方法として扱いません。
 
-```bash
-rustup target add wasm32-unknown-unknown
-cargo build --target wasm32-unknown-unknown --features wasm --release
-```
-
-生成済み npm package は repository に含まれません。`wasm-bindgen` CLI で web target の glue code と TypeScript 定義を生成します。
-
-```bash
-cargo install wasm-bindgen-cli --version 0.2.127 --locked
-./scripts/build-wasm.sh
-```
-
-出力先は第1引数で変更できます。相対パスは repository root から解決されます。
-
-第1引数を省略した場合の出力先は `pkg/` です。`--target web` の生成物は、同じディレクトリにある JavaScript glue module と `symbol_nem_wallet_core_bg.wasm` を組み合わせて使用します。生成された web module の default initialization API と `create_empty_store` の最小例は次のとおりです。
-
-```javascript
-import init, { create_empty_store } from "./pkg/symbol_nem_wallet_core.js";
-
-// default init は同じディレクトリの symbol_nem_wallet_core_bg.wasm を読み込む。
-await init();
-
-const store = create_empty_store();
-if (!(store instanceof Uint8Array)) {
-    throw new TypeError("create_empty_store() did not return Uint8Array");
-}
-
-// store は新しい caller-owned copy。opaque のまま次の Core operation へ渡す。
-console.log(store.byteLength);
-```
-
-この例は `pkg/` を web server から module として配信する前提です。`symbol_nem_wallet_core.js` と `symbol_nem_wallet_core_bg.wasm` を別の場所へ出力した場合は、import path と生成された module から WASM を取得できる配置を合わせてください。
+`crates/wasm` は、後続のnpm facadeへ組み込むための内部WASM Binding / artifact sourceです。ここから生成される`.wasm`、JavaScript glueおよびgenerated moduleはconsumer-facing entry pointやpublic npm subpathではありません。正式なJavaScript facadeは後続migration stageで提供します。
 
 `wasm-bindgen` の JavaScript 境界では、Wallet Store、Pending、Mnemonic、Profile password、private key、payload、public key、signature は `Uint8Array` 相当です。UUID と address は string、入力の `network` は `0 = testnet, 1 = mainnet`、`chain` は `0 = nem, 1 = symbol` の number です。出力 DTO の文字列表現は `"testnet"` / `"mainnet"`、`"nem"` / `"symbol"` です。
 
@@ -413,13 +382,13 @@ python3 scripts/check-invisible-characters.py
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-features --locked
-cargo check --target wasm32-unknown-unknown --features wasm --locked
+cargo check --package symbol-nem-wallet-core-wasm --target wasm32-unknown-unknown --locked
 cargo check --manifest-path fuzz/Cargo.toml --locked --bin wallet_store_decode
 cargo build --package symbol-nem-wallet-core-native --release --locked
 cc -std=c11 -Wall -Wextra -Werror -I bindings/native/include \
   -fsyntax-only bindings/native/tests/header_compile.c
 ./bindings/native/tests/run_c_abi_runtime.sh
-wasm-pack test --node --locked --features wasm
+CARGOFLAGS=--locked wasm-pack test --node --mode no-install crates/wasm
 cargo audit
 ```
 

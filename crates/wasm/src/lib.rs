@@ -1,8 +1,10 @@
+#![cfg(target_arch = "wasm32")]
+
 //! wasm-bindgenによるWASM Binding。
 //!
-//! このモジュールはUint8ArrayとJavaScript objectへの変換、Core error codeと
+//! このcrateはUint8ArrayとJavaScript objectへの変換、Core error codeと
 //! DecodeWarningのmapping、入力bufferの一時所有だけを担当する。暗号処理、
-//! 認証、導出、署名および重複判定はすべて親crateのCoreへ委譲する。
+//! 認証、導出、署名および重複判定はすべてCore crateへ委譲する。
 //!
 //! JavaScript側では、Store・Pending Profile・Mnemonic・password・private key・payload・
 //! signature・public keyを`Uint8Array`で扱う。UUIDは文字列、Networkは`0`=Testnet /
@@ -15,8 +17,8 @@ use uuid::Uuid;
 use wasm_bindgen::{prelude::*, JsCast};
 use zeroize::Zeroizing;
 
-use crate::store::MAX_WALLET_STORE_BYTES;
-use crate::{
+use symbol_nem_wallet_core::MAX_WALLET_STORE_BYTES;
+use symbol_nem_wallet_core::{
     change_profile_password as core_change_profile_password,
     create_empty_store as core_create_empty_store, delete_profile as core_delete_profile,
     delete_software_key as core_delete_software_key,
@@ -596,9 +598,9 @@ fn prepared_profile(value: PreparedProfile) -> Result<JsValue, JsValue> {
 pub fn create_empty_store() -> Result<Uint8Array, JsValue> {
     let value = core_create_empty_store().map_err(binding_error)?;
     let value = Zeroizing::new(value);
-    Ok(uint8_array(&value)?
+    uint8_array(&value)?
         .dyn_into()
-        .map_err(|_| conversion_error())?)
+        .map_err(|_| conversion_error())
 }
 
 /// Mnemonic生成の初回段階を実行し、Storeを変更せずにPending Profileを返す。

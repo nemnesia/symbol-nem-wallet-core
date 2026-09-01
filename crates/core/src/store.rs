@@ -29,7 +29,8 @@ const STORE_VERSION: u64 = 1;
 const PROFILE_SCHEMA_VERSION: u64 = 1;
 const KDF_ALGORITHM: u64 = 0;
 const CIPHER_ALGORITHM: u64 = 0;
-pub(crate) const MAX_WALLET_STORE_BYTES: usize = cbor::MAX_WALLET_STORE_INPUT;
+/// Host Bindingがattacker-controlled Storeをコピーする前に入力を拒否する上限。
+pub const MAX_WALLET_STORE_BYTES: usize = cbor::MAX_WALLET_STORE_INPUT;
 pub(crate) const MAX_PROFILES: usize = 128;
 pub(crate) const MAX_SOFTWARE_KEYS_PER_PROFILE: usize = 256;
 pub(crate) const MAX_PROFILE_CIPHERTEXT_BYTES: usize = cbor::MAX_BYTE_OR_TEXT_LENGTH;

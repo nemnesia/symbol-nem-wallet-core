@@ -27,9 +27,6 @@ mod error;
 mod store;
 mod types;
 
-#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
-mod wasm;
-
 pub use error::{ErrorCode, WalletError, WalletResult};
 pub use types::{
     AccountContext, Chain, DecodeWarning, ExportApplicationConfirmation,
@@ -45,5 +42,5 @@ pub use store::{
     change_profile_password, create_empty_store, delete_profile, delete_software_key,
     derive_software_key, export_mnemonic, export_private_key, finalize_generated_profile,
     generate_software_key, get_public_account, import_software_key, list_profiles,
-    list_software_keys, prepare_generated_profile, restore_profile, sign,
+    list_software_keys, prepare_generated_profile, restore_profile, sign, MAX_WALLET_STORE_BYTES,
 };
