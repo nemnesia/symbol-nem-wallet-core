@@ -445,6 +445,14 @@ fn output_bytes(env: &Env, value: &[u8]) -> Result<JsObject> {
     JsObject::try_from(typed_array.to_unknown()).map_err(|_| binding_error())
 }
 
+fn output_object<T>(env: &Env, value: T) -> Result<JsObject>
+where
+    T: ToNapiValue,
+{
+    let value = value.into_unknown(env).map_err(|_| binding_error())?;
+    JsObject::try_from(value).map_err(|_| binding_error())
+}
+
 fn parse_network(value: f64) -> Result<core::Network> {
     if !value.is_finite() || value.fract() != 0.0 {
         return Err(invalid_argument());
@@ -710,32 +718,41 @@ pub fn create_empty_store(env: Env) -> Result<JsObject> {
 }
 
 /// Mnemonic生成の初回段階を実行する。
-#[napi(js_name = "prepare_generated_profile")]
+#[napi(
+    js_name = "prepare_generated_profile",
+    ts_return_type = "PreparedProfileReadResult"
+)]
 pub fn prepare_generated_profile(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
     #[napi(ts_arg_type = "number")] network: Unknown<'_>,
-) -> Result<PreparedProfileReadResult> {
+) -> Result<JsObject> {
     let network = parse_network(convert_number(network)?)?;
     let store = store_bytes(&store)?;
     let password = copy_bytes(&password_utf8, None)?;
     let result = core::prepare_generated_profile(&store, &password, network).map_err(core_error)?;
-    Ok(PreparedProfileReadResult {
-        value: prepared_profile(&env, result.value)?,
-        warnings: warnings(&result.warnings),
-    })
+    output_object(
+        &env,
+        PreparedProfileReadResult {
+            value: prepared_profile(&env, result.value)?,
+            warnings: warnings(&result.warnings),
+        },
+    )
 }
 
 /// Pending Profileをhandoff確認後に確定する。
-#[napi(js_name = "finalize_generated_profile")]
+#[napi(
+    js_name = "finalize_generated_profile",
+    ts_return_type = "ProfileMutationResult"
+)]
 pub fn finalize_generated_profile(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] pending_profile: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
     #[napi(ts_arg_type = "HandoffConfirmationInput")] handoff_confirmation: Unknown<'_>,
-) -> Result<ProfileMutationResult> {
+) -> Result<JsObject> {
     let store = store_bytes(&store)?;
     let pending_profile = copy_bytes(&pending_profile, None)?;
     let password = copy_bytes(&password_utf8, None)?;
@@ -750,22 +767,25 @@ pub fn finalize_generated_profile(
     } = result;
     let value = profile_info(core_value);
     let (store, warnings) = mutation_store_parts(&env, store, warnings)?;
-    Ok(ProfileMutationResult {
-        store,
-        value,
-        warnings,
-    })
+    output_object(
+        &env,
+        ProfileMutationResult {
+            store,
+            value,
+            warnings,
+        },
+    )
 }
 
 /// UTF-8 BIP39 MnemonicからProfileを復元する。
-#[napi(js_name = "restore_profile")]
+#[napi(js_name = "restore_profile", ts_return_type = "ProfileMutationResult")]
 pub fn restore_profile(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] mnemonic_utf8: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
     #[napi(ts_arg_type = "number")] network: Unknown<'_>,
-) -> Result<ProfileMutationResult> {
+) -> Result<JsObject> {
     let network = parse_network(convert_number(network)?)?;
     let store = store_bytes(&store)?;
     let mnemonic = copy_bytes(&mnemonic_utf8, None)?;
@@ -779,83 +799,109 @@ pub fn restore_profile(
     } = result;
     let value = profile_info(core_value);
     let (store, warnings) = mutation_store_parts(&env, store, warnings)?;
-    Ok(ProfileMutationResult {
-        store,
-        value,
-        warnings,
-    })
+    output_object(
+        &env,
+        ProfileMutationResult {
+            store,
+            value,
+            warnings,
+        },
+    )
 }
 
 /// ProfileのMnemonicを明示的にexportする。
-#[napi(js_name = "export_mnemonic")]
+#[napi(js_name = "export_mnemonic", ts_return_type = "MnemonicReadResult")]
 pub fn export_mnemonic(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "ExportRequestInput")] request: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
-) -> Result<MnemonicReadResult> {
+) -> Result<JsObject> {
     let request = parse_export_request(request)?;
     let store = store_bytes(&store)?;
     let password = copy_bytes(&password_utf8, None)?;
     let result = core::export_mnemonic(&store, request, &password).map_err(core_error)?;
-    Ok(MnemonicReadResult {
-        value: mnemonic_export(&env, result.value)?,
-        warnings: warnings(&result.warnings),
-    })
+    output_object(
+        &env,
+        MnemonicReadResult {
+            value: mnemonic_export(&env, result.value)?,
+            warnings: warnings(&result.warnings),
+        },
+    )
 }
 
 /// Software Keyのprivate keyを明示的にexportする。
-#[napi(js_name = "export_private_key")]
+#[napi(
+    js_name = "export_private_key",
+    ts_return_type = "PrivateKeyReadResult"
+)]
 pub fn export_private_key(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "ExportRequestInput")] request: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
-) -> Result<PrivateKeyReadResult> {
+) -> Result<JsObject> {
     let request = parse_export_request(request)?;
     let store = store_bytes(&store)?;
     let password = copy_bytes(&password_utf8, None)?;
     let result = core::export_private_key(&store, request, &password).map_err(core_error)?;
-    Ok(PrivateKeyReadResult {
-        value: private_key_export(&env, result.value)?,
-        warnings: warnings(&result.warnings),
-    })
+    output_object(
+        &env,
+        PrivateKeyReadResult {
+            value: private_key_export(&env, result.value)?,
+            warnings: warnings(&result.warnings),
+        },
+    )
 }
 
 /// passwordなしでProfile一覧を取得する。
-#[napi(js_name = "list_profiles")]
+#[napi(js_name = "list_profiles", ts_return_type = "ProfileListResult")]
 pub fn list_profiles(
+    env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
-) -> Result<ProfileListResult> {
+) -> Result<JsObject> {
     let store = store_bytes(&store)?;
     let result = core::list_profiles(&store).map_err(core_error)?;
-    Ok(ProfileListResult {
-        value: result.value.into_iter().map(profile_info).collect(),
-        warnings: warnings(&result.warnings),
-    })
+    output_object(
+        &env,
+        ProfileListResult {
+            value: result.value.into_iter().map(profile_info).collect(),
+            warnings: warnings(&result.warnings),
+        },
+    )
 }
 
 /// Profile内のSoftware Key一覧を取得する。
-#[napi(js_name = "list_software_keys")]
+#[napi(
+    js_name = "list_software_keys",
+    ts_return_type = "SoftwareKeyListResult"
+)]
 pub fn list_software_keys(
+    env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "string")] profile_id: Unknown<'_>,
-) -> Result<SoftwareKeyListResult> {
+) -> Result<JsObject> {
     let profile_id = parse_uuid_input(profile_id)?;
     let store = store_bytes(&store)?;
     let result = core::list_software_keys(&store, profile_id).map_err(core_error)?;
-    Ok(SoftwareKeyListResult {
-        value: result
-            .value
-            .into_iter()
-            .map(software_key_list_item)
-            .collect(),
-        warnings: warnings(&result.warnings),
-    })
+    output_object(
+        &env,
+        SoftwareKeyListResult {
+            value: result
+                .value
+                .into_iter()
+                .map(software_key_list_item)
+                .collect(),
+            warnings: warnings(&result.warnings),
+        },
+    )
 }
 
 /// MnemonicからSoftware Keyを導出して保存する。
-#[napi(js_name = "derive_software_key")]
+#[napi(
+    js_name = "derive_software_key",
+    ts_return_type = "SoftwareKeyMutationResult"
+)]
 pub fn derive_software_key(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
@@ -863,7 +909,7 @@ pub fn derive_software_key(
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
     #[napi(ts_arg_type = "number")] chain: Unknown<'_>,
     #[napi(ts_arg_type = "number")] account_index: Unknown<'_>,
-) -> Result<SoftwareKeyMutationResult> {
+) -> Result<JsObject> {
     let profile_id = parse_uuid_input(profile_id)?;
     let chain = parse_chain(convert_number(chain)?)?;
     let account_index = parse_account_index(convert_number(account_index)?)?;
@@ -878,15 +924,21 @@ pub fn derive_software_key(
     } = result;
     let value = software_key_info(core_value);
     let (store, warnings) = mutation_store_parts(&env, store, warnings)?;
-    Ok(SoftwareKeyMutationResult {
-        store,
-        value,
-        warnings,
-    })
+    output_object(
+        &env,
+        SoftwareKeyMutationResult {
+            store,
+            value,
+            warnings,
+        },
+    )
 }
 
 /// raw private keyを検証してSoftware Keyとして保存する。
-#[napi(js_name = "import_software_key")]
+#[napi(
+    js_name = "import_software_key",
+    ts_return_type = "SoftwareKeyMutationResult"
+)]
 pub fn import_software_key(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
@@ -894,7 +946,7 @@ pub fn import_software_key(
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
     #[napi(ts_arg_type = "number")] chain: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] private_key: Unknown<'_>,
-) -> Result<SoftwareKeyMutationResult> {
+) -> Result<JsObject> {
     let profile_id = parse_uuid_input(profile_id)?;
     let chain = parse_chain(convert_number(chain)?)?;
     let store = store_bytes(&store)?;
@@ -909,22 +961,28 @@ pub fn import_software_key(
     } = result;
     let value = software_key_info(core_value);
     let (store, warnings) = mutation_store_parts(&env, store, warnings)?;
-    Ok(SoftwareKeyMutationResult {
-        store,
-        value,
-        warnings,
-    })
+    output_object(
+        &env,
+        SoftwareKeyMutationResult {
+            store,
+            value,
+            warnings,
+        },
+    )
 }
 
 /// CSPRNGでSoftware Keyを生成して保存する。
-#[napi(js_name = "generate_software_key")]
+#[napi(
+    js_name = "generate_software_key",
+    ts_return_type = "SoftwareKeyMutationResult"
+)]
 pub fn generate_software_key(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "string")] profile_id: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
     #[napi(ts_arg_type = "number")] chain: Unknown<'_>,
-) -> Result<SoftwareKeyMutationResult> {
+) -> Result<JsObject> {
     let profile_id = parse_uuid_input(profile_id)?;
     let chain = parse_chain(convert_number(chain)?)?;
     let store = store_bytes(&store)?;
@@ -938,15 +996,21 @@ pub fn generate_software_key(
     } = result;
     let value = software_key_info(core_value);
     let (store, warnings) = mutation_store_parts(&env, store, warnings)?;
-    Ok(SoftwareKeyMutationResult {
-        store,
-        value,
-        warnings,
-    })
+    output_object(
+        &env,
+        SoftwareKeyMutationResult {
+            store,
+            value,
+            warnings,
+        },
+    )
 }
 
 /// 認証済みSoftware Keyのpublic account情報を取得する。
-#[napi(js_name = "get_public_account")]
+#[napi(
+    js_name = "get_public_account",
+    ts_return_type = "PublicAccountReadResult"
+)]
 pub fn get_public_account(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
@@ -954,7 +1018,7 @@ pub fn get_public_account(
     #[napi(ts_arg_type = "string")] key_id: Unknown<'_>,
     #[napi(ts_arg_type = "AccountContextInput")] requested_context: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
-) -> Result<PublicAccountReadResult> {
+) -> Result<JsObject> {
     let profile_id = parse_uuid_input(profile_id)?;
     let key_id = parse_uuid_input(key_id)?;
     let requested_context = parse_account_context(requested_context)?;
@@ -962,39 +1026,48 @@ pub fn get_public_account(
     let password = copy_bytes(&password_utf8, None)?;
     let result = core::get_public_account(&store, profile_id, key_id, requested_context, &password)
         .map_err(core_error)?;
-    Ok(PublicAccountReadResult {
-        value: public_account(&env, result.value)?,
-        warnings: warnings(&result.warnings),
-    })
+    output_object(
+        &env,
+        PublicAccountReadResult {
+            value: public_account(&env, result.value)?,
+            warnings: warnings(&result.warnings),
+        },
+    )
 }
 
 /// Software Keyでpayload byte列に署名する。
-#[napi(js_name = "sign")]
+#[napi(js_name = "sign", ts_return_type = "SignatureReadResult")]
 pub fn sign(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "SigningRequestInput")] request: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
-) -> Result<SignatureReadResult> {
+) -> Result<JsObject> {
     let request = parse_signing_request(request)?;
     let store = store_bytes(&store)?;
     let password = copy_bytes(&password_utf8, None)?;
     let result = core::sign(&store, request, &password).map_err(core_error)?;
-    Ok(SignatureReadResult {
-        value: signature(&env, result.value)?,
-        warnings: warnings(&result.warnings),
-    })
+    output_object(
+        &env,
+        SignatureReadResult {
+            value: signature(&env, result.value)?,
+            warnings: warnings(&result.warnings),
+        },
+    )
 }
 
 /// Profile passwordを変更してreplacement Storeを返す。
-#[napi(js_name = "change_profile_password")]
+#[napi(
+    js_name = "change_profile_password",
+    ts_return_type = "UnitMutationResult"
+)]
 pub fn change_profile_password(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "string")] profile_id: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] current_password_utf8: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] new_password_utf8: Unknown<'_>,
-) -> Result<UnitMutationResult> {
+) -> Result<JsObject> {
     let profile_id = parse_uuid_input(profile_id)?;
     let store = store_bytes(&store)?;
     let current_password = copy_bytes(&current_password_utf8, None)?;
@@ -1003,22 +1076,25 @@ pub fn change_profile_password(
         core::change_profile_password(&store, profile_id, &current_password, &new_password)
             .map_err(core_error)?;
     let (store, warnings) = mutation_store(&env, result)?;
-    Ok(UnitMutationResult {
-        store,
-        value: Null,
-        warnings,
-    })
+    output_object(
+        &env,
+        UnitMutationResult {
+            store,
+            value: Null,
+            warnings,
+        },
+    )
 }
 
 /// Software Keyを削除してreplacement Storeを返す。
-#[napi(js_name = "delete_software_key")]
+#[napi(js_name = "delete_software_key", ts_return_type = "UnitMutationResult")]
 pub fn delete_software_key(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "string")] profile_id: Unknown<'_>,
     #[napi(ts_arg_type = "string")] key_id: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
-) -> Result<UnitMutationResult> {
+) -> Result<JsObject> {
     let profile_id = parse_uuid_input(profile_id)?;
     let key_id = parse_uuid_input(key_id)?;
     let store = store_bytes(&store)?;
@@ -1026,31 +1102,37 @@ pub fn delete_software_key(
     let result =
         core::delete_software_key(&store, profile_id, key_id, &password).map_err(core_error)?;
     let (store, warnings) = mutation_store(&env, result)?;
-    Ok(UnitMutationResult {
-        store,
-        value: Null,
-        warnings,
-    })
+    output_object(
+        &env,
+        UnitMutationResult {
+            store,
+            value: Null,
+            warnings,
+        },
+    )
 }
 
 /// Profileを削除してreplacement Storeを返す。
-#[napi(js_name = "delete_profile")]
+#[napi(js_name = "delete_profile", ts_return_type = "UnitMutationResult")]
 pub fn delete_profile(
     env: Env,
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "string")] profile_id: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
-) -> Result<UnitMutationResult> {
+) -> Result<JsObject> {
     let profile_id = parse_uuid_input(profile_id)?;
     let store = store_bytes(&store)?;
     let password = copy_bytes(&password_utf8, None)?;
     let result = core::delete_profile(&store, profile_id, &password).map_err(core_error)?;
     let (store, warnings) = mutation_store(&env, result)?;
-    Ok(UnitMutationResult {
-        store,
-        value: Null,
-        warnings,
-    })
+    output_object(
+        &env,
+        UnitMutationResult {
+            store,
+            value: Null,
+            warnings,
+        },
+    )
 }
 
 #[cfg(test)]
