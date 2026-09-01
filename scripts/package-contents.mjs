@@ -7,6 +7,7 @@ const STATIC_DIST_FILES = [
   "node/index.cjs",
   "wasm/generated.mjs",
   "wasm/generated.cjs",
+  "wasm/asset.mjs",
   "wasm/index.mjs",
   "wasm/index.cjs",
   "wasm/symbol_nem_wallet_core_wasm_bg.wasm",

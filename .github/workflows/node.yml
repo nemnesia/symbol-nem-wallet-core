@@ -1,21 +1,30 @@
-name: Node-API addon smoke
+name: Stage 9 release candidate gates
 
 on:
   push:
     branches:
       - main
+      - agent/monorepo-migration
     paths:
-      - "crates/core/**"
-      - "crates/node/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "crates/**"
+      - "packages/wallet-core/**"
+      - "scripts/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - ".github/workflows/node.yml"
   pull_request:
     paths:
-      - "crates/core/**"
-      - "crates/node/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "crates/**"
+      - "packages/wallet-core/**"
+      - "scripts/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - ".github/workflows/node.yml"
   workflow_dispatch:
 
@@ -26,11 +35,330 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  addon-smoke:
-    name: ${{ matrix.platform }} / Node ${{ matrix.node }}
-    runs-on: ${{ matrix.runner }}
+  source:
+    name: Release source snapshot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Verify checked out source commit
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Record source and lockfile evidence
+        run: node scripts/stage9-release.mjs source | tee stage9-source.json
+
+      - name: Upload source evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stage9-source
+          path: stage9-source.json
+
+  core-c-abi:
+    name: Core and C ABI maintained CI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    needs: source
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Run Core and binding tests
+        run: cargo test --workspace --all-features --locked
+
+      - name: Build C ABI release artifact
+        run: cargo build --package symbol-nem-wallet-core-native --release --locked
+
+      - name: Compile public C ABI header
+        run: cc -std=c11 -Wall -Wextra -Werror -I crates/c-abi/include -fsyntax-only crates/c-abi/tests/header_compile.c
+
+      - name: Run C ABI runtime test
+        run: ./crates/c-abi/tests/run_c_abi_runtime.sh
+
+  wasm:
+    name: WASM release artifact
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
+    needs: source
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Verify checked out source commit
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Install wasm-bindgen CLI from Cargo.lock
+        shell: bash
+        run: |
+          version="$(node scripts/wasm-bindgen-version.mjs)"
+          cargo install wasm-bindgen-cli --version "$version" --locked --root "$RUNNER_TEMP/snwc-wasm-bindgen"
+
+      - name: Verify wasm-bindgen schema version equality
+        env:
+          WASM_BINDGEN_BIN: ${{ runner.temp }}/snwc-wasm-bindgen/bin/wasm-bindgen
+        run: |
+          mkdir -p stage9-wasm
+          node scripts/verify-wasm-bindgen.mjs | tee stage9-wasm/wasm-bindgen-version.json
+
+      - name: Build the only WASM source
+        run: cargo build --package symbol-nem-wallet-core-wasm --target wasm32-unknown-unknown --release --locked
+
+      - name: Record WASM evidence
+        shell: bash
+        run: |
+          mkdir -p stage9-wasm
+          cp "target/wasm32-unknown-unknown/release/symbol_nem_wallet_core_wasm.wasm" stage9-wasm/
+          node scripts/stage9-release.mjs wasm-evidence \
+            --wasm stage9-wasm/symbol_nem_wallet_core_wasm.wasm \
+            --source-commit "$GITHUB_SHA" \
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
+            --output stage9-wasm/wasm-evidence.json
+
+      - name: Upload WASM artifact and evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stage9-wasm
+          path: stage9-wasm/
+
+  native:
+    name: ${{ matrix.target_id }} native release artifact
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target_id: win32-x64-msvc
+            rust_target: x86_64-pc-windows-msvc
+            runner: windows-2025-vs2026
+          - target_id: darwin-x64
+            rust_target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target_id: darwin-arm64
+            rust_target: aarch64-apple-darwin
+            runner: macos-15
+          - target_id: linux-x64-gnu
+            rust_target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust_target }}
+
+      - name: Verify checked out source commit
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Build Node-API addon once per native target
+        run: cargo build --package symbol-nem-wallet-core-node --target ${{ matrix.rust_target }} --release --locked
+
+      - name: Normalize and record native artifact evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p stage9-native
+          artifact_path="$(find "target/${{ matrix.rust_target }}/release" -maxdepth 1 -type f \( -name '*.dll' -o -name '*.dylib' -o -name '*.so' \) -print -quit)"
+          test -n "$artifact_path"
+          cp "$artifact_path" "stage9-native/${{ matrix.target_id }}.node"
+          node scripts/stage9-release.mjs native-evidence \
+            --target-id "${{ matrix.target_id }}" \
+            --rust-target "${{ matrix.rust_target }}" \
+            --artifact "stage9-native/${{ matrix.target_id }}.node" \
+            --source-commit "$GITHUB_SHA" \
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
+            --output "stage9-native/${{ matrix.target_id }}.json"
+
+      - name: Upload native artifact and evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stage9-native-${{ matrix.target_id }}
+          path: stage9-native/
+
+  stage8-regression:
+    name: Stage 8 representative formal parity regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    needs: source
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Install lockfile-matched wasm-bindgen CLI
+        shell: bash
+        run: cargo install wasm-bindgen-cli --version "$(node scripts/wasm-bindgen-version.mjs)" --locked --root "$RUNNER_TEMP/snwc-wasm-bindgen"
+
+      - name: Verify wasm-bindgen version
+        env:
+          WASM_BINDGEN_BIN: ${{ runner.temp }}/snwc-wasm-bindgen/bin/wasm-bindgen
+        run: node scripts/verify-wasm-bindgen.mjs
+
+      - name: Run the existing formal Stage 8 parity gate
+        env:
+          SNWC_SOURCE_COMMIT: ${{ github.sha }}
+          WASM_BINDGEN_BIN: ${{ runner.temp }}/snwc-wasm-bindgen/bin/wasm-bindgen
+          SNWC_BROWSER: google-chrome
+        run: node scripts/test-npm-parity.mjs
+
+  package:
+    name: Final npm release candidate assembly
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    needs: [source, core-c-abi, wasm, native, stage8-regression]
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Install pnpm workspace dependencies
+        run: corepack pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download all native artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: stage9-native-*
+          path: release-input/native
+          merge-multiple: true
+
+      - name: Download the canonical WASM artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: stage9-wasm
+          path: release-input/wasm
+
+      - name: Validate all artifact evidence before assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/stage9-release.mjs validate-native \
+            --native-root release-input/native \
+            --evidence-root release-input/native \
+            --source-commit "$GITHUB_SHA" \
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
+            --output release-input/native-summary.json
+          node scripts/stage9-release.mjs wasm-evidence \
+            --wasm release-input/wasm/symbol_nem_wallet_core_wasm.wasm \
+            --evidence release-input/wasm/wasm-evidence.json \
+            --source-commit "$GITHUB_SHA" \
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
+            --output release-input/wasm-summary.json
+
+      - name: Install and verify the lockfile-matched wasm-bindgen CLI
+        shell: bash
+        run: |
+          version="$(node scripts/wasm-bindgen-version.mjs)"
+          cargo install wasm-bindgen-cli --version "$version" --locked --root "$RUNNER_TEMP/snwc-wasm-bindgen"
+          WASM_BINDGEN_BIN="$RUNNER_TEMP/snwc-wasm-bindgen/bin/wasm-bindgen" node scripts/verify-wasm-bindgen.mjs
+
+      - name: Assemble the four-target npm package
+        shell: bash
+        env:
+          SNWC_SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          toolchain="$(node --input-type=module -e 'const fs = await import("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync("release-input/native-summary.json", "utf8")).toolchain_identifier)')"
+          export SNWC_TOOLCHAIN_IDENTIFIER="$toolchain"
+          corepack pnpm run build:npm -- \
+            --wasm release-input/wasm/symbol_nem_wallet_core_wasm.wasm \
+            --wasm-bindgen-bin "$RUNNER_TEMP/snwc-wasm-bindgen/bin/wasm-bindgen" \
+            --native-artifact win32-x64-msvc=release-input/native/win32-x64-msvc.node \
+            --native-artifact darwin-x64=release-input/native/darwin-x64.node \
+            --native-artifact darwin-arm64=release-input/native/darwin-arm64.node \
+            --native-artifact linux-x64-gnu=release-input/native/linux-x64-gnu.node
+
+      - name: Run final package, clean-install, and fail-closed gates
+        run: node scripts/test-npm-release.mjs
+
+      - name: Write release candidate tarball
+        shell: bash
+        run: |
+          mkdir -p release-output
+          npm pack --json --ignore-scripts --pack-destination release-output > release-output/pack.json
+          test "$(find release-output -maxdepth 1 -type f -name '*.tgz' | wc -l)" -eq 1
+
+      - name: Upload final npm release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stage9-npm-package
+          path: release-output/
+
+  npm-consumer:
+    name: ${{ matrix.platform }} / Node ${{ matrix.node }} clean tarball consumer
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    needs: package
     strategy:
       fail-fast: false
       matrix:
@@ -60,43 +388,59 @@ jobs:
             runner: ubuntu-24.04
             node: "24.x"
     steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          toolchain: stable
+          ref: ${{ github.sha }}
 
       - name: Install Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node }}
 
-      - name: Check Node-API runtime
+      - name: Download final npm tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: stage9-npm-package
+          path: release-output
+
+      - name: Run ESM, CJS, WASM fallback, and fail-closed consumer smoke
         shell: bash
         run: |
-          node --version
-          node -p 'process.versions.napi'
+          tarball="$(find release-output -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          test -n "$tarball"
+          node scripts/test-npm-consumer.mjs --tarball "$tarball"
 
-      - name: Build Node-API addon
-        run: |
-          cargo build --package symbol-nem-wallet-core-node --release --locked
+  browser-integration:
+    name: Browser bundler and MV3 integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: package
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
 
-      - name: Resolve built addon
-        id: addon
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Install locked bundler fixtures
+        run: corepack pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download final npm tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: stage9-npm-package
+          path: release-output
+
+      - name: Run Vite, webpack 5, esbuild, Browser, and MV3 smoke
         shell: bash
+        env:
+          SNWC_BROWSER: google-chrome
         run: |
-          addon_path="$(find target/release -maxdepth 1 -type f \( \
-            -name 'libsymbol_nem_wallet_core_node.so' -o \
-            -name 'libsymbol_nem_wallet_core_node.dylib' -o \
-            -name 'symbol_nem_wallet_core_node.dll' \
-          \) -print -quit)"
-          test -n "$addon_path"
-          echo "path=$addon_path" >> "$GITHUB_OUTPUT"
-
-      - name: Run addon load and operation smoke
-        shell: bash
-        run: |
-          addon_path="${{ steps.addon.outputs.path }}"
-          bash crates/node/tests/run_node_smoke.sh "$addon_path"
+          tarball="$(find release-output -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          test -n "$tarball"
+          node scripts/test-npm-bundlers.mjs --tarball "$tarball"

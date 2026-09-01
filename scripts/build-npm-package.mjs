@@ -165,6 +165,7 @@ function build(options) {
       resolve(packageRoot, "src/facade-runtime.mjs"),
     ]),
   );
+  cpSync(resolve(packageRoot, "src/wasm/asset.mjs"), resolve(distRoot, "wasm/asset.mjs"));
   writeFileSync(
     resolve(distRoot, "wasm/index.cjs"),
     inlineRuntime(resolve(packageRoot, "src/wasm/index.cjs"), [

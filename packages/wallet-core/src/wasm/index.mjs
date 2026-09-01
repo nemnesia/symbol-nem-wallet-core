@@ -1,4 +1,5 @@
 import { createFacade } from "../facade-runtime.mjs";
+import { loadWasmAsset } from "./asset.mjs";
 import * as generated from "./generated.mjs";
 
 function backendInitializationError() {
@@ -7,7 +8,6 @@ function backendInitializationError() {
   return error;
 }
 
-const wasmAsset = new URL("./symbol_nem_wallet_core_wasm_bg.wasm", import.meta.url);
 const isNode =
   typeof process !== "undefined" &&
   typeof process.versions?.node === "string" &&
@@ -15,10 +15,11 @@ const isNode =
 
 try {
   if (isNode) {
-    const { readFileSync } = await import("node:fs");
-    generated.initSync({ module: readFileSync(wasmAsset) });
+    const nodeFsSpecifier = ["node", "fs"].join(":");
+    const { readFileSync } = await import(nodeFsSpecifier);
+    generated.initSync({ module: readFileSync(new URL("./symbol_nem_wallet_core_wasm_bg.wasm", import.meta.url)) });
   } else {
-    await generated.default(wasmAsset);
+    await generated.default(await loadWasmAsset());
   }
 } catch {
   throw backendInitializationError();
