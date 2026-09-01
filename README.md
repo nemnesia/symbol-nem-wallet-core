@@ -388,7 +388,7 @@ cargo build --package symbol-nem-wallet-core-native --release --locked
 cc -std=c11 -Wall -Wextra -Werror -I bindings/native/include \
   -fsyntax-only bindings/native/tests/header_compile.c
 ./bindings/native/tests/run_c_abi_runtime.sh
-CARGOFLAGS=--locked wasm-pack test --node --mode no-install crates/wasm
+wasm-pack test --node --mode no-install crates/wasm --locked
 cargo audit
 ```
 

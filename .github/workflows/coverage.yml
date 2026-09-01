@@ -61,7 +61,7 @@ jobs:
         run: cargo test --workspace --all-features --locked
 
       - name: Run WASM tests with wasm-pack and Node.js
-        run: CARGOFLAGS=--locked wasm-pack test --node --mode no-install crates/wasm
+        run: wasm-pack test --node --mode no-install crates/wasm --locked
 
       - name: Check WASM target
         run: cargo check --package symbol-nem-wallet-core-wasm --target wasm32-unknown-unknown --locked
