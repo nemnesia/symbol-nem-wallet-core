@@ -1,13 +1,15 @@
-# Node/npm implementation gate decision preparation
+# Node/npm implementation gate decision record
 
 ## 1. Scope
 
-本書は、Stage 6 の `crates/node` 実装および後続の npm facade 実装を開始する前に、承認済みモノレポ移行設計が未決定事項として残している `OPEN-001`、`OPEN-002`、`OPEN-004`、`OPEN-005` および `OPEN-008` を、実装可能な選択肢とユーザー確認事項へ整理するための decision artifact である。
+本書は、Stage 6 の `crates/node` 実装および後続の npm facade 実装を開始する前に、承認済みモノレポ移行設計が未決定事項として残していた `OPEN-001`、`OPEN-002`、`OPEN-004`、`OPEN-005` および `OPEN-008` を、ユーザー承認済みの実装可能な decision として確定記録する decision artifact である。
 
 本書はコード、Cargo manifest、npm manifest、CI、package、公開 API または仕様を変更しない。ここでの推奨は実装開始前の判断材料であり、Stage 6 / 7 の実装結果や release gate の合格を意味しない。
 
 確認日: 2026-09-01
 評価対象の開始 HEAD: `b5887714e12f00614fc5a58315a48bec7a8b630c` (`agent/monorepo-migration`)
+今回のdecision確定更新開始 HEAD: `f47cd8105029429597763fbf3fe37d7c0eb932f2` (`agent/monorepo-migration`)
+Decision status: `READY`
 
 Status は次の3値で記録する。
 
@@ -41,7 +43,7 @@ Node.js の release status と Node-API の ABI 方針は、確認日現在の [
 
 ## 3. OPEN-001 — Node.js / Node-API / module baseline
 
-**Status: `NEEDS USER DECISION`**（Node.js の最低 supported floor は製品方針として確定が必要。Node-API と module routing については以下を推奨する。）
+**Status: `RECOMMENDED`**（ユーザー承認済み。exact consumer runtime patch floor だけは Stage 7 へ委譲する。）
 
 ### 3.1 確認できた Node.js の状態
 
@@ -71,23 +73,23 @@ Node-API は JavaScript engine から独立した ABI-stable API であり、Nod
 
 ## 4. OPEN-002 — native target matrix
 
-**Status: `NEEDS USER DECISION`**（推奨 matrix は以下。v1 必須と v1 推奨の境界は配布対象の製品判断。）
+**Status: `RECOMMENDED`**（ユーザー承認済み。v1 native必須 target と、当面のWASM fallback targetを以下のとおり固定する。）
 
 ### 4.1 推奨 v1 matrix
 
 | Target | 分類案 | 判断 |
 | --- | --- | --- |
 | Windows x64 | **v1 必須** | 最も広い Windows desktop 利用を対象にする。GitHub-hosted x64 runner で build / native smoke を行う。 |
-| Windows arm64 | **v1 推奨** | `windows-11-vs2026-arm` は 2026-08-20 時点で Generally Available。v1 必須への昇格は、native addon runtime smoke、package size、target matrix の製品範囲および実利用需要で判断する。未同梱時は対象外 target として WASM を選ぶ。 |
+| Windows arm64 | **v1 native非必須 / WASM fallback** | `windows-11-vs2026-arm` は 2026-08-20 時点で Generally Available。v1 native artifactには当面含めず、target manifestに存在しないunsupported native targetとしてWASM fallbackを許可する。将来の追加はnative addon runtime smoke、package size、target matrixの製品範囲および実利用需要で再評価する。 |
 | macOS x64 | **v1 必須** | Intel macOS 利用者との互換性を維持する。x64 runner で build / smoke を行う。 |
 | macOS arm64 | **v1 必須** | Apple Silicon が主流であり、arm64 runner で build / smoke を行う。community action の arm64 compatibility は個別に確認する。 |
 | Linux x64 glibc | **v1 必須** | server / desktop の主要 target。glibc baseline を明記し、native smoke を実施する。 |
-| Linux arm64 glibc | **v1 推奨** | `ubuntu-24.04-arm` / `ubuntu-22.04-arm` 等の GitHub-hosted Linux ARM64 runner label が存在する。GitHub-hosted runners reference ではこれらは Public preview と表記されているため、cross compile 成功だけでなく arm64 native smoke と glibc baseline の実証が必要。 |
+| Linux arm64 glibc | **v1 native非必須 / WASM fallback** | `ubuntu-24.04-arm` / `ubuntu-22.04-arm` 等の GitHub-hosted Linux ARM64 runner label が存在し、GitHub-hosted runners referenceではこれらはPublic previewと表記されている。当面native artifactには含めず、target manifestに存在しないunsupported native targetとしてWASM fallbackを許可する。将来の追加はarm64 native smoke、glibc baseline、runner maturity、package sizeおよび実利用需要で再評価する。 |
 | Linux x64 musl | **fallback-only** | musl 固有の配布・smoke・互換性を v1 native artifact に含めず、対象外 target では WASM を使う。実績が得られた場合だけ再評価する。 |
 | Linux arm64 musl | **fallback-only** | x64 musl と同じ。最初から native artifact を同梱せず、追加 target として deferred にする。 |
 | 上記以外の OS / CPU / libc | **将来対応** | v1 の package size と smoke matrix を増やさない。WASM fallback の対象とする。 |
 
-この推奨は初期 native artifact 4個を必須とし、Windows arm64 / Linux arm64 glibc を追加する場合は最大6個とする案である。Windows ARM64 runner のGA statusは、v1必須化の判断理由にはしない。いずれの arm64 target も、addon の正しい load、runtime smoke、native dependency、artifact provenance、package size および実利用需要を確認して必須化を判断する。Linux ARM64 は、使用する runner label が Public preview 表記であることも build / smoke の運用前提として記録する。
+この確定方針は、初期 native artifact 4個（Windows x64、macOS x64、macOS arm64、Linux x64 glibc）だけをv1必須とする。Windows arm64 / Linux arm64 glibc / Linux muslは当面native artifactに含めず、unsupported native targetとしてWASM fallbackを許可する。Windows ARM64 runnerのGA statusは、v1 native必須化の判断理由にはしない。将来の追加は、addonの正しいload、runtime smoke、native dependency、artifact provenance、package size、runner maturityおよび実利用需要のevidenceを得た後に別decisionで再評価する。Linux ARM64については、使用するrunner labelがPublic preview表記であることをbuild / smokeの運用前提として記録する。
 
 ### 4.2 target gate
 
@@ -97,7 +99,7 @@ Linux は glibc の最低 runtime baseline を target policy として別途明�
 
 ## 5. OPEN-004 — Node-API wrapper library
 
-**Status: `RECOMMENDED`** — `napi-rs` を採用候補として一つに絞る。
+**Status: `RECOMMENDED`** — `napi-rs` を採用する。
 
 ### 5.1 比較
 
@@ -123,7 +125,7 @@ Linux は glibc の最低 runtime baseline を target policy として別途明�
 
 ## 6. OPEN-004 — public JavaScript / TypeScript API shape
 
-**Status: `RECOMMENDED`** — v1 は function-based synchronous API とし、native / WASM backend の差を facade 内に隠す。
+**Status: `RECOMMENDED`** — ユーザー承認済み。v1 は function-based synchronous API とし、native / WASM backend の差を facade 内に隠す。
 
 ### 6.1 比較
 
@@ -145,7 +147,7 @@ Linux は glibc の最低 runtime baseline を target policy として別途明�
 
 ## 7. OPEN-005 — all-in-one tarball threshold
 
-**Status: `NEEDS USER DECISION`**（single tarball は維持するが、再評価 threshold の製品受入値を確定する必要がある。）
+**Status: `RECOMMENDED`**（ユーザー承認済み。single tarball と再評価 thresholdを以下のとおり固定する。）
 
 ### 7.1 現時点の方針
 
@@ -176,7 +178,7 @@ artifact 数は native `.node` の数だけを数え、WASM / JS / declaration �
 
 ## 8. OPEN-008 — Browser baseline
 
-**Status: `NEEDS USER DECISION`**（技術的な baseline は推奨できるが、対応 browser の製品範囲を確定する必要がある。）
+**Status: `RECOMMENDED`**（ユーザー承認済み。v1のBrowser / Browser Extension baselineを以下のとおり固定する。）
 
 ### 8.1 推奨 baseline
 
@@ -204,20 +206,20 @@ v1 release gate は、全 browser version と全 bundler version の組み合わ
 3. MV3 fixture で extension page または service worker から local WASM を初期化し、CSP と package contents を確認する。
 4. remote URL、postinstall download、CDN runtime、未同梱 asset を失敗として検出する。
 
-Browser の exact major、iOS / Android の WebView policy、MV3 fixture の実装方式および worker を必須にするかどうかは、利用者層と release support policy に関わるため user decision とする。
+Browserのcurrent stable / previous major、legacy browser / old embedded WebViewのv1対象外、MV3 local WASM / CSP smokeおよびworker optionalの方針は確定済みである。個別ApplicationのExtension page / service worker / storage architectureは本artifactの対象外であり、既存設計どおりApplication側へ委譲する。
 
-## 9. Recommended decision set
+## 9. Approved decision set
 
 | ID / 項目 | 推奨決定 | Status |
 | --- | --- | --- |
-| OPEN-001 / Node.js | minimum release line は Node 22.x、primary は Node 24.x Active LTS、26.x は optional compatibility check。exact consumer runtime patch floor は Stage 7 で固定し、`@napi-rs/cli` の build requirement と分離 | `NEEDS USER DECISION` |
+| OPEN-001 / Node.js | minimum release line は Node 22.x、primary は Node 24.x Active LTS、26.x は optional compatibility check。exact consumer runtime patch floor は Stage 7 で固定し、`@napi-rs/cli` の build requirement と分離 | `RECOMMENDED` |
 | OPEN-001 / Node-API | Node-API v8、Node major ごとの addon rebuild なし | `RECOMMENDED` |
 | OPEN-001 / modules | ESM / CommonJS の両方を root facade で support。conditional exports は native `node-addons` と universal `default` WASM を静的 routing | `RECOMMENDED` |
-| OPEN-002 / target | 必須4: Windows x64、macOS x64、macOS arm64、Linux x64 glibc。推奨追加2: Windows arm64、Linux arm64 glibc。musl は fallback-only | `NEEDS USER DECISION` |
+| OPEN-002 / target | v1 native必須4: Windows x64、macOS x64、macOS arm64、Linux x64 glibc。Windows arm64 / Linux arm64 glibc / muslは当面unsupported native targetとしてWASM fallback | `RECOMMENDED` |
 | OPEN-004 / wrapper | `napi-rs`、Node-API v8、明示的 Buffer / TypedArray copy / failure mapping | `RECOMMENDED` |
 | OPEN-004 / public API | backend-neutral function-based synchronous API。class、implicit Promise 化、backend-specific type は v1 に入れない | `RECOMMENDED` |
-| OPEN-005 | supported native artifact と WASM を single facade tarball に同梱し、50 MiB compressed、150 MiB unpacked、native 7 artifacts を再評価 threshold とする | `NEEDS USER DECISION` |
-| OPEN-008 | evergreen current / previous major、WebAssembly + ESM、local asset、MV3 / CSP、Vite / webpack 5 / esbuild smoke。worker は任意 | `NEEDS USER DECISION` |
+| OPEN-005 | supported native artifact と WASM を single facade tarball に同梱し、50 MiB compressed、150 MiB unpacked、native 7 artifacts を再評価 threshold とする | `RECOMMENDED` |
+| OPEN-008 | evergreen current / previous major、WebAssembly + ESM、local asset、MV3 / CSP、Vite / webpack 5 / esbuild smoke。worker は任意 | `RECOMMENDED` |
 
 ## 10. Alternatives rejected / deferred
 
@@ -234,10 +236,10 @@ Browser の exact major、iOS / Android の WebView policy、MV3 fixture の実�
 
 - `napi-rs` の具体 crate / CLI version、Rust MSRV、exact `Cargo.toml` feature。Stage 6 dependency gate。
 - Node 26.x の Active LTS 昇格後の primary support への切替。release line review。
-- Windows arm64 / Linux arm64 glibc の必須昇格。実機 smoke、cost、tarball size、利用者 evidence の確認後。
+- Windows arm64 / Linux arm64 glibc のnative artifact追加。実機 smoke、runner maturity、cost、tarball size、利用者 evidenceの確認後に別decisionで再評価する。
 - Linux musl native artifact、追加 OS / CPU target、platform-specific npm package。OPEN-005 の threshold review。
 - exact TypeScript declarations、error class / result object の命名、conditional exports の完全な JSON。Stage 7 facade specification。
-- Browser の exact browser major、WebView、service worker / dedicated worker の mandatory policy。OPEN-008 user decision と後続 integration gate。
+- 個別Browser versionのpinning、Application固有のWebView統合、およびMV3 service worker / dedicated workerの実装詳細。これは確定済みbaselineを実装へ適用する際の後続integration detailであり、user decisionではない。
 - artifact hash verification、SBOM format、signing、provenance retention および publish permission。`OPEN-006` / `OPEN-007` の release gate。
 
 ## 11. Security impact
@@ -270,7 +272,7 @@ WASM Binding     ──> crates/core
 Stage 6 を開始する場合、少なくとも次を implementation plan と test plan に反映する。
 
 1. `crates/node` を新規作成し、`symbol-nem-wallet-core` への一方向 dependency と `napi-rs` Node-API v8 binding を実装する。C ABI の FFI reuse は行わない。
-2. 4必須 target（ユーザーが追加を承認した場合は最大6 target）について、同じ source snapshot から `.node` を生成し、native load / operation / error / ownership smoke を行う。
+2. 4必須 target（Windows x64、macOS x64、macOS arm64、Linux x64 glibc）について、同じ source snapshot から `.node` を生成し、native load / operation / error / ownership smoke を行う。Windows arm64、Linux arm64 glibc および musl は当面WASM fallbackとし、追加native targetは別decisionで再評価する。
 3. Node-API wrapper は Core operation の入力・出力・error・warning・replacement Store を 1 対 1 で bridge し、Buffer / TypedArray を明示的に検証・copy する。security logic、Store schema 解釈、secret cache は追加しない。
 4. Stage 7 の facade は function-based sync contract を root entry point として assembly し、ESM / CommonJS、`node-addons` / `default` routing、`--no-addons`、unsupported target および fail-closed error を検証する。
 5. WASM asset は npm package / browser build に同梱し、Vite / webpack 5 / esbuild と MV3 の minimal smoke fixture で local asset、CSP、worker optionality および no-remote-code を確認する。
@@ -280,14 +282,11 @@ Stage 6 を開始する場合、少なくとも次を implementation plan と te
 
 ## 14. Remaining user decisions
 
-Stage 6 開始前に、少なくとも次をユーザーが明示的に承認する必要がある。
+**残存するユーザー判断: 0件。**
 
-1. **Node.js floor**: Node 22.x release line を minimum、24.x Active LTS を primary とする案を承認するか。consumer runtime の exact patch floor は Stage 7 で facade syntax / package contract とともに固定し、`@napi-rs/cli` の build environment requirement とは分離する。
-2. **Native target matrix**: 必須4 target だけにするか、Windows arm64 / Linux arm64 glibc も v1 同梱必須へ昇格するか。musl を fallback-only のままにするか。
-3. **Tarball policy**: `50 MiB compressed`、`150 MiB unpacked`、`native 7 artifacts` を single-tarball 再評価条件として採用するか。
-4. **Browser baseline**: evergreen current / previous major、MDN Baseline Widely Available 相当、Vite / webpack 5 / esbuild smoke、MV3 local asset / CSP を v1 release gate とするか。
+ユーザー承認により、OPEN-001、OPEN-002、OPEN-004（wrapper / public API）、OPEN-005およびOPEN-008の implementation gate decision は確定した。exact version、MSRV、runtime patch、追加targetおよびrelease gate詳細は、本文のDEFERRED項目として扱い、Node/npm implementation gateを妨げない。
 
-次は技術的に推奨案へ絞れており、ユーザーが反対しない限り Stage 6 の実装入力にできる。
+次はユーザー承認済みの Stage 6 実装入力として確定している。
 
 - Node-API v8
 - `napi-rs`
@@ -298,10 +297,10 @@ Stage 6 開始前に、少なくとも次をユーザーが明示的に承認す
 
 ## 15. Node/npm implementation gate result
 
-**判定: `NEEDS USER DECISION`。READY ではない。**
+**判定: `READY`。**
 
-OPEN-001、OPEN-002、OPEN-005 および OPEN-008 には製品対応範囲または package size trade-off に関する確定が残る。OPEN-004 は wrapper / public API ともに `RECOMMENDED` まで絞り込めているが、exact dependency version と TypeScript contract は後続 Stage 6 / 7 で固定する。
+OPEN-001、OPEN-002、OPEN-004（wrapper / public API）、OPEN-005およびOPEN-008について、Node/npm implementation開始に必要なdecisionはすべてユーザー承認済みである。exact napi-rs / CLI version、Rust MSRV、consumer `engines.node` exact patch floor、exact TypeScript declaration / conditional exports JSON、追加native target、OPEN-006およびOPEN-007はDEFERREDだが、このimplementation gateを妨げない。
 
-Stage 6 開始条件は、上記4つの user decision を承認し、`napi-rs` / Node-API v8 / function-based sync shape の推奨を採用すること、また決定内容を必要な下流 specification / package contract に反映することである。Stage 6 実装と同時に target build / native smoke / Buffer ownership / Core parity の evidence を作成し、Stage 7 に進む前に確認する。
+Stage 6は開始可能である。ただし本commitはdecision artifactの確定だけを行い、Stage 6実装、dependency追加、`crates/node`作成、CI変更またはnpm facade実装を行っていない。Stage 6開始後も、承認済みの依存方向、security invariantおよびfallback invariantを維持する。
 
-本 artifact は Stage 6 実装、Stage 7 npm facade、package publish、Node/npm dependency 追加、`crates/node` 作成、CI 変更または README 変更を行っていない。確認後も Stage 6 へ自動的に進まず、ユーザーの承認を待つ。
+本 artifact は Stage 6 実装、Stage 7 npm facade、package publish、Node/npm dependency 追加、`crates/node` 作成、CI 変更または README 変更を行っていない。READY判定後も Stage 6 へ自動的に進まず、次の実装依頼を待つ。
