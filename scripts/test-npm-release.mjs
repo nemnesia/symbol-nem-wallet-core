@@ -27,7 +27,7 @@ const MAX_TARBALL_BYTES = 50 * 1024 * 1024;
 const MAX_UNPACKED_BYTES = 150 * 1024 * 1024;
 
 function fail(message) {
-  throw new Error(`Stage 9 npm release gate failed: ${message}`);
+  throw new Error(`Release package gate failed: ${message}`);
 }
 
 function npmCommand() {
@@ -125,10 +125,10 @@ function validateInstallMetadata(projectRoot) {
 }
 
 function installClean(tarball) {
-  const projectRoot = mkdtempSync(resolve(tmpdir(), "snwc-stage9-clean-"));
+  const projectRoot = mkdtempSync(resolve(tmpdir(), "snwc-release-clean-"));
   writeFileSync(
     resolve(projectRoot, "package.json"),
-    `${JSON.stringify({ name: "snwc-stage9-consumer", private: true, type: "module" }, null, 2)}\n`,
+    `${JSON.stringify({ name: "snwc-release-consumer", private: true, type: "module" }, null, 2)}\n`,
   );
   run(npmCommand(), [
     "install",
@@ -170,7 +170,7 @@ const store = api.create_empty_store();
 if (!(store instanceof Uint8Array)) throw new Error("store is not Uint8Array");
 const listed = api.list_profiles(store);
 if (!Array.isArray(listed.value) || listed.value.length !== 0) throw new Error("empty store operation failed");
-const password = new TextEncoder().encode("stage9 release fixture password");
+const password = new TextEncoder().encode("release fixture password");
 const prepared = api.prepare_generated_profile(store, password, 1);
 const restored = api.finalize_generated_profile(
   store,
@@ -244,7 +244,7 @@ function runCorruptArtifact(projectRoot, targetId) {
 }
 
 function pack() {
-  const destination = mkdtempSync(resolve(tmpdir(), "snwc-stage9-pack-"));
+  const destination = mkdtempSync(resolve(tmpdir(), "snwc-release-pack-"));
   const output = runQuiet(npmCommand(), [
     "pack",
     "--json",

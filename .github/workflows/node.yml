@@ -59,13 +59,16 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Record source and lockfile evidence
-        run: node scripts/stage9-release.mjs source | tee stage9-source.json
+        run: node scripts/release-evidence.mjs source | tee release-source.json
+
+      - name: Verify canonical Cargo.lock identity is representation-independent
+        run: node scripts/test-release-evidence.mjs
 
       - name: Upload source evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: stage9-source
-          path: stage9-source.json
+          name: release-source
+          path: release-source.json
 
   core-c-abi:
     name: Core and C ABI maintained CI
@@ -138,8 +141,8 @@ jobs:
         env:
           WASM_BINDGEN_BIN: ${{ runner.temp }}/snwc-wasm-bindgen/bin/wasm-bindgen
         run: |
-          mkdir -p stage9-wasm
-          node scripts/verify-wasm-bindgen.mjs | tee stage9-wasm/wasm-bindgen-version.json
+          mkdir -p release-wasm
+          node scripts/verify-wasm-bindgen.mjs | tee release-wasm/wasm-bindgen-version.json
 
       - name: Build the only WASM source
         run: cargo build --package symbol-nem-wallet-core-wasm --target wasm32-unknown-unknown --release --locked
@@ -147,19 +150,19 @@ jobs:
       - name: Record WASM evidence
         shell: bash
         run: |
-          mkdir -p stage9-wasm
-          cp "target/wasm32-unknown-unknown/release/symbol_nem_wallet_core_wasm.wasm" stage9-wasm/
-          node scripts/stage9-release.mjs wasm-evidence \
-            --wasm stage9-wasm/symbol_nem_wallet_core_wasm.wasm \
+          mkdir -p release-wasm
+          cp "target/wasm32-unknown-unknown/release/symbol_nem_wallet_core_wasm.wasm" release-wasm/
+          node scripts/release-evidence.mjs wasm-evidence \
+            --wasm release-wasm/symbol_nem_wallet_core_wasm.wasm \
             --source-commit "$GITHUB_SHA" \
             --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
-            --output stage9-wasm/wasm-evidence.json
+            --output release-wasm/wasm-evidence.json
 
       - name: Upload WASM artifact and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: stage9-wasm
-          path: stage9-wasm/
+          name: release-wasm
+          path: release-wasm/
 
   native:
     name: ${{ matrix.target_id }} native release artifact
@@ -172,15 +175,19 @@ jobs:
         include:
           - target_id: win32-x64-msvc
             rust_target: x86_64-pc-windows-msvc
+            artifact_filename: symbol_nem_wallet_core_node.dll
             runner: windows-2025-vs2026
           - target_id: darwin-x64
             rust_target: x86_64-apple-darwin
+            artifact_filename: libsymbol_nem_wallet_core_node.dylib
             runner: macos-15-intel
           - target_id: darwin-arm64
             rust_target: aarch64-apple-darwin
+            artifact_filename: libsymbol_nem_wallet_core_node.dylib
             runner: macos-15
           - target_id: linux-x64-gnu
             rust_target: x86_64-unknown-linux-gnu
+            artifact_filename: libsymbol_nem_wallet_core_node.so
             runner: ubuntu-24.04
     steps:
       - name: Check out release source
@@ -199,29 +206,50 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Build Node-API addon once per native target
+        if: matrix.target_id != 'linux-x64-gnu'
         run: cargo build --package symbol-nem-wallet-core-node --target ${{ matrix.rust_target }} --release --locked
+
+      - name: Build Linux addon against the glibc 2.28 compatibility image
+        if: matrix.target_id == 'linux-x64-gnu'
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain="$(rustc -Vv | sed -n 's/^release: //p')"
+          test -n "$toolchain"
+          docker run --rm \
+            --env RUST_TOOLCHAIN="$toolchain" \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            quay.io/pypa/manylinux_2_28_x86_64:latest \
+            bash -lc '
+              set -euo pipefail
+              curl --fail --silent --show-error --location https://sh.rustup.rs | sh -s -- -y --profile minimal
+              source "$HOME/.cargo/env"
+              rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target x86_64-unknown-linux-gnu
+              cargo +"$RUST_TOOLCHAIN" build --package symbol-nem-wallet-core-node --target x86_64-unknown-linux-gnu --release --locked
+            '
 
       - name: Normalize and record native artifact evidence
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p stage9-native
-          artifact_path="$(find "target/${{ matrix.rust_target }}/release" -maxdepth 1 -type f \( -name '*.dll' -o -name '*.dylib' -o -name '*.so' \) -print -quit)"
-          test -n "$artifact_path"
-          cp "$artifact_path" "stage9-native/${{ matrix.target_id }}.node"
-          node scripts/stage9-release.mjs native-evidence \
+          mkdir -p release-native
+          artifact_path="target/${{ matrix.rust_target }}/release/${{ matrix.artifact_filename }}"
+          test -f "$artifact_path"
+          cp "$artifact_path" "release-native/${{ matrix.target_id }}.node"
+          node scripts/release-evidence.mjs native-evidence \
             --target-id "${{ matrix.target_id }}" \
             --rust-target "${{ matrix.rust_target }}" \
-            --artifact "stage9-native/${{ matrix.target_id }}.node" \
+            --artifact "release-native/${{ matrix.target_id }}.node" \
             --source-commit "$GITHUB_SHA" \
             --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
-            --output "stage9-native/${{ matrix.target_id }}.json"
+            --output "release-native/${{ matrix.target_id }}.json"
 
       - name: Upload native artifact and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: stage9-native-${{ matrix.target_id }}
-          path: stage9-native/
+          name: release-native-${{ matrix.target_id }}
+          path: release-native/
 
   stage8-regression:
     name: Stage 8 representative formal parity regression
@@ -288,27 +316,27 @@ jobs:
       - name: Download all native artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: stage9-native-*
+          pattern: release-native-*
           path: release-input/native
           merge-multiple: true
 
       - name: Download the canonical WASM artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: stage9-wasm
+          name: release-wasm
           path: release-input/wasm
 
       - name: Validate all artifact evidence before assembly
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/stage9-release.mjs validate-native \
+          node scripts/release-evidence.mjs validate-native \
             --native-root release-input/native \
             --evidence-root release-input/native \
             --source-commit "$GITHUB_SHA" \
             --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
             --output release-input/native-summary.json
-          node scripts/stage9-release.mjs wasm-evidence \
+          node scripts/release-evidence.mjs wasm-evidence \
             --wasm release-input/wasm/symbol_nem_wallet_core_wasm.wasm \
             --evidence release-input/wasm/wasm-evidence.json \
             --source-commit "$GITHUB_SHA" \
@@ -351,7 +379,7 @@ jobs:
       - name: Upload final npm release candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: stage9-npm-package
+          name: release-npm-package
           path: release-output/
 
   npm-consumer:
@@ -401,7 +429,7 @@ jobs:
       - name: Download final npm tarball
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: stage9-npm-package
+          name: release-npm-package
           path: release-output
 
       - name: Run ESM, CJS, WASM fallback, and fail-closed consumer smoke
@@ -433,7 +461,7 @@ jobs:
       - name: Download final npm tarball
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: stage9-npm-package
+          name: release-npm-package
           path: release-output
 
       - name: Run Vite, webpack 5, esbuild, Browser, and MV3 smoke

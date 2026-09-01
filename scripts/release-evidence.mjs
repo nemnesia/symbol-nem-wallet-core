@@ -11,7 +11,7 @@ const packageRoot = resolve(repositoryRoot, "packages/wallet-core");
 const REQUIRED_TARGETS = [...CANONICAL_TARGET_ORDER];
 
 function fail(message) {
-  throw new Error(`Stage 9 release gate failed: ${message}`);
+  throw new Error(`Release evidence gate failed: ${message}`);
 }
 
 function argument(name, argv) {
@@ -56,8 +56,18 @@ function packageMetadata() {
   }
 }
 
-function cargoLockSha256() {
-  return sha256(resolve(repositoryRoot, "Cargo.lock"));
+export function canonicalCargoLockBytes() {
+  try {
+    return execFileSync("git", ["cat-file", "blob", "HEAD:Cargo.lock"], {
+      cwd: repositoryRoot,
+    });
+  } catch {
+    fail("canonical Cargo.lock contents are unavailable");
+  }
+}
+
+export function cargoLockSha256() {
+  return createHash("sha256").update(canonicalCargoLockBytes()).digest("hex");
 }
 
 function sourceCommitFromGit() {
@@ -101,6 +111,31 @@ function atLeastVersion(actual, required) {
   return actualMajor > requiredMajor || actualMajor === requiredMajor && actualMinor >= requiredMinor;
 }
 
+function compareVersions(left, right) {
+  const leftParts = left.split(".").map(Number);
+  const rightParts = right.split(".").map(Number);
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function maxRequiredGlibcSymbol(artifactPath) {
+  let output;
+  try {
+    output = execFileSync("readelf", ["--version-info", artifactPath], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    });
+  } catch {
+    fail("Linux native artifact GLIBC symbol evidence is unavailable");
+  }
+  const versions = [...output.matchAll(/GLIBC_(\d+(?:\.\d+)+)/g)].map((match) => match[1]);
+  if (versions.length === 0) fail("Linux native artifact has no GLIBC symbol evidence");
+  return versions.reduce((maximum, version) => compareVersions(version, maximum) > 0 ? version : maximum);
+}
+
 function writeJson(path, value) {
   writeFileSync(resolve(repositoryRoot, path), `${JSON.stringify(value, null, 2)}\n`);
 }
@@ -136,8 +171,9 @@ function nativeEvidence(argv) {
   };
   if (targetId === "linux-x64-gnu") {
     evidence.glibc_version_runtime = runtimeGlibcVersion(targetId);
-    if (!atLeastVersion(evidence.glibc_version_runtime, "2.28")) {
-      fail("Linux native release runner glibc is below 2.28");
+    evidence.max_required_glibc_symbol = maxRequiredGlibcSymbol(artifactPath);
+    if (compareVersions(evidence.max_required_glibc_symbol, "2.28") > 0) {
+      fail("Linux native artifact requires GLIBC newer than the specified 2.28 baseline");
     }
   }
   writeJson(outputPath, evidence);
@@ -181,9 +217,14 @@ function validateNative(argv) {
     ) {
       fail(`native artifact evidence mismatch: ${targetId}`);
     }
-    if (targetId === "linux-x64-gnu" &&
-      (typeof evidence.glibc_version_runtime !== "string" || !atLeastVersion(evidence.glibc_version_runtime, "2.28"))) {
-      fail("Linux native artifact glibc evidence is below 2.28");
+    if (
+      targetId === "linux-x64-gnu" &&
+      (typeof evidence.glibc_version_runtime !== "string" ||
+        !atLeastVersion(evidence.glibc_version_runtime, "2.28") ||
+        typeof evidence.max_required_glibc_symbol !== "string" ||
+        compareVersions(evidence.max_required_glibc_symbol, "2.28") > 0)
+    ) {
+      fail("Linux native artifact glibc evidence does not satisfy the specified 2.28 baseline");
     }
     entries.push(evidence);
   }
@@ -254,9 +295,11 @@ function sourceMetadata() {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-const [command, ...argv] = process.argv.slice(2);
-if (command === "source") sourceMetadata();
-else if (command === "native-evidence") nativeEvidence(argv);
-else if (command === "validate-native") validateNative(argv);
-else if (command === "wasm-evidence") validateWasm(argv);
-else fail("usage: source | native-evidence | validate-native | wasm-evidence");
+if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+  const [command, ...argv] = process.argv.slice(2);
+  if (command === "source") sourceMetadata();
+  else if (command === "native-evidence") nativeEvidence(argv);
+  else if (command === "validate-native") validateNative(argv);
+  else if (command === "wasm-evidence") validateWasm(argv);
+  else fail("usage: source | native-evidence | validate-native | wasm-evidence");
+}

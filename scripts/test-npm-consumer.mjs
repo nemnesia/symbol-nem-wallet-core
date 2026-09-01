@@ -11,7 +11,7 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageName = "@nemnesia/symbol-nem-wallet-core";
 
 function fail(message) {
-  throw new Error(`Stage 9 clean consumer gate failed: ${message}`);
+  throw new Error(`Release clean consumer gate failed: ${message}`);
 }
 
 function npmCommand() {
@@ -31,8 +31,8 @@ function packageRoot(projectRoot) {
 }
 
 function install(tarball) {
-  const projectRoot = mkdtempSync(resolve(tmpdir(), "snwc-stage9-consumer-"));
-  writeFileSync(resolve(projectRoot, "package.json"), `${JSON.stringify({ name: "snwc-stage9-consumer", private: true, type: "module" })}\n`);
+  const projectRoot = mkdtempSync(resolve(tmpdir(), "snwc-release-consumer-"));
+  writeFileSync(resolve(projectRoot, "package.json"), `${JSON.stringify({ name: "snwc-release-consumer", private: true, type: "module" })}\n`);
   run(npmCommand(), ["install", "--ignore-scripts", "--offline", "--no-audit", "--no-fund", "--package-lock=false", tarball], {
     cwd: projectRoot,
     env: { ...process.env, npm_config_ignore_scripts: "true", npm_config_offline: "true", npm_config_audit: "false", npm_config_fund: "false", npm_config_cache: resolve(tmpdir(), "snwc-npm-cache") },
@@ -49,7 +49,7 @@ const names = Object.keys(api).sort();
 const expected = ["change_profile_password", "create_empty_store", "delete_profile", "delete_software_key", "derive_software_key", "export_mnemonic", "export_private_key", "finalize_generated_profile", "generate_software_key", "get_public_account", "import_software_key", "list_profiles", "list_software_keys", "prepare_generated_profile", "restore_profile", "sign"].sort();
 if (JSON.stringify(names) !== JSON.stringify(expected)) throw new Error("public surface mismatch");
 const store = api.create_empty_store();
-const password = new TextEncoder().encode("stage9 clean consumer fixture password");
+const password = new TextEncoder().encode("release clean consumer fixture password");
 const prepared = api.prepare_generated_profile(store, password, 1);
 const replacement = api.finalize_generated_profile(store, prepared.value.pending_profile, password, { status: "confirmed" });
 let error;

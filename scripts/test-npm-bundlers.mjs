@@ -21,7 +21,7 @@ const packageName = "@nemnesia/symbol-nem-wallet-core";
 const browserCandidates = ["google-chrome", "chromium", "chromium-browser", "chrome"];
 
 function fail(message) {
-  throw new Error(`Stage 9 browser integration gate failed: ${message}`);
+  throw new Error(`Release browser integration gate failed: ${message}`);
 }
 
 function npmCommand() {
@@ -63,10 +63,10 @@ function findBrowser() {
 }
 
 function packageInstallRoot(tarball) {
-  const projectRoot = mkdtempSync(resolve(tmpdir(), "snwc-stage9-browser-"));
+  const projectRoot = mkdtempSync(resolve(tmpdir(), "snwc-release-browser-"));
   writeFileSync(
     resolve(projectRoot, "package.json"),
-    `${JSON.stringify({ name: "snwc-stage9-browser-consumer", private: true, type: "module" }, null, 2)}\n`,
+    `${JSON.stringify({ name: "snwc-release-browser-consumer", private: true, type: "module" }, null, 2)}\n`,
   );
   run(npmCommand(), [
     "install",
@@ -95,7 +95,7 @@ function browserEntry() {
 
 const store = api.create_empty_store();
 const listed = api.list_profiles(store);
-const password = new TextEncoder().encode("stage9 browser fixture password");
+const password = new TextEncoder().encode("release browser fixture password");
 const prepared = api.prepare_generated_profile(store, password, 1);
 const replacement = api.finalize_generated_profile(
   store,
@@ -230,7 +230,7 @@ function bin(name) {
 }
 
 async function buildBundlers(projectRoot, browser) {
-  const fixtureRoot = mkdtempSync(resolve(projectRoot, "stage9-bundlers-"));
+  const fixtureRoot = mkdtempSync(resolve(projectRoot, "release-bundlers-"));
   const results = {};
   try {
     writeFixture(fixtureRoot);
@@ -270,7 +270,7 @@ async function buildBundlers(projectRoot, browser) {
 function mv3Source() {
   return `import * as api from ${JSON.stringify(packageName)};
 const store = api.create_empty_store();
-const password = new TextEncoder().encode("stage9 MV3 fixture password");
+const password = new TextEncoder().encode("release MV3 fixture password");
 const prepared = api.prepare_generated_profile(store, password, 1);
 const replacement = api.finalize_generated_profile(store, prepared.value.pending_profile, password, { status: "confirmed" });
 let error;
@@ -314,7 +314,7 @@ async function runMv3Browser(extensionRoot, browser) {
   if (!browser.command.toLowerCase().includes("chrome") && !browser.command.toLowerCase().includes("chromium")) {
     fail("MV3 smoke requires Chromium");
   }
-  const profileRoot = mkdtempSync(resolve(tmpdir(), "snwc-stage9-chrome-profile-"));
+  const profileRoot = mkdtempSync(resolve(tmpdir(), "snwc-release-chrome-profile-"));
   let child;
   try {
     child = spawn(browser.command, [
@@ -372,8 +372,8 @@ async function runMv3Browser(extensionRoot, browser) {
 }
 
 async function runMv3(projectRoot, browser) {
-  const sourceRoot = mkdtempSync(resolve(projectRoot, "stage9-mv3-source-"));
-  const extensionRoot = mkdtempSync(resolve(projectRoot, "stage9-mv3-extension-"));
+  const sourceRoot = mkdtempSync(resolve(projectRoot, "release-mv3-source-"));
+  const extensionRoot = mkdtempSync(resolve(projectRoot, "release-mv3-extension-"));
   try {
     writeFileSync(resolve(sourceRoot, "service-worker.mjs"), mv3Source());
     await esbuild({
@@ -391,7 +391,7 @@ async function runMv3(projectRoot, browser) {
     });
     const manifest = {
       manifest_version: 3,
-      name: "Stage 9 local WASM smoke",
+      name: "Local WASM smoke",
       version: "0.0.0",
       background: { service_worker: "service-worker.js", type: "module" },
       content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
