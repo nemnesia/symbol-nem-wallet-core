@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,11 +46,19 @@ function sorted(value) {
 }
 
 function runNode(args, cwd = packageRoot) {
-  return execFileSync(process.execPath, args, {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+  const directory = mkdtempSync(resolve(tmpdir(), "snwc-node-output-"));
+  const output = resolve(directory, "stdout");
+  const outputDescriptor = openSync(output, "w");
+  try {
+    execFileSync(process.execPath, args, {
+      cwd,
+      stdio: ["ignore", outputDescriptor, outputDescriptor],
+    });
+    return readFileSync(output, "utf8").trim();
+  } finally {
+    closeSync(outputDescriptor);
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 function makePackageCopy() {
