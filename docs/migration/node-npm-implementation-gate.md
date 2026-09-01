@@ -37,7 +37,7 @@ Status は次の3値で記録する。
 
 Node.js の release status と Node-API の ABI 方針は、確認日現在の [Node.js Release Working Group の release schedule](https://github.com/nodejs/Release) と [Node-API documentation](https://nodejs.org/api/n-api.html) を確認した。package routing は [Node.js Modules: Packages](https://nodejs.org/api/packages.html) を確認した。
 
-候補 library は、公式の [napi-rs repository](https://github.com/napi-rs/napi-rs)、[napi-rs getting started](https://github.com/napi-rs/website/blob/main/pages/en/docs/introduction/getting-started.md)、[Neon repository](https://github.com/neon-bindings/neon) および [node-bindgen repository](https://github.com/infinyon/node-bindgen) を確認した。Browser / bundler / Extension は、[Vite WebAssembly guide](https://vite.dev/guide/features)、[webpack asset modules](https://webpack.js.org/guides/asset-modules/)、[webpack WASM loading configuration](https://webpack.js.org/configuration/output/)、[esbuild browser API](https://esbuild.github.io/api/)、[MDN Baseline](https://developer.mozilla.org/en-US/docs/Glossary/Baseline/Compatibility)、[Chrome MV3 remote-hosted code policy](https://developer.chrome.com/docs/extensions/develop/migrate/remote-hosted-code) および [Chrome Extension CSP](https://developer.chrome.com/docs/extensions/reference/manifest/content-security-policy) を確認した。
+候補 library は、公式の [napi-rs repository](https://github.com/napi-rs/napi-rs)、[napi-rs getting started](https://github.com/napi-rs/website/blob/main/pages/en/docs/introduction/getting-started.md)、[Neon repository](https://github.com/neon-bindings/neon) および [node-bindgen repository](https://github.com/infinyon/node-bindgen) を確認した。Browser / bundler / Extension は、[Vite WebAssembly guide](https://vite.dev/guide/features)、[webpack asset modules](https://webpack.js.org/guides/asset-modules/)、[webpack WASM loading configuration](https://webpack.js.org/configuration/output/)、[esbuild browser API](https://esbuild.github.io/api/)、[MDN Baseline](https://developer.mozilla.org/en-US/docs/Glossary/Baseline/Compatibility)、[Chrome MV3 remote-hosted code policy](https://developer.chrome.com/docs/extensions/develop/migrate/remote-hosted-code) および [Chrome Extension CSP](https://developer.chrome.com/docs/extensions/reference/manifest/content-security-policy) を確認した。Native target のrunner状態は、[GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)、[Windows ARM64 GA announcement](https://github.com/actions/runner-images/issues/14592) および [runner images](https://github.com/actions/runner-images/blob/main/README.md) を確認した。
 
 ## 3. OPEN-001 — Node.js / Node-API / module baseline
 
@@ -53,14 +53,15 @@ Node-API は JavaScript engine から独立した ABI-stable API であり、Nod
 
 | 項目 | 推奨 | 理由 / gate |
 | --- | --- | --- |
-| minimum supported Node.js | **22.x LTS。実装時の operational floor は `>=22.13.0` を第一候補** | 22.x を Maintenance LTS の互換 floor として残し、24.x だけに狭めない。`22.13.0` は採用 wrapper の build tooling と runtime test の最小実績を揃えるための保守的な候補であり、製品として 22.x 全体を支えるかはユーザー確認が必要。 |
+| minimum supported Node.js release line | **22.x LTS** | 22.x を Maintenance LTS の互換 floor として残し、24.x だけに狭めない。consumer runtime の exact patch floor は、Node-API v8、facade の JavaScript syntax および package contract の必要性を Stage 7 で確認して固定する。 |
 | primary supported release line | **24.x Active LTS** | v1 の通常 CI / release / smoke test の主対象とする。26.x は Current のため必須 target にしない。 |
 | Node-API version | **v8** | Core operation に必要な Buffer / TypedArray bridge は v8 の範囲で成立する。新しい Node-API version に依存せず、22 / 24 / 後続 line を同じ addon で扱う。N-API version と Node.js major ごとの再ビルドを結びつけない。 |
+| build / release tooling | **採用する `@napi-rs/cli` version の `engines` を満たす Node.js** | 現行公式 tooling documentation の CLI requirement（`^20.17.0 || ^22.13.0 || >=23.5.0`）は build / release environment のもの。これを consumer runtime の minimum patch floor の根拠にしない。 |
 | ESM | **supported** | facade の `import` root entry point を正式経路とする。backend-specific path は公開しない。 |
 | CommonJS | **supported** | facade の `require` root entry point を同じ contract で提供する。 |
 | native ABI policy | **Node-API only** | V8、Node internal API、`nan`、Node major 固有 ABI を使用しない。`.node` は OS / CPU / libc target ごとに作るが Node.js major ごとには作らない。 |
 
-`>=22.13.0` は現時点の wrapper toolchain と runtime gate を揃えるための推奨 floor であり、Node.js 22.x の全 patch を排除する決定ではない。Stage 6 の wrapper proof-of-concept で、採用 version の runtime requirement がこの候補を上回らないことを確認する。もし製品方針として 22.x を広く支えるなら、最低 patch と `engines.node` はその方針に合わせて別途確定する。
+`@napi-rs/cli` の CLI requirement（現行公式資料にある `^20.17.0 || ^22.13.0 || >=23.5.0`）は CLI / build tooling を実行する環境の requirement であり、生成された Node-API addon を利用する consumer runtime の requirement ではない。consumer runtime は Node 22.x release line を minimum として推奨し、exact patch floor と `engines.node` は、Node-API v8、facade の JavaScript syntax および package contract を Stage 7 で確認して固定する。採用 CLI version の build environment は、その CLI の `engines` を満たさなければならない。
 
 ### 3.3 module routing
 
@@ -77,16 +78,16 @@ Node-API は JavaScript engine から独立した ABI-stable API であり、Nod
 | Target | 分類案 | 判断 |
 | --- | --- | --- |
 | Windows x64 | **v1 必須** | 最も広い Windows desktop 利用を対象にする。GitHub-hosted x64 runner で build / native smoke を行う。 |
-| Windows arm64 | **v1 推奨** | 実利用価値はある。GitHub-hosted Windows ARM64 runner label は存在するが、runner / action の preview 状態と native smoke の実績を Stage 6 で確認する。未同梱時は対象外 target として WASM を選ぶ。 |
+| Windows arm64 | **v1 推奨** | `windows-11-vs2026-arm` は 2026-08-20 時点で Generally Available。v1 必須への昇格は、native addon runtime smoke、package size、target matrix の製品範囲および実利用需要で判断する。未同梱時は対象外 target として WASM を選ぶ。 |
 | macOS x64 | **v1 必須** | Intel macOS 利用者との互換性を維持する。x64 runner で build / smoke を行う。 |
 | macOS arm64 | **v1 必須** | Apple Silicon が主流であり、arm64 runner で build / smoke を行う。community action の arm64 compatibility は個別に確認する。 |
 | Linux x64 glibc | **v1 必須** | server / desktop の主要 target。glibc baseline を明記し、native smoke を実施する。 |
-| Linux arm64 glibc | **v1 推奨** | 実利用価値は高いが、cross compile 成功だけでなく arm64 native smoke と glibc baseline の実証が必要。GitHub-hosted Linux ARM64 runner は利用候補として存在する。 |
+| Linux arm64 glibc | **v1 推奨** | `ubuntu-24.04-arm` / `ubuntu-22.04-arm` 等の GitHub-hosted Linux ARM64 runner label が存在する。GitHub-hosted runners reference ではこれらは Public preview と表記されているため、cross compile 成功だけでなく arm64 native smoke と glibc baseline の実証が必要。 |
 | Linux x64 musl | **fallback-only** | musl 固有の配布・smoke・互換性を v1 native artifact に含めず、対象外 target では WASM を使う。実績が得られた場合だけ再評価する。 |
 | Linux arm64 musl | **fallback-only** | x64 musl と同じ。最初から native artifact を同梱せず、追加 target として deferred にする。 |
 | 上記以外の OS / CPU / libc | **将来対応** | v1 の package size と smoke matrix を増やさない。WASM fallback の対象とする。 |
 
-この推奨は初期 native artifact 4個を必須とし、Windows arm64 / Linux arm64 glibc を追加する場合は最大6個とする案である。GitHub Actions の runner が存在することは、addon の正しい load、runtime smoke、native dependency、artifact provenance まで保証しないため、arm64 を自動的に必須へ昇格させない。
+この推奨は初期 native artifact 4個を必須とし、Windows arm64 / Linux arm64 glibc を追加する場合は最大6個とする案である。Windows ARM64 runner のGA statusは、v1必須化の判断理由にはしない。いずれの arm64 target も、addon の正しい load、runtime smoke、native dependency、artifact provenance、package size および実利用需要を確認して必須化を判断する。Linux ARM64 は、使用する runner label が Public preview 表記であることも build / smoke の運用前提として記録する。
 
 ### 4.2 target gate
 
@@ -209,7 +210,7 @@ Browser の exact major、iOS / Android の WebView policy、MV3 fixture の実�
 
 | ID / 項目 | 推奨決定 | Status |
 | --- | --- | --- |
-| OPEN-001 / Node.js | minimum は Node 22.x（初期 operational floor 候補 `>=22.13.0`）、primary は Node 24.x Active LTS、26.x は optional compatibility check | `NEEDS USER DECISION` |
+| OPEN-001 / Node.js | minimum release line は Node 22.x、primary は Node 24.x Active LTS、26.x は optional compatibility check。exact consumer runtime patch floor は Stage 7 で固定し、`@napi-rs/cli` の build requirement と分離 | `NEEDS USER DECISION` |
 | OPEN-001 / Node-API | Node-API v8、Node major ごとの addon rebuild なし | `RECOMMENDED` |
 | OPEN-001 / modules | ESM / CommonJS の両方を root facade で support。conditional exports は native `node-addons` と universal `default` WASM を静的 routing | `RECOMMENDED` |
 | OPEN-002 / target | 必須4: Windows x64、macOS x64、macOS arm64、Linux x64 glibc。推奨追加2: Windows arm64、Linux arm64 glibc。musl は fallback-only | `NEEDS USER DECISION` |
@@ -281,7 +282,7 @@ Stage 6 を開始する場合、少なくとも次を implementation plan と te
 
 Stage 6 開始前に、少なくとも次をユーザーが明示的に承認する必要がある。
 
-1. **Node.js floor**: Node 22.x を minimum とし、operational floor を `>=22.13.0` とするか。primary line は 24.x Active LTS とするか。
+1. **Node.js floor**: Node 22.x release line を minimum、24.x Active LTS を primary とする案を承認するか。consumer runtime の exact patch floor は Stage 7 で facade syntax / package contract とともに固定し、`@napi-rs/cli` の build environment requirement とは分離する。
 2. **Native target matrix**: 必須4 target だけにするか、Windows arm64 / Linux arm64 glibc も v1 同梱必須へ昇格するか。musl を fallback-only のままにするか。
 3. **Tarball policy**: `50 MiB compressed`、`150 MiB unpacked`、`native 7 artifacts` を single-tarball 再評価条件として採用するか。
 4. **Browser baseline**: evergreen current / previous major、MDN Baseline Widely Available 相当、Vite / webpack 5 / esbuild smoke、MV3 local asset / CSP を v1 release gate とするか。
