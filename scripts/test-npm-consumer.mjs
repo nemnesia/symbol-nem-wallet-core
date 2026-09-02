@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -18,17 +18,23 @@ function run(command, args, options = {}) {
   return execFileSync(command, args, { cwd: repositoryRoot, stdio: "inherit", ...options });
 }
 
-function quoteWindowsCommandArgument(value) {
-  if (typeof value !== "string" || /[\r\n"%!]/.test(value)) {
-    fail("Windows npm argument contains unsupported shell characters");
+function npmCliPath() {
+  const configured = process.env.npm_execpath;
+  const candidates = [];
+  if (typeof configured === "string" && configured.length > 0 && configured.toLowerCase().endsWith("npm-cli.js")) {
+    candidates.push(resolve(repositoryRoot, configured));
   }
-  return `"${value}"`;
+  const nodeDirectory = dirname(process.execPath);
+  candidates.push(resolve(nodeDirectory, "node_modules", "npm", "bin", "npm-cli.js"));
+  candidates.push(resolve(nodeDirectory, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"));
+  const candidate = candidates.find((path) => existsSync(path) && statSync(path).isFile());
+  if (candidate === undefined) fail("npm CLI is unavailable beside the active Node runtime");
+  return candidate;
 }
 
 function runNpm(args, options = {}) {
   if (process.platform !== "win32") return run("npm", args, options);
-  const command = ["npm.cmd", ...args].map(quoteWindowsCommandArgument).join(" ");
-  return execFileSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", command], {
+  return execFileSync(process.execPath, [npmCliPath(), ...args], {
     cwd: repositoryRoot,
     stdio: "inherit",
     ...options,

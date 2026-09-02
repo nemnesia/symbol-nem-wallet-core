@@ -19,6 +19,8 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageName = "@nemnesia/symbol-nem-wallet-core";
 const browserCandidates = ["google-chrome", "chromium", "chromium-browser", "chrome"];
+const mv3PublicKey = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuCAJWv09qHrxO6MRY4ATEUhDoUY/Yjbmk0rXEKgzRlvH+yoQyASqqgDOYCVMJ6iZ8JO1zvEaP5UphaWiQjvSrhMKfSn5RvmTEbeIdhRwxclFA/Ps+P2HxYle1MAJ/O9cBFmZ5+fURWnHvjwE5CCV3M145y8M3p5JZa4608TxaYZYB1r/e29Qhyq8aSO170KcIwOz35Cb8vFxvCuNrhMKhFvgX8O8AlXWC09s4gGxA41CY8lyQiUP7qw8hxutTbWn+KmP7ygSw154AXc2S02BrVnJY+bpGMbZe4gbtV9RCyIyfIohK1bCmkAecppBGDx8XDSFmSDbYpR+9DaujKn3ewIDAQAB";
+const mv3ExtensionId = "hanjnjipcnfnadggaiojokcmmdjiplah";
 
 function fail(message) {
   throw new Error(`Release browser integration gate failed: ${message}`);
@@ -288,9 +290,14 @@ function cdpConnection(wsUrl) {
   if (typeof WebSocket !== "function") fail("Node WebSocket client is unavailable for MV3 smoke");
   const socket = new WebSocket(wsUrl);
   const pending = new Map();
+  const listeners = new Map();
   let sequence = 0;
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
+    if (message.method !== undefined) {
+      for (const listener of listeners.get(message.method) ?? []) listener(message.params);
+      return;
+    }
     const request = pending.get(message.id);
     if (request === undefined) return;
     pending.delete(message.id);
@@ -307,7 +314,12 @@ function cdpConnection(wsUrl) {
     socket.send(JSON.stringify({ id, method, params, ...(sessionId === undefined ? {} : { sessionId }) }));
     return promise;
   };
-  return { socket, opened, request };
+  const on = (method, listener) => {
+    const registered = listeners.get(method) ?? [];
+    registered.push(listener);
+    listeners.set(method, registered);
+  };
+  return { socket, opened, request, on };
 }
 
 function waitForChildClose(child) {
@@ -406,27 +418,38 @@ async function runMv3Browser(extensionRoot, browser) {
     if (wsUrl === undefined) fail("Chromium DevTools endpoint was not announced");
     cdp = cdpConnection(wsUrl);
     await cdp.opened;
+    const runtimeErrors = [];
+    cdp.on("Runtime.exceptionThrown", (params) => runtimeErrors.push(params));
+    cdp.on("Runtime.consoleAPICalled", (params) => {
+      if (params.type === "error") runtimeErrors.push(params);
+    });
+    const extensionPageUrl = `chrome-extension://${mv3ExtensionId}/smoke.html`;
+    const created = await cdp.request("Target.createTarget", { url: extensionPageUrl });
+    const targetId = created.targetId;
+    const attached = await cdp.request("Target.attachToTarget", { targetId, flatten: true });
+    await cdp.request("Runtime.enable", {}, attached.sessionId);
     const startTarget = Date.now();
     let report;
     while (report === undefined && Date.now() - startTarget < 30_000) {
-      const targets = await cdp.request("Target.getTargets");
-      const worker = targets.targetInfos.find((target) => target.type === "service_worker" && target.url.startsWith("chrome-extension://"));
-      if (worker !== undefined) {
-        try {
-          const attached = await cdp.request("Target.attachToTarget", { targetId: worker.targetId, flatten: true });
-          const evaluated = await cdp.request("Runtime.evaluate", { expression: "globalThis.__snwc_mv3_report", returnByValue: true }, attached.sessionId);
-          report = evaluated?.result?.value;
-        } catch {
-          // The service worker may be restarting while the extension is initializing.
-        }
+      try {
+        const evaluated = await cdp.request("Runtime.evaluate", { expression: "globalThis.__snwc_mv3_report", returnByValue: true }, attached.sessionId);
+        report = evaluated?.result?.value;
+      } catch {
+        // The extension page may still be initializing.
       }
       if (report === undefined) await new Promise((resolveWait) => setTimeout(resolveWait, 100));
     }
-    if (report?.status !== "ok" || report.local_wasm_initialization !== true || report.representative_operation !== true) {
-      fail("MV3 service worker did not complete local WASM smoke");
+    if (report === undefined) {
+      const diagnostic = runtimeErrors.length === 0 ? "no page report" : "page runtime error observed";
+      fail(`MV3 extension page did not complete local WASM smoke (${diagnostic})`);
     }
-    if (report.core_error?.code !== "InvalidStore") fail("MV3 Core error semantics mismatch");
-    result = report;
+    if (report.status !== "ok" || report.local_wasm_initialization !== true || report.representative_operation !== true) {
+      fail("MV3 extension page did not complete local WASM smoke");
+    }
+    if (report.core_error?.name !== "WalletCoreError" || report.core_error.code !== "InvalidStore" || report.core_error.message !== "InvalidStore") {
+      fail("MV3 Core error semantics mismatch");
+    }
+    result = { ...report, execution_context: "extension-page", target_id: targetId };
   } catch (error) {
     functionalError = error;
   }
@@ -448,15 +471,15 @@ async function runMv3(projectRoot, browser) {
   const sourceRoot = mkdtempSync(resolve(projectRoot, "release-mv3-source-"));
   const extensionRoot = mkdtempSync(resolve(projectRoot, "release-mv3-extension-"));
   try {
-    writeFileSync(resolve(sourceRoot, "service-worker.mjs"), mv3Source());
+    writeFileSync(resolve(sourceRoot, "smoke.mjs"), mv3Source());
     await esbuild({
       absWorkingDir: projectRoot,
-      entryPoints: [resolve(sourceRoot, "service-worker.mjs")],
+      entryPoints: [resolve(sourceRoot, "smoke.mjs")],
       bundle: true,
       format: "esm",
       platform: "browser",
       target: "es2022",
-      outfile: resolve(extensionRoot, "service-worker.js"),
+      outfile: resolve(extensionRoot, "smoke.js"),
       loader: { ".wasm": "file" },
       assetNames: "assets/[name]-[hash]",
       legalComments: "none",
@@ -466,9 +489,10 @@ async function runMv3(projectRoot, browser) {
       manifest_version: 3,
       name: "Local WASM smoke",
       version: "0.0.0",
-      background: { service_worker: "service-worker.js", type: "module" },
+      key: mv3PublicKey,
       content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
     };
+    writeFileSync(resolve(extensionRoot, "smoke.html"), `<!doctype html><meta charset="utf-8"><script type="module" src="smoke.js"></script>`);
     writeFileSync(resolve(extensionRoot, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     const generatedFiles = allFiles(extensionRoot);
     const text = generatedFiles.filter((file) => /\.(?:js|json|html)$/.test(file)).map((file) => readFileSync(resolve(extensionRoot, file), "utf8")).join("\n");
