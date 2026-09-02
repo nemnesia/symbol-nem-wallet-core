@@ -2,16 +2,17 @@
 
 ## 1. Scope
 
-本書は、`agent/monorepo-migration` の Stage 10 実装へ入る前に、release と
-supply-chain security に関する未確定 decision を整理するための decision gate である。
+本書は、`agent/monorepo-migration` の Stage 10（release / supply-chain security の
+docs / decision gate only）として、未確定 decision を整理するものである。
 Stage 9 の release candidate が成立した後、npm package、C ABI artifact、canonical WASM、
 source commit、version、build evidence および release operation をどのように結び付けるかを
 定める。
 
-本書は、ユーザーが承認した項目を Stage 10 の実装入力へ昇格させるための記録である。
-本書の作成だけでは publish、GitHub Release、Trusted Publishing、SBOM生成、provenance生成、
-runtime digest verification または release workflow の実装を開始しない。決定を要する項目は
-提案を示しても `NEEDS USER DECISION` として扱い、承認前に実装上の事実へ変換しない。
+本書は、Stage 10 で decision を確定し、ユーザーが承認した decision を後続 implementation
+へ引き渡すための記録である。後続 implementation は Stage 10 の範囲外であり、本書の作成だけ
+では publish、GitHub Release、Trusted Publishing、SBOM生成、provenance生成、runtime digest
+verification または release workflow の実装を開始しない。決定を要する項目は提案を示しても
+`NEEDS USER DECISION` として扱い、承認前に実装上の事実へ変換しない。
 
 対象は次の公開物と release evidence である。
 
@@ -90,8 +91,9 @@ Stage 9 workflow は build、artifact evidence、final assembly、npm pack、cle
 install、
 consumer smoke および bundler / browser integration を対象とする。npm registry への publish、
 GitHub Release 作成、Trusted Publishing、SBOM、provenance、protected environment および
-runtime SHA-256 verification は Stage 9 evidence に含めず、Stage 10 の decision /
-implementation boundary とする。
+runtime SHA-256 verification は Stage 9 evidence に含めない。これらは Stage 10 で decision
+を確定した後、承認済み decision を入力として実施する post-Stage-10 / later implementation
+の対象であり、Stage 10 自体は decision boundary のみとする。
 
 主な確認資料は [`node.yml`](../../.github/workflows/node.yml)、
 [`monorepo-npm-distribution-design.md`](monorepo-npm-distribution-design.md)、
@@ -100,9 +102,10 @@ implementation boundary とする。
 
 ## 4. Decision table
 
-`RECOMMENDED` は現時点の security / operability 上の推奨であり、Stage 10 の実装へ反映する
-前提となる。`NEEDS USER DECISION` は候補と推奨を示しても、ユーザー承認なしに確定しない。
-`DEFERRED` は decision gate の後段で決める実装・運用詳細である。
+`RECOMMENDED` は現時点の security / operability 上の推奨であり、Stage 10 で decision として
+確定する候補である。`NEEDS USER DECISION` は候補と推奨を示しても、ユーザー承認なしに確定
+しない。`DEFERRED` は Stage 10 の decision gate 後、承認済み decision を入力とする後続
+implementation / operation で決める詳細である。
 
 | # | decision | status |
 | --- | --- | --- |
@@ -242,8 +245,8 @@ target または明示された `--no-addons` だけが WASM fallback の条件�
 
 この integrity check は package / loader boundary の control であり、Core が security
 authority であるという不変条件を変更しない。runtime verification の exact implementation、
-error mapping、performance budget および negative test は、承認後の Stage 10
-implementation で固定する。
+error mapping、performance budget および negative test は、Stage 10 で承認された decision を
+入力とする後続 implementation で固定する。
 
 ### 5.7 WASM integrity boundary
 
@@ -253,8 +256,8 @@ WASM を次の二つに分けて扱う。
 
 1. **npm tarball 内 canonical WASM**: release commit から assembly された
    package-local
-   artifact。Stage 10 の release manifest、artifact digest、SBOM / inventory および npm
-   provenance の対象とする。
+   artifact。後続 implementation で作成する release manifest、artifact digest、SBOM /
+   inventory および npm provenance の対象とする。
 2. **bundler emitted asset**: Vite、webpack 5、esbuild、Browser または MV3
    application の
    build 後に生成・配置される application-owned asset。application build の output として
@@ -323,9 +326,8 @@ C ABI は npm package に含めず、npm facade と同じ version / tag に対�
 
 C ABI artifact と Node-API `.node` artifact は別の公開物であり、同じ version に同期しても
 同じ file、同じ ABI または同じ npm distribution path にはしない。binary、header、checksum、
-SBOM、provenance の exact archive layout と target extension は Stage 10
-implementation で
-承認済み policy に従って固定する。
+SBOM、provenance の exact archive layout と target extension は、Stage 10 で承認された policy
+に従い、後続 implementation で固定する。
 
 ### 5.11 Reproducibility
 
@@ -381,7 +383,7 @@ v1 に採用するか、npm provenance only とするかはユーザーが決定
 
 ## 6. USER ACTION REQUIRED
 
-Stage 10 implementation と publish operation の前に、ユーザーは次を承認または選択する必要がある。
+Stage 10 の decision gate を完了するため、ユーザーは次を承認または選択する必要がある。
 
 1. npm publishing mechanism: Trusted Publishing / OIDC を primary とするか。
    automation token を
@@ -403,14 +405,16 @@ Stage 10 implementation と publish operation の前に、ユーザーは次を�
 8. artifact signing: npm provenance only、cosign / Sigstore、GPG または別方式のどれを v1 に
    採用するか。
 
-上記が未承認のままの場合、Stage 10 の workflow、environment、secret、publish、SBOM、
-provenance、runtime verification および C ABI release implementation を開始しない。
+上記が未承認のままの場合、承認済み decision を入力とする後続 implementation / release
+operation（workflow、environment、secret、publish、SBOM、provenance、runtime verification
+および C ABI release implementation）に進まない。
 
 ## 7. Deferred items
 
 **Status: `DEFERRED`**
 
-次は、本 decision gate の承認後に実装・運用として扱う。今回の docs-only change では実装しない。
+次は、Stage 10 の decision gate 完了後、承認済み decision を入力とする後続 implementation /
+operation として扱う。Stage 10 ではこれらを実装せず、今回の docs-only change でも実装しない。
 
 - npm publish
 - GitHub Release 作成
@@ -430,7 +434,7 @@ provenance、runtime verification および C ABI release implementation を開�
 remote artifact service、per-platform npm package、telemetry、runtime network
 dependency、追加の native target、package size threshold および release rollback /
 recovery runbook である。
-これらを Stage 10 の implementation scope へ暗黙に追加しない。
+これらを本 decision gate または後続 implementation の対象へ暗黙に追加しない。
 
 ## 8. Security impact
 
@@ -460,10 +464,14 @@ integrity failure を fail closed にしても、WASM や host environment の s
 guarantee を
 拡張しない。
 
-## 9. Implementation plan
+## 9. Post-gate implementation handoff
 
-ユーザー判断が完了した後、承認内容を本書の status と release workflow の実装入力へ反映する。
-実装順序は次のとおりとする。
+以下は Stage 10 の implementation ではない。Stage 10 で承認された decisions を将来の
+implementation stage へ引き渡すための deferred outline であり、今回は workflow / code /
+configuration を変更しない。
+
+ユーザー判断が完了した後、本書の status を更新し、承認済み decision を将来の release
+workflow implementation へ引き渡す。以下はその後続 implementation の順序案である。
 
 1. clean release commit、SemVer、tag、Cargo / npm version equality、duplicate
    rejection、
@@ -496,8 +504,8 @@ guarantee を
    の evidence を記録する。
 
 各段階で Stage 9 の source、CI、public API、fallback、authority boundary に意図しない変更が
-ないことを確認する。Stage 10 実装が既存仕様の外部可視動作を変更する必要を発見した場合は、
-実装で補完せず上流の decision / specification review へ戻す。
+ないことを確認する。後続 implementation が既存仕様の外部可視動作を変更する必要を発見した
+場合は、実装で補完せず上流の decision / specification review へ戻す。
 
 ## 10. Gate result
 
@@ -510,7 +518,7 @@ Stage 9 は、依頼時点で引き継がれた evidence に基づき正式に `
 policy、tag / release policy の一部、protected release environment、
 reproducibility gate、evidence
 retention および artifact signing は、ユーザー判断なしに確定できない。したがって Stage 10
-release / supply-chain implementation gate は、上記 USER ACTION REQUIRED の承認が完了するまで
+release / supply-chain decision gate は、上記 USER ACTION REQUIRED の承認が完了するまで
 `NEEDS USER DECISION` とする。
 
 本書は decision gate を正本化する成果物であり、npm publish、GitHub Release、Trusted Publishing
