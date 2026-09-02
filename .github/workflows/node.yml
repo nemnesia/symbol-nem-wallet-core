@@ -398,7 +398,7 @@ jobs:
             --wasm-summary release-input/wasm-summary.json \
             --wasm-evidence release-input/wasm/wasm-evidence.json \
             --wasm-bindgen-evidence release-input/wasm/wasm-bindgen-version.json \
-            --wasm-source release-input/wasm/symbol_nem_wallet_core_wasm_bg.wasm \
+            --wasm-source release-input/wasm/symbol_nem_wallet_core_wasm.wasm \
             --package-root packages/wallet-core \
             --tarball "$tarball" \
             --manifest release-output/release-manifest.json \
@@ -429,7 +429,7 @@ jobs:
             --wasm-summary release-output/wasm-summary.json \
             --wasm-evidence release-output/wasm-evidence.json \
             --wasm-bindgen-evidence release-output/wasm-bindgen-version.json \
-            --wasm-source release-input/wasm/symbol_nem_wallet_core_wasm_bg.wasm \
+            --wasm-source release-input/wasm/symbol_nem_wallet_core_wasm.wasm \
             --package-root packages/wallet-core \
             --tarball "$tarball" \
             --manifest release-output/release-manifest.json \
