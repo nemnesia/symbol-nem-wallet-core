@@ -20,6 +20,7 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageName = "@nemnesia/symbol-nem-wallet-core";
 const browserCandidates = ["google-chrome", "chromium", "chromium-browser", "chrome"];
 const BROWSER_TIMEOUT_MS = 60_000;
+const MV3_DEVTOOLS_ENDPOINT_TIMEOUT_MS = 60_000;
 const mv3PublicKey = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuCAJWv09qHrxO6MRY4ATEUhDoUY/Yjbmk0rXEKgzRlvH+yoQyASqqgDOYCVMJ6iZ8JO1zvEaP5UphaWiQjvSrhMKfSn5RvmTEbeIdhRwxclFA/Ps+P2HxYle1MAJ/O9cBFmZ5+fURWnHvjwE5CCV3M145y8M3p5JZa4608TxaYZYB1r/e29Qhyq8aSO170KcIwOz35Cb8vFxvCuNrhMKhFvgX8O8AlXWC09s4gGxA41CY8lyQiUP7qw8hxutTbWn+KmP7ygSw154AXc2S02BrVnJY+bpGMbZe4gbtV9RCyIyfIohK1bCmkAecppBGDx8XDSFmSDbYpR+9DaujKn3ewIDAQAB";
 const mv3ExtensionId = "hanjnjipcnfnadggaiojokcmmdjiplah";
 
@@ -401,6 +402,7 @@ async function runMv3Browser(extensionRoot, browser) {
   let result;
   let functionalError;
   try {
+    const extensionPageUrl = `chrome-extension://${mv3ExtensionId}/smoke.html`;
     child = spawn(browser.command, [
       "--headless=new",
       "--no-sandbox",
@@ -413,11 +415,16 @@ async function runMv3Browser(extensionRoot, browser) {
       "about:blank",
     ], { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
+    let childError;
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", (error) => { childError = error; });
     let wsUrl;
     const start = Date.now();
-    while (wsUrl === undefined && Date.now() - start < 15_000) {
+    while (wsUrl === undefined && Date.now() - start < MV3_DEVTOOLS_ENDPOINT_TIMEOUT_MS) {
+      if (childError !== undefined || child.exitCode !== null || child.signalCode !== null) {
+        fail(`MV3 Chromium exited before DevTools endpoint: command=${browser.command} version=${browser.version} elapsed_ms=${Date.now() - start} exit_code=${child.exitCode ?? null} signal=${child.signalCode ?? null} child_error=${childError?.message ?? "none"} stderr_tail=${JSON.stringify(stderr.slice(-4_000).replace(/\s+/g, " ").trim() || "(empty)")}`);
+      }
       const match = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/);
       if (match !== null) {
         wsUrl = match[1];
@@ -425,7 +432,9 @@ async function runMv3Browser(extensionRoot, browser) {
       }
       await new Promise((resolveWait) => setTimeout(resolveWait, 100));
     }
-    if (wsUrl === undefined) fail("Chromium DevTools endpoint was not announced");
+    if (wsUrl === undefined) {
+      fail(`Chromium DevTools endpoint was not announced after ${MV3_DEVTOOLS_ENDPOINT_TIMEOUT_MS}ms: command=${browser.command} version=${browser.version} target_url=${extensionPageUrl} elapsed_ms=${Date.now() - start} exit_code=${child.exitCode ?? null} signal=${child.signalCode ?? null} child_error=${childError?.message ?? "none"} stderr_tail=${JSON.stringify(stderr.slice(-4_000).replace(/\s+/g, " ").trim() || "(empty)")}`);
+    }
     cdp = cdpConnection(wsUrl);
     await cdp.opened;
     const runtimeErrors = [];
@@ -433,7 +442,6 @@ async function runMv3Browser(extensionRoot, browser) {
     cdp.on("Runtime.consoleAPICalled", (params) => {
       if (params.type === "error") runtimeErrors.push(params);
     });
-    const extensionPageUrl = `chrome-extension://${mv3ExtensionId}/smoke.html`;
     const created = await cdp.request("Target.createTarget", { url: extensionPageUrl });
     const targetId = created.targetId;
     const attached = await cdp.request("Target.attachToTarget", { targetId, flatten: true });
