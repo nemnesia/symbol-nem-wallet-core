@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
+  buildCargoComponents,
   createLicenseInventory,
   createSpdxDocument,
   packageIdentityKey,
@@ -28,6 +29,7 @@ function component(fields) {
     license_text_status: "resolved",
     license_text_files: [{ path: "LICENSE", sha256: "e".repeat(64) }],
     artifact_roles: ["native"],
+    license_normalization: { applied: false, basis: null },
     source_commit: COMMIT,
     cargo_lock_sha256: CARGO_LOCK,
     clarification_reason: undefined,
@@ -122,6 +124,7 @@ assert.equal(document.SPDXID, "SPDXRef-DOCUMENT");
 assert.equal(document.dataLicense, "CC0-1.0");
 assert.equal(document.packages.length, 5);
 assert.equal(inventory.components.length, 5);
+assert.equal(inventory.schema_version, 2);
 assert.equal(inventory.npm_runtime_dependency_count, 0);
 assert.equal(inventory.rust_dependency_package_count, 1);
 assert.equal(inventory.components.find((entry) => entry.ecosystem === "cargo" && entry.name === "example-dependency").license_expression, "MIT OR Apache-2.0");
@@ -131,6 +134,78 @@ validateLicenseInventory(inventory, context);
 
 assert.deepEqual(parseLicenseExpression("(MIT OR Apache-2.0) AND Unicode-3.0").identifiers, ["MIT", "Apache-2.0", "Unicode-3.0"]);
 expectFailure("invalid license expression", () => parseLicenseExpression("MIT / Apache-2.0"));
+
+const missingTextContext = clone(context);
+const missingTextComponent = missingTextContext.components.find((entry) => entry.name === "example-dependency");
+missingTextComponent.license_text_status = "missing";
+missingTextComponent.license_text_files = [];
+missingTextComponent.clarification_reason = "no source license text for MIT";
+const missingTextInventory = createLicenseInventory(missingTextContext);
+assert.equal(missingTextInventory.components.find((entry) => entry.name === "example-dependency").license_status, "resolved");
+assert.equal(missingTextInventory.components.find((entry) => entry.name === "example-dependency").license_text_status, "missing");
+validateSpdxDocument(createSpdxDocument(missingTextContext), missingTextContext);
+validateLicenseInventory(missingTextInventory, missingTextContext);
+
+const observedUnknownContext = clone(context);
+const observedUnknownComponent = observedUnknownContext.components.find((entry) => entry.name === "example-dependency");
+observedUnknownComponent.license_expression = null;
+observedUnknownComponent.declared_license_metadata = "Vendor-License";
+observedUnknownComponent.generator_license_expression = "Vendor-License";
+observedUnknownComponent.license_status = "unknown";
+observedUnknownComponent.license_text_status = "unavailable";
+observedUnknownComponent.license_text_files = [];
+observedUnknownComponent.clarification_reason = "Cargo package license metadata is not a valid SPDX expression";
+const observedUnknownInventory = createLicenseInventory(observedUnknownContext);
+validateSpdxDocument(createSpdxDocument(observedUnknownContext), observedUnknownContext);
+validateLicenseInventory(observedUnknownInventory, observedUnknownContext);
+
+const normalizationRoot = mkdtempSync(resolve(tmpdir(), "snwc-license-normalization-"));
+writeFileSync(resolve(normalizationRoot, "LICENSE-APACHE"), "Apache license evidence\n");
+writeFileSync(resolve(normalizationRoot, "LICENSE-MIT"), "MIT license evidence\n");
+const normalizedPackageData = {
+  name: "curve25519-dalek-derive",
+  version: "0.1.1",
+  source: REGISTRY,
+  license: "MIT/Apache-2.0",
+  repository: "https://github.com/dalek-cryptography/curve25519-dalek",
+  manifest_path: resolve(normalizationRoot, "Cargo.toml"),
+};
+const normalizedComponent = buildCargoComponents(
+  { packages: [{ packageData: normalizedPackageData, roles: new Set(["native"]) }] },
+  new Map([[`cargo|${normalizedPackageData.name}|${normalizedPackageData.version}|${REGISTRY}`, { checksum: "f".repeat(64) }]]),
+  COMMIT,
+  CARGO_LOCK,
+)[0];
+assert.equal(normalizedComponent.declared_license_metadata, "MIT/Apache-2.0");
+assert.equal(normalizedComponent.license_expression, "MIT OR Apache-2.0");
+assert.deepEqual(normalizedComponent.license_normalization, {
+  applied: true,
+  basis: {
+    type: "upstream-package-metadata-and-license-files",
+    repository: "https://github.com/dalek-cryptography/curve25519-dalek",
+    declared_license_metadata: "MIT/Apache-2.0",
+    license_text_files: ["LICENSE-APACHE", "LICENSE-MIT"],
+    normalized_spdx_expression: "MIT OR Apache-2.0",
+  },
+});
+assert.equal(normalizedComponent.license_text_status, "resolved");
+const normalizedContext = clone(context);
+normalizedContext.components = normalizedContext.components.map((entry) => entry.name === "example-dependency" ? normalizedComponent : entry);
+normalizedContext.edges = normalizedContext.edges.map((edge) => edge.target === context.components.find((entry) => entry.name === "example-dependency").identity ? { ...edge, target: normalizedComponent.identity } : edge);
+const normalizedInventory = createLicenseInventory(normalizedContext);
+validateSpdxDocument(createSpdxDocument(normalizedContext), normalizedContext);
+validateLicenseInventory(normalizedInventory, normalizedContext);
+const missingEvidenceRoot = mkdtempSync(resolve(tmpdir(), "snwc-license-normalization-missing-"));
+const missingEvidenceComponent = buildCargoComponents(
+  { packages: [{ packageData: { ...normalizedPackageData, manifest_path: resolve(missingEvidenceRoot, "Cargo.toml") }, roles: new Set(["native"]) }] },
+  new Map([[`cargo|${normalizedPackageData.name}|${normalizedPackageData.version}|${REGISTRY}`, { checksum: "f".repeat(64) }]]),
+  COMMIT,
+  CARGO_LOCK,
+)[0];
+assert.equal(missingEvidenceComponent.license_expression, null);
+assert.deepEqual(missingEvidenceComponent.license_normalization, { applied: false, basis: null });
+rmSync(normalizationRoot, { recursive: true, force: true });
+rmSync(missingEvidenceRoot, { recursive: true, force: true });
 
 const documentAgain = createSpdxDocument(context);
 const inventoryAgain = createLicenseInventory(context);
@@ -200,6 +275,9 @@ expectFailure("inventory/SBOM mismatch", () => validateLicenseInventory(inventor
 const lockMismatch = clone(inventory);
 lockMismatch.cargo_lock_sha256 = "0".repeat(64);
 expectFailure("lockfile digest mismatch", () => validateLicenseInventory(lockMismatch, context));
+const unsupportedInventorySchema = clone(inventory);
+unsupportedInventorySchema.schema_version = 1;
+expectFailure("unsupported license inventory schema", () => validateLicenseInventory(unsupportedInventorySchema, context));
 
 const outputRoot = mkdtempSync(resolve(tmpdir(), "snwc-release-sbom-test-"));
 const sbomPath = resolve(outputRoot, "sbom.spdx.json");

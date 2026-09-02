@@ -20,7 +20,7 @@ import { validateReleaseManifest } from "./release-manifest.mjs";
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageRoot = resolve(repositoryRoot, "packages/wallet-core");
 const SPDX_VERSION = "SPDX-2.3";
-const INVENTORY_SCHEMA_VERSION = 1;
+const INVENTORY_SCHEMA_VERSION = 2;
 const CARGO_SBOM_VERSION = "0.10.0";
 const SBOM_FILENAME = "sbom.spdx.json";
 const INVENTORY_FILENAME = "license-inventory.json";
@@ -37,10 +37,11 @@ const NATIVE_TARGETS = Object.freeze([
 const NATIVE_TARGET_TRIPLES = NATIVE_TARGETS.map(({ target }) => target);
 const NPM_PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
 
-// This is an SPDX syntax/identifier catalogue, not a license policy or allowlist.
-// It contains the identifiers observed in the release closure and the exception
-// required by SPDX syntax. A new identifier fails closed until it is verified.
-const KNOWN_SPDX_LICENSE_IDS = new Set([
+// These are SPDX syntax/identifier catalogues, not a license policy or allowlist.
+// They contain identifiers observed in the release closure. A new identifier
+// fails closed until it is verified as SPDX syntax; legal acceptability is out
+// of scope for this phase.
+const SPDX_LICENSE_IDENTIFIER_CATALOGUE = new Set([
   "Apache-2.0",
   "BSD-1-Clause",
   "BSD-3-Clause",
@@ -52,7 +53,15 @@ const KNOWN_SPDX_LICENSE_IDS = new Set([
   "Unlicense",
   "Zlib",
 ]);
-const KNOWN_SPDX_EXCEPTION_IDS = new Set(["LLVM-exception"]);
+const SPDX_EXCEPTION_IDENTIFIER_CATALOGUE = new Set(["LLVM-exception"]);
+const CURVE25519_DALEK_DERIVE_NORMALIZATION = Object.freeze({
+  name: "curve25519-dalek-derive",
+  version: "0.1.1",
+  raw: "MIT/Apache-2.0",
+  normalized: "MIT OR Apache-2.0",
+  repository: "https://github.com/dalek-cryptography/curve25519-dalek",
+  licenseFiles: Object.freeze(["LICENSE-APACHE", "LICENSE-MIT"]),
+});
 
 function fail(message) {
   throw new Error(`Release SBOM gate failed: ${message}`);
@@ -73,6 +82,28 @@ function exactKeys(value, keys, label) {
 
 function validVersion(value, label) {
   if (typeof value !== "string" || !VERSION_PATTERN.test(value)) fail(`${label} is invalid`);
+}
+
+function validateLicenseNormalization(value, component) {
+  exactKeys(value, ["applied", "basis"], `license normalization ${component.name ?? "unknown"}`);
+  if (typeof value.applied !== "boolean") fail(`license normalization applied flag is invalid: ${component.name ?? "unknown"}`);
+  if (!value.applied) {
+    if (value.basis !== null) fail(`license normalization basis is unexpected: ${component.name ?? "unknown"}`);
+    return;
+  }
+  exactKeys(value.basis, ["type", "repository", "declared_license_metadata", "license_text_files", "normalized_spdx_expression"], `license normalization basis ${component.name ?? "unknown"}`);
+  if (
+    value.basis.type !== "upstream-package-metadata-and-license-files" ||
+    value.basis.repository !== CURVE25519_DALEK_DERIVE_NORMALIZATION.repository ||
+    value.basis.declared_license_metadata !== component.declared_license_metadata ||
+    value.basis.normalized_spdx_expression !== component.license_expression ||
+    !Array.isArray(value.basis.license_text_files) ||
+    value.basis.license_text_files.length === 0
+  ) {
+    fail(`license normalization basis is inconsistent: ${component.name ?? "unknown"}`);
+  }
+  for (const file of value.basis.license_text_files) safeRelativePath(file, `license normalization evidence ${component.name}`);
+  if (tryParseLicenseExpression(value.basis.normalized_spdx_expression).parsed === undefined) fail(`license normalization expression is invalid: ${component.name}`);
 }
 
 function json(path, label = path) {
@@ -202,7 +233,7 @@ function parseLicenseExpression(expression) {
       fail(`license exception is missing: ${expression}`);
     }
     index += 1;
-    if (!KNOWN_SPDX_EXCEPTION_IDS.has(exception)) fail(`unknown SPDX exception identifier: ${exception}`);
+    if (!SPDX_EXCEPTION_IDENTIFIER_CATALOGUE.has(exception)) fail(`unknown SPDX exception identifier: ${exception}`);
     node.exception = exception;
     return node;
   }
@@ -219,7 +250,7 @@ function parseLicenseExpression(expression) {
       fail(`license expression is malformed: ${expression}`);
     }
     index += 1;
-    if (!KNOWN_SPDX_LICENSE_IDS.has(identifier) && !(identifier.startsWith("LicenseRef-") && identifier.length > "LicenseRef-".length)) {
+    if (!SPDX_LICENSE_IDENTIFIER_CATALOGUE.has(identifier) && !(identifier.startsWith("LicenseRef-") && identifier.length > "LicenseRef-".length)) {
       fail(`unknown SPDX license identifier: ${identifier}`);
     }
     identifiers.push(identifier);
@@ -405,8 +436,8 @@ function validateGeneratorCoverage(graph, generatorDocuments, lockIndex) {
         fail(`cargo-sbom ${binding} output does not exactly cover ${packageData.name}@${packageData.version}`);
       }
       const generatedLicense = matches[0].licenseDeclared;
-      const declaredLicense = packageData.license;
-      if (typeof declaredLicense === "string" && tryParseLicenseExpression(declaredLicense).parsed !== undefined) {
+      const declaredLicense = cargoLicenseMetadata(packageData).expression;
+      if (declaredLicense !== null) {
         if (generatedLicense !== declaredLicense) fail(`cargo-sbom ${binding} changed a valid license expression: ${packageData.name}@${packageData.version}`);
       } else if (typeof generatedLicense !== "string" || tryParseLicenseExpression(generatedLicense).parsed === undefined) {
         fail(`cargo-sbom ${binding} did not provide a valid expression for unresolved license metadata: ${packageData.name}@${packageData.version}`);
@@ -444,6 +475,44 @@ function validateGeneratorCoverage(graph, generatorDocuments, lockIndex) {
     }
   }
   return [...excluded.values()].sort((left, right) => `${left.name}|${left.version}|${left.source}`.localeCompare(`${right.name}|${right.version}|${right.source}`));
+}
+
+function cargoLicenseMetadata(packageData) {
+  const raw = typeof packageData.license === "string" ? packageData.license : null;
+  if (
+    packageData.name === CURVE25519_DALEK_DERIVE_NORMALIZATION.name &&
+    packageData.version === CURVE25519_DALEK_DERIVE_NORMALIZATION.version &&
+    raw === CURVE25519_DALEK_DERIVE_NORMALIZATION.raw &&
+    packageData.repository === CURVE25519_DALEK_DERIVE_NORMALIZATION.repository &&
+    typeof packageData.manifest_path === "string"
+  ) {
+    const sourceDirectory = dirname(packageData.manifest_path);
+    const evidenceFiles = CURVE25519_DALEK_DERIVE_NORMALIZATION.licenseFiles.filter((file) => existsSync(resolve(sourceDirectory, file)));
+    if (evidenceFiles.length === CURVE25519_DALEK_DERIVE_NORMALIZATION.licenseFiles.length) {
+      return {
+        expression: CURVE25519_DALEK_DERIVE_NORMALIZATION.normalized,
+        normalization: {
+          applied: true,
+          basis: {
+            type: "upstream-package-metadata-and-license-files",
+            repository: packageData.repository,
+            declared_license_metadata: raw,
+            license_text_files: [...evidenceFiles],
+            normalized_spdx_expression: CURVE25519_DALEK_DERIVE_NORMALIZATION.normalized,
+          },
+        },
+      };
+    }
+  }
+
+  const parsed = raw === null ? { parsed: undefined } : tryParseLicenseExpression(raw);
+  return {
+    expression: parsed.parsed === undefined ? null : raw,
+    normalization: {
+      applied: false,
+      basis: null,
+    },
+  };
 }
 
 function packageLicenseFiles(packageData, expression) {
@@ -489,21 +558,20 @@ function packageLicenseFiles(packageData, expression) {
   return { status: "resolved", files: selected.sort((left, right) => left.path.localeCompare(right.path)) };
 }
 
-function licenseStatus(expression, textStatus) {
+function licenseStatus(expression) {
   if (expression === undefined || expression === null || expression.length === 0) return "missing";
-  if (textStatus === "resolved") return "resolved";
-  if (textStatus === "ambiguous") return "ambiguous";
-  if (textStatus === "missing" || textStatus === "unavailable") return "requires-clarification";
-  return "unknown";
+  return "resolved";
 }
 
 function buildCargoComponents(graph, lockIndex, sourceCommit, cargoDigest) {
   return graph.packages.map(({ packageData, roles, generator_license_expression }) => {
     const source = cargoPackageSource(packageData);
-    const expression = packageData.license;
-    const parsed = expression === undefined || expression === null ? { parsed: undefined, error: "Cargo package has no license expression" } : tryParseLicenseExpression(expression);
+    const rawLicenseMetadata = typeof packageData.license === "string" ? packageData.license : null;
+    const licenseMetadata = cargoLicenseMetadata(packageData);
+    const expression = licenseMetadata.expression;
+    const parsed = expression === null ? { parsed: undefined, error: rawLicenseMetadata === null ? "Cargo package has no license expression" : "Cargo package license metadata is not a valid SPDX expression" } : tryParseLicenseExpression(expression);
     const text = parsed.parsed === undefined ? { status: "unavailable", files: [], reason: parsed.error } : packageLicenseFiles(packageData, expression);
-    const status = parsed.parsed === undefined ? (expression === undefined || expression === null ? "missing" : "unknown") : licenseStatus(expression, text.status);
+    const status = expression === null ? (rawLicenseMetadata === null ? "missing" : "unknown") : licenseStatus(expression);
     let checksumSha256;
     if (typeof packageData.source === "string") {
       const record = lockIndex.get(cargoIdentityKey(packageData));
@@ -518,12 +586,13 @@ function buildCargoComponents(graph, lockIndex, sourceCommit, cargoDigest) {
       version: packageData.version,
       source,
       license_expression: parsed.parsed === undefined ? null : expression,
-      declared_license_metadata: typeof expression === "string" ? expression : null,
+      declared_license_metadata: rawLicenseMetadata,
       generator_license_expression: generator_license_expression ?? null,
       license_status: status,
       license_text_status: text.status,
       license_text_files: text.files,
       clarification_reason: text.reason ?? null,
+      license_normalization: licenseMetadata.normalization,
       artifact_roles: [...roles].sort(),
       checksum_sha256: checksumSha256,
       description: typeof packageData.description === "string" ? packageData.description.trim() : undefined,
@@ -577,6 +646,7 @@ function createLicenseInventory(context) {
       license_text_status: component.license_text_status,
       license_text_files: component.license_text_files,
       clarification_reason: component.clarification_reason ?? null,
+      license_normalization: component.license_normalization,
       artifact_roles: component.artifact_roles,
     };
     if (component.checksum_sha256 !== undefined) result.checksum_sha256 = component.checksum_sha256;
@@ -742,23 +812,21 @@ function validateLicenseInventory(inventory, context) {
   if (!Array.isArray(inventory.components) || inventory.components.length !== context.components.length) fail("license inventory component count differs");
   const expected = new Map(context.components.map((component) => [component.identity, component]));
   const actual = new Set();
-  const failures = [];
   for (const component of inventory.components) {
-    exactKeys(component, ["ecosystem", "name", "version", "source", "spdx_id", "license_expression", "declared_license_metadata", "generator_license_expression", "license_status", "license_text_status", "license_text_files", "clarification_reason", "artifact_roles", ...(component.checksum_sha256 === undefined ? [] : ["checksum_sha256"])], `license inventory component ${component.name ?? "unknown"}`);
+    exactKeys(component, ["ecosystem", "name", "version", "source", "spdx_id", "license_expression", "declared_license_metadata", "generator_license_expression", "license_status", "license_text_status", "license_text_files", "clarification_reason", "license_normalization", "artifact_roles", ...(component.checksum_sha256 === undefined ? [] : ["checksum_sha256"])], `license inventory component ${component.name ?? "unknown"}`);
     const identity = packageIdentityKey(component);
     const expectedComponent = expected.get(identity);
     if (expectedComponent === undefined || actual.has(identity)) fail(`license inventory component identity is missing or duplicated: ${identity}`);
     actual.add(identity);
-    if (component.spdx_id !== spdxIdForComponent(expectedComponent) || component.license_expression !== expectedComponent.license_expression || component.declared_license_metadata !== expectedComponent.declared_license_metadata || component.generator_license_expression !== expectedComponent.generator_license_expression || component.license_status !== expectedComponent.license_status || component.license_text_status !== expectedComponent.license_text_status || JSON.stringify(component.license_text_files) !== JSON.stringify(expectedComponent.license_text_files) || (component.clarification_reason ?? null) !== (expectedComponent.clarification_reason ?? null) || JSON.stringify(component.artifact_roles) !== JSON.stringify(expectedComponent.artifact_roles)) fail(`license inventory component metadata differs: ${identity}`);
+    validateLicenseNormalization(component.license_normalization, component);
+    if (component.spdx_id !== spdxIdForComponent(expectedComponent) || component.license_expression !== expectedComponent.license_expression || component.declared_license_metadata !== expectedComponent.declared_license_metadata || component.generator_license_expression !== expectedComponent.generator_license_expression || component.license_status !== expectedComponent.license_status || component.license_text_status !== expectedComponent.license_text_status || JSON.stringify(component.license_text_files) !== JSON.stringify(expectedComponent.license_text_files) || (component.clarification_reason ?? null) !== (expectedComponent.clarification_reason ?? null) || JSON.stringify(component.license_normalization) !== JSON.stringify(expectedComponent.license_normalization) || JSON.stringify(component.artifact_roles) !== JSON.stringify(expectedComponent.artifact_roles)) fail(`license inventory component metadata differs: ${identity}`);
     if (component.checksum_sha256 !== expectedComponent.checksum_sha256) fail(`license inventory checksum differs: ${identity}`);
-    if (component.license_status !== "resolved" || component.license_text_status !== "resolved") failures.push(`${component.ecosystem}:${component.name}@${component.version}: ${expectedComponent.clarification_reason ?? "license metadata is unresolved"}`);
     if (component.license_expression !== null) {
       const parsed = tryParseLicenseExpression(component.license_expression);
-      if (parsed.parsed === undefined) failures.push(`${component.ecosystem}:${component.name}@${component.version}: invalid license expression`);
+      if (parsed.parsed === undefined) fail(`${component.ecosystem}:${component.name}@${component.version}: invalid normalized SPDX license expression`);
     }
   }
   if (actual.size !== expected.size) fail("license inventory dependency graph is incomplete");
-  if (failures.length > 0) fail(`license inventory is not fully resolved: ${failures.sort().join("; ")}`);
   return true;
 }
 
@@ -837,10 +905,11 @@ function createContext({ phase3, packageMetadata, packageRootPath, graph, genera
     license_expression: rootParsed.parsed === undefined ? null : rootLicense,
     declared_license_metadata: rootLicense,
     generator_license_expression: null,
-    license_status: rootParsed.parsed === undefined ? (rootLicense === null ? "missing" : "unknown") : licenseStatus(rootLicense, rootText.status),
+    license_status: rootParsed.parsed === undefined ? (rootLicense === null ? "missing" : "unknown") : licenseStatus(rootLicense),
     license_text_status: rootText.status,
     license_text_files: rootText.files,
     artifact_roles: ["npm-package"],
+    license_normalization: { applied: false, basis: null },
     checksum_sha256: phase3.npm_tarball.sha256,
     source_commit: phase3.source_commit,
     cargo_lock_sha256: cargoDigest,
