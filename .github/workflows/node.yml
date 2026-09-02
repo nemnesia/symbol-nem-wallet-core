@@ -1,4 +1,4 @@
-name: Stage 9 release candidate gates
+name: Release candidate validation
 
 on:
   push:
@@ -250,8 +250,8 @@ jobs:
           name: release-native-${{ matrix.target_id }}
           path: release-native/
 
-  stage8-regression:
-    name: Stage 8 representative formal parity regression
+  parity-regression:
+    name: Native / WASM / npm parity regression
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     needs: source
@@ -281,7 +281,7 @@ jobs:
           WASM_BINDGEN_BIN: ${{ runner.temp }}/snwc-wasm-bindgen/bin/wasm-bindgen
         run: node scripts/verify-wasm-bindgen.mjs
 
-      - name: Run the existing formal Stage 8 parity gate
+      - name: Run native / WASM / npm parity regression
         env:
           SNWC_SOURCE_COMMIT: ${{ github.sha }}
           WASM_BINDGEN_BIN: ${{ runner.temp }}/snwc-wasm-bindgen/bin/wasm-bindgen
@@ -292,7 +292,7 @@ jobs:
     name: Final npm release candidate assembly
     runs-on: ubuntu-24.04
     timeout-minutes: 40
-    needs: [source, core-c-abi, wasm, native, stage8-regression]
+    needs: [source, core-c-abi, wasm, native, parity-regression]
     steps:
       - name: Check out release source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
