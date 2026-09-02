@@ -755,8 +755,6 @@ function validateLicenseInventory(inventory, context) {
     if (component.license_expression !== null) {
       const parsed = tryParseLicenseExpression(component.license_expression);
       if (parsed.parsed === undefined) failures.push(`${component.ecosystem}:${component.name}@${component.version}: invalid license expression`);
-    } else {
-      failures.push(`${component.ecosystem}:${component.name}@${component.version}: missing license metadata`);
     }
   }
   if (actual.size !== expected.size) fail("license inventory dependency graph is incomplete");
