@@ -3,16 +3,16 @@
 ## 1. Scope
 
 本書は、`agent/monorepo-migration` の Stage 10（release / supply-chain security の
-docs / decision gate only）として、未確定 decision を整理するものである。
+docs / decision gate only）として、release / supply-chain security policy の decision を整理するものである。
 Stage 9 の release candidate が成立した後、npm package、C ABI artifact、canonical WASM、
 source commit、version、build evidence および release operation をどのように結び付けるかを
 定める。
 
-本書は、Stage 10 で decision を確定し、ユーザーが承認した decision を後続 implementation
-へ引き渡すための記録である。後続 implementation は Stage 10 の範囲外であり、本書の作成だけ
-では publish、GitHub Release、Trusted Publishing、SBOM生成、provenance生成、runtime digest
-verification または release workflow の実装を開始しない。決定を要する項目は提案を示しても
-`NEEDS USER DECISION` として扱い、承認前に実装上の事実へ変換しない。
+本書は、Stage 10 で確定した decision を後続 implementation へ引き渡すための記録である。
+後続 implementation は Stage 10 の範囲外であり、本書の更新だけでは publish、GitHub Release、
+Trusted Publishing、SBOM生成、provenance生成、runtime digest verification または release
+workflow の実装を開始しない。今回確定した decision は、実装上の事実ではなく、後続の
+implementation / operation が従う policy として記録する。
 
 対象は次の公開物と release evidence である。
 
@@ -102,47 +102,43 @@ runtime SHA-256 verification は Stage 9 evidence に含めない。これらは
 
 ## 4. Decision table
 
-`RECOMMENDED` は現時点の security / operability 上の推奨であり、Stage 10 で decision として
-確定する候補である。`NEEDS USER DECISION` は候補と推奨を示しても、ユーザー承認なしに確定
-しない。`DEFERRED` は Stage 10 の decision gate 後、承認済み decision を入力とする後続
-implementation / operation で決める詳細である。
+`RECOMMENDED` は security / operability 上の採用方針を示す既存の status であり、今回の8件は
+ユーザー承認済みである。ユーザー承認の対象外である採用推奨も同じ status で表し、承認済みの
+decision は各詳細節で明記する。`DEFERRED` は Stage 10 の decision gate 後、承認済み decision
+を入力とする後続 implementation / operation で決める詳細である。
 
 | # | decision | status |
 | --- | --- | --- |
-| 1 | npm publishing mechanism | `NEEDS USER DECISION` |
+| 1 | npm publishing mechanism | `RECOMMENDED` |
 | 2 | npm provenance | `RECOMMENDED` |
-| 3 | SBOM format | `NEEDS USER DECISION` |
+| 3 | SBOM format | `RECOMMENDED` |
 | 4a | dependency / license inventory | `RECOMMENDED` |
-| 4b | unknown / unapproved license policy | `NEEDS USER DECISION` |
+| 4b | unknown / unapproved license policy | `RECOMMENDED` |
 | 5 | artifact digest policy | `RECOMMENDED` |
 | 6 | Node native runtime integrity | `RECOMMENDED` |
 | 7 | WASM integrity boundary | `RECOMMENDED` |
 | 8a | SemVer / version equality | `RECOMMENDED` |
-| 8b | git tag / duplicate / clean commit policy | `NEEDS USER DECISION` |
-| 9 | protected release environment | `NEEDS USER DECISION` |
+| 8b | git tag / duplicate / clean commit policy | `RECOMMENDED` |
+| 9 | protected release environment | `RECOMMENDED` |
 | 10 | C ABI GitHub Release | `RECOMMENDED` |
-| 11 | reproducibility | `NEEDS USER DECISION` |
-| 12 | release evidence retention | `NEEDS USER DECISION` |
-| 13 | artifact signing | `NEEDS USER DECISION` |
+| 11 | reproducibility | `RECOMMENDED` |
+| 12 | release evidence retention | `RECOMMENDED` |
+| 13 | artifact signing | `RECOMMENDED` |
 
 ## 5. Detailed decisions
 
 ### 5.1 npm publishing mechanism
 
-**Status: `NEEDS USER DECISION`**
+**Status: `RECOMMENDED`（ユーザー承認済み）**
 
-primary mechanism の推奨は npm Trusted Publishing / OIDC である。release workflow の
+primary mechanism は npm Trusted Publishing / OIDC とする。release workflow の
 identity
 と npm 側の trust configuration を結び、release job に長期有効な npm token を保存しない。
 これにより、secret の漏えい・rotation・scope管理を release workflow から減らせる。
 
-automation token は、Trusted Publishing が利用できない場合の break-glass 手順に限定する。
-使用する場合も、publish 専用の最小権限、secret の保護、明示的な rotation、監査可能な手動承認を
-必要条件とする。manual publish は emergency / recovery 用に残せるが、通常の v1 release の
-再現可能な path にはしない。long-lived npm token の常設を許可しない。
-
-Trusted Publishing を採用するか、automation token / manual publish をどの範囲で許容するかは
-ユーザーが決定する。実装時まで npm publish や npm 側の設定を変更しない。
+通常 release では長期 npm automation token を使用しない。manual / break-glass publish は通常経路
+とせず、exact emergency procedure は後続 implementation / operation detail とする。実装時まで
+npm publish や npm 側の設定を変更しない。
 
 ### 5.2 npm provenance
 
@@ -159,18 +155,17 @@ identity の追跡 evidence として扱い、「コードが悪意のないも�
 git tag -> release commit -> source evidence -> package -> npm provenance
 ```
 
-provenance が利用できない publish path を暗黙の fallback にしない。provenance を npm
-publishing mechanism と組み合わせて有効化する最終承認は、publishing mechanism の決定と
-合わせて行う。
+provenance が利用できない publish path を暗黙の fallback にしない。provenance は、5.1 の npm
+publishing mechanism と 5.13 の artifact signing decision に従う release evidence として
+有効化する。provenance の生成・検証 workflow は後続 implementation で扱う。
 
 ### 5.3 SBOM format
 
-**Status: `NEEDS USER DECISION`**
+**Status: `RECOMMENDED`（ユーザー承認済み）**
 
-SPDX JSON と CycloneDX JSON は候補であり、v1 release の canonical format は一つに絞ることを
-推奨する。提案は SPDX JSON only であるが、これはユーザー承認前には確定しない。両方を出す
-ことは、変換差分・version差分・検証経路の二重化を生むため、件数が多いことだけを security
-benefit と見なさない。
+v1 release の canonical SBOM format は SPDX JSON とする。CycloneDX JSON は v1 の canonical
+artifact として追加しない。canonical format の generator、exact version および workflow は
+後続 implementation で固定する。
 
 選択した format には、Rust の direct / transitive dependency、npm の direct / transitive
 dependency、version、source / lockfile identity、license expression および release
@@ -191,12 +186,11 @@ Cargo の license metadata と npm package metadata を無条件に同じ意味�
 の一覧は package tarball と C ABI release asset のどちらに含まれるか、または evidence として
 別保存するかを明示する。
 
-**Unknown / unapproved license policy — Status: `NEEDS USER DECISION`**
+**Unknown / unapproved license policy — Status: `RECOMMENDED`（ユーザー承認済み）**
 
-unknown、解析不能または project allowlist にない license の扱いを決めずに release しない。
-提案は、該当 dependency を自動的に黙って許可せず、release を fail closed にして、人による
-明示承認と inventory 上の理由を要求する方式である。許容 license の allowlist、その例外の
-有効範囲および承認者はユーザー判断として残す。
+unknown、解析不能または project allowlist にない license が存在する場合は release を fail
+closed とし、明示的にレビュー・承認されるまで release しない。allowlist、例外の有効範囲、
+承認記録および具体的な workflow は後続 implementation / operation detail とする。
 
 ### 5.5 Artifact digest policy
 
@@ -270,45 +264,44 @@ bundler が asset を hash、rename、chunk または copy することは、npm
 
 ### 5.8 Git tag / version policy
 
-**SemVer / version equality — Status: `RECOMMENDED`**
+**SemVer / version equality — Status: `RECOMMENDED`（ユーザー承認済み）**
 
 Core、C ABI、WASM、Node-API および npm facade の release version は同一 SemVer とする。現在の
 package version は開始HEADで `0.1.0` だが、次の version を本書で決定しない。public API、ABI、
 WASM export、Store format、error contract または default behavior の互換性に応じた SemVer
 判定は、release candidate の差分と合わせて確認する。
 
-**Tag / duplicate / clean commit — Status: `NEEDS USER DECISION`**
+**Tag / duplicate / clean commit — Status: `RECOMMENDED`（ユーザー承認済み）**
 
-提案は次のとおりである。
+正式 release の policy は次のとおりである。
 
-- tag は `v<SemVer>`（例: `v0.1.0`）の形式にする。
-- tag の SemVer、Cargo version、npm version、release manifest version を一致させる。
-- 既存 tag または registry に存在する version を再利用せず、duplicate version / tag は拒否する。
-- source commit が clean であり、必要な lockfile と generated input が release commit
-  に含まれることを確認する。
-- release workflow は承認済み tag と許可された release branch だけを対象にする。
+- 正式 release は `main` branch からのみ行い、tag は `v<SemVer>`（例: `v0.1.0`）の形式にする。
+- Cargo version、npm version、release manifest version を一致させる。
+- 既存 tag または既存 npm version を再利用せず、duplicate version / tag は fail closed とする。
+- release source commit は clean であることを必須とし、必要な lockfile と generated input が
+  release commit に含まれることを確認する。
+- pre-release policy は必要になった時点で別 decision とする。
 
-tag prefix、release branch、pre-release の扱いおよび duplicate version の registry 確認方法は
-ユーザー承認前に確定しない。
+exact duplicate check と release workflow の実装方法は後続 implementation detail とする。
 
 ### 5.9 Protected release environment
 
-**Status: `NEEDS USER DECISION`**
+**Status: `RECOMMENDED`（ユーザー承認済み）**
 
 publish と GitHub Release upload は通常の CI job から分離し、protected GitHub Environment に
-接続することを推奨する。ユーザー判断が必要な設定は次である。
+接続する。release job のみがこの Environment に接続し、required reviewer は1名必須とする。
+Environment は `main` branch と approved release tag policy に制限する。
 
-- required reviewers の人数・team・review policy
-- release tag / branch restriction
-- environment secret を使用する場合の名称・rotation・break-glass手順
-- npm OIDC と GitHub Release upload を同じ job に置くか、分離するか
-- release job に与える minimum GitHub permissions
+- build / test job には release write permission を与えない。
+- release job の permission は least privilege とし、必要な場合のみ `contents: write` と
+  `id-token: write` を付与する。
 
-permission は job 単位の least privilege を原則とする。提案は、通常の build job を
+permission は job 単位の least privilege を原則とする。通常の build job を
 `contents: read` 相当に留め、release job だけに GitHub Release のための `contents: write` と
 npm provenance / OIDC のための `id-token: write` を必要最小限で付与し、不要な
 `packages: write`、`actions: write`、repository-wide write permission を付与しない方式である。
-実際の permission は workflow と GitHub 側の release operation を照合して承認する。
+exact job split、Environment name、workflow と GitHub 側の release operation の接続方法は
+後続 implementation detail とする。
 
 ### 5.10 C ABI GitHub Release
 
@@ -331,7 +324,7 @@ SBOM、provenance の exact archive layout と target extension は、Stage 10 �
 
 ### 5.11 Reproducibility
 
-**Status: `NEEDS USER DECISION`**
+**Status: `RECOMMENDED`（ユーザー承認済み）**
 
 次の二つを分ける。
 
@@ -342,13 +335,15 @@ SBOM、provenance の exact archive layout と target extension は、Stage 10 �
   同じ入力から
   再 build できる状態を証明すること。
 
-v1 gate としては後者を採用する案を推奨する。現時点で bit-identical を達成・検証していない
-artifactを「再現可能」または「reproducible」と表現しない。bit-for-bit を必須 gate にするか、
-v1 で source / toolchain / evidence reproducibility を採用するかはユーザーが決定する。
+v1 gate では source / toolchain / evidence reproducibility を必須とする。source commit、
+lockfile、toolchain、target、build command、artifact digest および build evidence を追跡可能
+にし、同じ入力から再 build できる状態を証明する。bit-for-bit reproducibility は v1 の必須条件
+にせず、将来の強化候補とする。bit-identical を達成・検証していない artifact を「再現可能」または
+「reproducible」と表現しない。
 
 ### 5.12 Release evidence retention
 
-**Status: `NEEDS USER DECISION`**
+**Status: `RECOMMENDED`（ユーザー承認済み）**
 
 release record は少なくとも次の同一 version / tag / source commit の一式を追跡できるようにする。
 
@@ -361,53 +356,56 @@ release record は少なくとも次の同一 version / tag / source commit の�
 - release manifest
 - source / lockfile / toolchain build evidence
 
-GitHub Actions artifact retention は CI の短期受け渡し・検証用であり、GitHub Release の恒久的な
-公開 asset / evidence retention と同じものではない。Actions の保存期間、GitHub Release asset
-の保持方針、provenance の取得可能期間、撤回・再発行時の扱いをユーザーが承認する。保存先へ
-secret、password、private key または不要な workspace dump を含めない。
+GitHub Release を正式 release evidence の長期保存の正本とする。GitHub Actions artifact は
+build / validation / handoff 用の一時的な保存先とする。Actions artifact の exact retention days
+などの operation detail は後続で決める。保存先へ secret、password、private key または不要な
+workspace dump を含めない。
 
 ### 5.13 Artifact signing
 
-**Status: `NEEDS USER DECISION`**
+**Status: `RECOMMENDED`（ユーザー承認済み）**
 
-v1 の提案は npm provenance only とし、別の cosign / Sigstore artifact signature または GPG
-signature を追加しない。provenance は build / publisher identity の evidence であり、artifact
-signature と同じ意味ではないため、この提案は「署名済み」と過剰表現しない。
+v1 は npm provenance only とし、cosign / Sigstore、GPG および custom artifact signing は採用
+しない。provenance は build / publisher identity の evidence であり、artifact signature と同じ
+意味ではないため、「artifact signed」と過剰表現しない。additional signing は将来の別 decision
+とする。
 
-追加署名を採用するには、少なくとも trust root、key ownership、secret storage、key rotation、
-revocation / compromise response、verification command、consumer verification UX
-および
-release evidence retention を成立させる必要がある。これらが決まらないまま custom PKI、
-custom signing protocol または独自 key distribution を追加しない。cosign / GPG / 独自署名を
-v1 に採用するか、npm provenance only とするかはユーザーが決定する。
+additional signing を採用する場合の trust root、key ownership、secret storage、key rotation、
+revocation / compromise response、verification command、consumer verification UX および
+release evidence retention は、その別 decision で決める。現時点で custom PKI、custom signing
+protocol または独自 key distribution を追加しない。
 
-## 6. USER ACTION REQUIRED
+## 6. USER ACTION REQUIRED — 解消済み
 
-Stage 10 の decision gate を完了するため、ユーザーは次を承認または選択する必要がある。
+今回のユーザー判断により、Stage 10 の USER ACTION REQUIRED は解消済みである。確定した
+decision は次のとおりである。
 
-1. npm publishing mechanism: Trusted Publishing / OIDC を primary とするか。
-   automation token を
-   break-glass として許容するか、manual publish をどこまで認めるか。
-2. SBOM canonical format: SPDX JSON、CycloneDX JSON、または例外的に両方を採用するか。
-3. unknown / unapproved license: fail closed とするか、許可可能な例外と承認手順を
-   どう定義するか。
-4. git tag / version: `v<SemVer>`、pre-release、release branch、duplicate version /
-   tag rejection、
-   clean release commit の提案を採用するか。
-5. protected release environment: required reviewers、tag / branch restriction、
-   release job の
-   minimum GitHub permissions、OIDC / GitHub Release job の分離方針。
-6. reproducibility gate: bit-for-bit を v1 の必須条件にするか、source / toolchain /
-   evidence
-   reproducibility を v1 gate とするか。
-7. evidence retention: Actions artifact retention と GitHub Release 恒久保存の期間・責任・
-   provenance availability をどう定めるか。
-8. artifact signing: npm provenance only、cosign / Sigstore、GPG または別方式のどれを v1 に
-   採用するか。
+1. npm publishing mechanism: npm Trusted Publishing / OIDC を primary とし、通常 release では
+   長期 npm automation token を使用しない。manual / break-glass publish は通常経路としない。
+2. SBOM canonical format: SPDX JSON とし、CycloneDX JSON を v1 canonical artifact として追加
+   しない。
+3. unknown / unapproved license policy: fail closed とし、unknown / unapproved license が存在
+   する場合は明示的なレビュー・承認まで release を停止する。
+4. git tag / version / release source policy: 正式 release は `main` branch からのみ行い、tag は
+   `v<SemVer>` とする。Cargo version、npm version、release manifest version を一致させ、既存
+   tag / npm version の再利用と duplicate version / tag を拒否し、clean source commit を必須
+   とする。pre-release policy は必要時に別 decision とする。
+5. protected release environment: protected GitHub Environment を採用し、release job のみ接続
+   する。required reviewer は1名必須とし、`main` / approved release tag policy に制限する。
+   build / test job に release write permission を与えず、release job は least privilege とし、
+   必要な場合のみ `contents: write` / `id-token: write` を付与する。
+6. reproducibility gate: v1 では source / toolchain / evidence reproducibility を必須とする。
+   bit-for-bit reproducibility は v1 の必須条件にしない。
+7. release evidence retention: GitHub Release を正式 release evidence の長期保存の正本とし、
+   GitHub Actions artifact は build / validation / handoff 用の一時保存とする。npm tgz、C ABI
+   artifacts、SHA-256、SPDX JSON SBOM、provenance、license inventory、release manifest、source /
+   lockfile / toolchain evidence を同一 release record として追跡する。
+8. artifact signing: v1 は npm provenance only とし、cosign / Sigstore、GPG、custom artifact
+   signing は採用しない。provenance を「artifact signed」と表現しない。
 
-上記が未承認のままの場合、承認済み decision を入力とする後続 implementation / release
-operation（workflow、environment、secret、publish、SBOM、provenance、runtime verification
-および C ABI release implementation）に進まない。
+これらの decision を入力とする後続 implementation / release operation は、§7 の deferred
+items および §9 の handoff に従う。Stage 10 では workflow、Environment、secret、publish、SBOM、
+provenance、runtime verification または C ABI release implementation を実施しない。
 
 ## 7. Deferred items
 
@@ -470,8 +468,8 @@ guarantee を
 implementation stage へ引き渡すための deferred outline であり、今回は workflow / code /
 configuration を変更しない。
 
-ユーザー判断が完了した後、本書の status を更新し、承認済み decision を将来の release
-workflow implementation へ引き渡す。以下はその後続 implementation の順序案である。
+本書で確定した decision を将来の release workflow implementation へ引き渡す。以下はその
+後続 implementation の順序案である。
 
 1. clean release commit、SemVer、tag、Cargo / npm version equality、duplicate
    rejection、
@@ -509,19 +507,17 @@ workflow implementation へ引き渡す。以下はその後続 implementation �
 
 ## 10. Gate result
 
-**判定: `NEEDS USER DECISION`**
+**判定: `READY`**
 
 Stage 9 は、依頼時点で引き継がれた evidence に基づき正式に `READY` である。本作業の docs-only
 変更は Stage 9 の実装・CI・設定・生成物を変更しない。
 
-一方、npm publishing mechanism、SBOM canonical format、unknown / unapproved license
-policy、tag / release policy の一部、protected release environment、
-reproducibility gate、evidence
-retention および artifact signing は、ユーザー判断なしに確定できない。したがって Stage 10
-release / supply-chain decision gate は、上記 USER ACTION REQUIRED の承認が完了するまで
-`NEEDS USER DECISION` とする。
+npm publishing mechanism、SBOM canonical format、unknown / unapproved license policy、
+tag / release source policy、protected release environment、reproducibility gate、evidence
+retention および artifact signing の8件は、上記のとおりユーザー承認済みである。したがって
+Stage 10 = decision gate `READY` とする。
 
-本書は decision gate を正本化する成果物であり、npm publish、GitHub Release、Trusted Publishing
-設定、GitHub Environment、secrets、SBOM / provenance workflow、runtime digest
-verification
-または C ABI release workflow の実装完了を意味しない。
+本書は decision gate を正本化する成果物であり、Stage 10 `READY` は release implementation
+完了を意味しない。npm publish、GitHub Release、Trusted Publishing 設定、GitHub Environment、
+secrets、SBOM / provenance workflow、runtime digest verification、C ABI release workflow または
+artifact signing implementation は引き続き post-Stage-10 の後続 implementation とする。
