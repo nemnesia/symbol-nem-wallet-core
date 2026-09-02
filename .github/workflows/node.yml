@@ -404,7 +404,75 @@ jobs:
             --manifest release-output/release-manifest.json \
             --sha256sums release-output/SHA256SUMS
 
+      - name: Install pinned cargo-sbom generator
+        shell: bash
+        run: cargo install cargo-sbom --version 0.10.0 --locked --root "$RUNNER_TEMP/snwc-cargo-sbom"
+
+      - name: Capture target-filtered Cargo graph and SPDX generator output
+        shell: bash
+        run: |
+          set -euo pipefail
+          input_root="$RUNNER_TEMP/snwc-release-sbom-input"
+          mkdir -p "$input_root"
+          for target in \
+            x86_64-pc-windows-msvc \
+            x86_64-apple-darwin \
+            aarch64-apple-darwin \
+            x86_64-unknown-linux-gnu \
+            wasm32-unknown-unknown; do
+            cargo metadata \
+              --format-version 1 \
+              --locked \
+              --filter-platform "$target" \
+              > "$input_root/cargo-metadata-$target.json"
+          done
+
+      - name: Write cargo-sbom generator inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          input_root="$RUNNER_TEMP/snwc-release-sbom-input"
+          cargo_sbom="$RUNNER_TEMP/snwc-cargo-sbom/bin/cargo-sbom"
+          "$cargo_sbom" --version
+          "$cargo_sbom" \
+            --cargo-package symbol-nem-wallet-core-node \
+            --output-format spdx_json_2_3 \
+            > "$input_root/cargo-sbom-node.json"
+          "$cargo_sbom" \
+            --cargo-package symbol-nem-wallet-core-wasm \
+            --output-format spdx_json_2_3 \
+            > "$input_root/cargo-sbom-wasm.json"
+
+      - name: Generate and strictly validate SPDX SBOM and license inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          input_root="$RUNNER_TEMP/snwc-release-sbom-input"
+          node scripts/release-sbom.mjs generate \
+            --source-evidence release-input/source/release-source.json \
+            --native-summary release-input/native-summary.json \
+            --native-evidence-root release-input/native \
+            --wasm-summary release-input/wasm-summary.json \
+            --wasm-evidence release-input/wasm/wasm-evidence.json \
+            --wasm-bindgen-evidence release-input/wasm/wasm-bindgen-version.json \
+            --wasm-source release-input/wasm/symbol_nem_wallet_core_wasm.wasm \
+            --package-root packages/wallet-core \
+            --tarball "$(find release-output -maxdepth 1 -type f -name '*.tgz' -print -quit)" \
+            --release-manifest release-output/release-manifest.json \
+            --release-sha256sums release-output/SHA256SUMS \
+            --sbom release-output/sbom.spdx.json \
+            --inventory release-output/license-inventory.json \
+            --sbom-sha256sums release-output/SBOM-SHA256SUMS \
+            --cargo-metadata x86_64-pc-windows-msvc="$input_root/cargo-metadata-x86_64-pc-windows-msvc.json" \
+            --cargo-metadata x86_64-apple-darwin="$input_root/cargo-metadata-x86_64-apple-darwin.json" \
+            --cargo-metadata aarch64-apple-darwin="$input_root/cargo-metadata-aarch64-apple-darwin.json" \
+            --cargo-metadata x86_64-unknown-linux-gnu="$input_root/cargo-metadata-x86_64-unknown-linux-gnu.json" \
+            --cargo-metadata wasm32-unknown-unknown="$input_root/cargo-metadata-wasm32-unknown-unknown.json" \
+            --cargo-sbom node="$input_root/cargo-sbom-node.json" \
+            --cargo-sbom wasm="$input_root/cargo-sbom-wasm.json"
+
       - name: Assemble final release evidence bundle
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -417,6 +485,7 @@ jobs:
           cp release-input/wasm/wasm-bindgen-version.json release-output/wasm-bindgen-version.json
 
       - name: Re-validate final release manifest and SHA-256 digest set
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -435,7 +504,39 @@ jobs:
             --manifest release-output/release-manifest.json \
             --sha256sums release-output/SHA256SUMS
 
+      - name: Re-validate final SPDX SBOM and license inventory bundle
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          input_root="$RUNNER_TEMP/snwc-release-sbom-input"
+          tarball="$(find release-output -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          test -n "$tarball"
+          node scripts/release-sbom.mjs validate \
+            --source-evidence release-output/release-source.json \
+            --native-summary release-output/native-summary.json \
+            --native-evidence-root release-output \
+            --wasm-summary release-output/wasm-summary.json \
+            --wasm-evidence release-output/wasm-evidence.json \
+            --wasm-bindgen-evidence release-output/wasm-bindgen-version.json \
+            --wasm-source release-input/wasm/symbol_nem_wallet_core_wasm.wasm \
+            --package-root packages/wallet-core \
+            --tarball "$tarball" \
+            --release-manifest release-output/release-manifest.json \
+            --release-sha256sums release-output/SHA256SUMS \
+            --sbom release-output/sbom.spdx.json \
+            --inventory release-output/license-inventory.json \
+            --sbom-sha256sums release-output/SBOM-SHA256SUMS \
+            --cargo-metadata x86_64-pc-windows-msvc="$input_root/cargo-metadata-x86_64-pc-windows-msvc.json" \
+            --cargo-metadata x86_64-apple-darwin="$input_root/cargo-metadata-x86_64-apple-darwin.json" \
+            --cargo-metadata aarch64-apple-darwin="$input_root/cargo-metadata-aarch64-apple-darwin.json" \
+            --cargo-metadata x86_64-unknown-linux-gnu="$input_root/cargo-metadata-x86_64-unknown-linux-gnu.json" \
+            --cargo-metadata wasm32-unknown-unknown="$input_root/cargo-metadata-wasm32-unknown-unknown.json" \
+            --cargo-sbom node="$input_root/cargo-sbom-node.json" \
+            --cargo-sbom wasm="$input_root/cargo-sbom-wasm.json"
+
       - name: Upload final npm release candidate evidence bundle
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-npm-package
