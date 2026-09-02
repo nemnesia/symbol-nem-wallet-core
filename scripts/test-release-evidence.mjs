@@ -310,6 +310,9 @@ try {
 
   const nativePath = resolve(fixtureData.nativeEvidenceRoot, "win32-x64-msvc.node");
   const nativeOriginal = readFileSync(nativePath);
+  rmSync(nativePath);
+  assert.throws(() => validateReleaseManifest(validationInput(fixtureData)), /native evidence artifact is missing/);
+  writeFileSync(nativePath, nativeOriginal);
   writeFileSync(nativePath, Buffer.concat([nativeOriginal, Buffer.from([0])]));
   assert.throws(() => validateReleaseManifest(validationInput(fixtureData)), /native evidence artifact hash mismatch/);
   writeFileSync(nativePath, nativeOriginal);
