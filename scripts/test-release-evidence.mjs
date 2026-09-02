@@ -148,7 +148,7 @@ function fixture() {
   writeJson(resolve(packageRoot, "dist/native/artifact-manifest.json"), runtimeManifest);
 
   const wasmBytes = Buffer.from("raw Rust wasm input");
-  const wasmSourcePath = resolve(wasmRoot, "symbol_nem_wallet_core_wasm_bg.wasm");
+  const wasmSourcePath = resolve(wasmRoot, "symbol_nem_wallet_core_wasm.wasm");
   writeFileSync(wasmSourcePath, wasmBytes);
   const wasmSummary = {
     schema_version: 1,
@@ -156,7 +156,7 @@ function fixture() {
     source_commit: sourceCommit,
     package_version: metadata.version,
     cargo_lock_sha256: cargoLockSha256(),
-    artifact_filename: "symbol_nem_wallet_core_wasm_bg.wasm",
+    artifact_filename: "symbol_nem_wallet_core_wasm.wasm",
     artifact_sha256: sha256(wasmBytes),
     artifact_size: wasmBytes.length,
     toolchain_identifier: toolchainIdentifier,

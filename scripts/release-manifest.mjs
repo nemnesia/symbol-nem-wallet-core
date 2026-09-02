@@ -24,6 +24,7 @@ import { validatePackageContents } from "./package-contents.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageName = "@nemnesia/symbol-nem-wallet-core";
+const WASM_SOURCE_FILENAME = "symbol_nem_wallet_core_wasm.wasm";
 const WASM_FILENAME = "symbol_nem_wallet_core_wasm_bg.wasm";
 const MANIFEST_FILENAME = "release-manifest.json";
 const DIGEST_FILENAME = "SHA256SUMS";
@@ -567,7 +568,7 @@ function validateManifestShape(manifest) {
   exactKeys(manifest.wasm.source_artifact, ["artifact_filename", "sha256", "size", "source_commit", "package_version", "cargo_lock_sha256", "toolchain_identifier"], "raw WASM artifact identity");
   exactKeys(manifest.wasm.canonical_artifact, ["artifact_filename", "relative_path", "sha256", "size", "source_commit", "package_version", "cargo_lock_sha256", "toolchain_identifier", "wasm_bindgen_version"], "canonical WASM artifact identity");
   exactKeys(manifest.wasm.wasm_bindgen, ["cargo_lock_version", "cli_version"], "WASM wasm-bindgen identity");
-  if (manifest.wasm.source_artifact.artifact_filename.length === 0 || manifest.wasm.source_artifact.artifact_filename !== WASM_FILENAME) fail("raw WASM filename is invalid");
+  if (manifest.wasm.source_artifact.artifact_filename.length === 0 || manifest.wasm.source_artifact.artifact_filename !== WASM_SOURCE_FILENAME) fail("raw WASM filename is invalid");
   if (manifest.wasm.canonical_artifact.artifact_filename !== WASM_FILENAME || manifest.wasm.canonical_artifact.relative_path !== `dist/wasm/${WASM_FILENAME}`) fail("canonical WASM path is invalid");
   safeRelativePath(manifest.wasm.canonical_artifact.relative_path, "canonical WASM path");
   for (const identity of [manifest.wasm.source_artifact, manifest.wasm.canonical_artifact]) {
