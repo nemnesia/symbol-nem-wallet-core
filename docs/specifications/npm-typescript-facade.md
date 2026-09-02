@@ -756,7 +756,7 @@ native v1 mandatory target は次の 4 個だけとする。
 | `win32`            | `x64`          | なし             | `win32-x64-msvc`      | `windows` | `x64`   | `msvc`   | `x86_64-pc-windows-msvc`   |
 | `darwin`           | `x64`          | なし             | `darwin-x64`          | `macos`   | `x64`   | `darwin` | `x86_64-apple-darwin`      |
 | `darwin`           | `arm64`        | なし             | `darwin-arm64`        | `macos`   | `arm64` | `darwin` | `aarch64-apple-darwin`     |
-| `linux`            | `x64`          | recognized glibc | `linux-x64-gnu`       | `linux`   | `x64`   | `gnu`    | `x86_64-unknown-linux-gnu` |
+| `linux`            | `x64`          | recognized glibc >= 2.28 | `linux-x64-gnu`       | `linux`   | `x64`   | `gnu`    | `x86_64-unknown-linux-gnu` |
 
 `linux-x64-gnu` の v1 minimum runtime baseline は **glibc >= 2.28** とする。この target
 policy は Node.js 22.x / 24.x の GNU/Linux x64 support baseline と整合させる。これは
@@ -793,6 +793,7 @@ Linux では native load を試して libc を判定してはならない。Node
 - `getReport()` が throw する
 - report、`header` または `glibcVersionRuntime` が欠落している
 - 値が空または string でない
+- `glibcVersionRuntime` が `2.28` 未満である
 
 判定不能、musl またはその他の libc は `linux-x64-gnu` に写像せず unsupported target と
 して WASM へ進む。`ldd` の実行、filesystem heuristic、dynamic loader の起動、binary の

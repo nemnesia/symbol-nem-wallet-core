@@ -55,6 +55,14 @@ function hasNativeTarget(targetId) {
   return Object.prototype.hasOwnProperty.call(NATIVE_TARGETS, targetId);
 }
 
+function supportsLinuxGlibc(version) {
+  const match = typeof version === "string" ? /^(\d+)\.(\d+)$/.exec(version) : null;
+  if (match === null) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major > 2 || major === 2 && minor >= 28;
+}
+
 export function validateNativeManifest(manifest, packageMeta) {
   if (!isPlainObject(manifest) || !isPlainObject(packageMeta)) {
     manifestError();
@@ -154,8 +162,7 @@ export function targetForRuntime(platform, arch, glibcVersionRuntime) {
   if (
     platform === "linux" &&
     arch === "x64" &&
-    typeof glibcVersionRuntime === "string" &&
-    glibcVersionRuntime.length > 0
+    supportsLinuxGlibc(glibcVersionRuntime)
   ) {
     return "linux-x64-gnu";
   }

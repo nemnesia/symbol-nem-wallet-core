@@ -358,7 +358,7 @@ jobs:
           set -euo pipefail
           toolchain="$(node --input-type=module -e 'const fs = await import("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync("release-input/native-summary.json", "utf8")).toolchain_identifier)')"
           export SNWC_TOOLCHAIN_IDENTIFIER="$toolchain"
-          corepack pnpm run build:npm -- \
+          node scripts/build-npm-package.mjs \
             --wasm release-input/wasm/symbol_nem_wallet_core_wasm.wasm \
             --wasm-bindgen-bin "$RUNNER_TEMP/snwc-wasm-bindgen/bin/wasm-bindgen" \
             --native-artifact win32-x64-msvc=release-input/native/win32-x64-msvc.node \

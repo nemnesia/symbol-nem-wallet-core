@@ -24,7 +24,9 @@ test("native target lookup follows the fixed platform and glibc contract", () =>
   assert.equal(targetForRuntime("win32", "x64", undefined), "win32-x64-msvc");
   assert.equal(targetForRuntime("darwin", "x64", undefined), "darwin-x64");
   assert.equal(targetForRuntime("darwin", "arm64", undefined), "darwin-arm64");
+  assert.equal(targetForRuntime("linux", "x64", "2.28"), "linux-x64-gnu");
   assert.equal(targetForRuntime("linux", "x64", "2.39"), "linux-x64-gnu");
+  assert.equal(targetForRuntime("linux", "x64", "2.27"), null);
   assert.equal(targetForRuntime("linux", "x64", ""), null);
   assert.equal(targetForRuntime("linux", "x64", undefined), null);
   assert.equal(targetForRuntime("linux", "arm64", "2.39"), null);

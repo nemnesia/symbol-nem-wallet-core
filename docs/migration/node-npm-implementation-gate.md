@@ -97,6 +97,13 @@ Node-API は JavaScript engine から独立した ABI-stable API であり、Nod
 
 Linux は glibc の最低 runtime baseline を target policy として別途明記する。musl native artifact を追加するまで、unsupported target と `--no-addons` は WASM fallback の同じ条件で扱う。native load failure を fallback 条件へ広げない。
 
+`linux-x64-gnu` の minimum supported glibc runtime は **glibc 2.28** とする。Linux x64
+native artifact は glibc 2.28 compatibility environment で build し、artifact が要求する
+最大の `GLIBC` symbol version は 2.28 以下でなければならない。glibc 2.28 未満の runtime
+は native supported target ではなく、WASM fallback の対象とする。build / smoke runner の
+`glibc_version_runtime` は runner environment evidence として記録するが、artifact の
+minimum compatibility evidenceとは区別する。
+
 ## 5. OPEN-004 — Node-API wrapper library
 
 **Status: `RECOMMENDED`** — `napi-rs` を採用する。
