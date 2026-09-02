@@ -33,7 +33,7 @@ export function validatePackageContents(packageRoot, manifest) {
   if (manifest === null || typeof manifest !== "object" || !Array.isArray(manifest.artifacts)) {
     contentsError();
   }
-  for (const file of ["package.json", "README.md", "LICENSE"]) {
+  for (const file of ["package.json", "README.md", "README.en.md", "LICENSE"]) {
     if (!existsSync(resolve(packageRoot, file)) || !statSync(resolve(packageRoot, file)).isFile()) {
       contentsError();
     }

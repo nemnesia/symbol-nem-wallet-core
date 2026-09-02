@@ -10,6 +10,25 @@ import { validatePackageContents } from "../../../scripts/package-contents.mjs";
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
 
+const publicFunctions = [
+  "create_empty_store",
+  "prepare_generated_profile",
+  "finalize_generated_profile",
+  "restore_profile",
+  "list_profiles",
+  "export_mnemonic",
+  "export_private_key",
+  "list_software_keys",
+  "derive_software_key",
+  "import_software_key",
+  "generate_software_key",
+  "get_public_account",
+  "sign",
+  "change_profile_password",
+  "delete_software_key",
+  "delete_profile",
+];
+
 function allFiles(root, prefix = "") {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
@@ -80,6 +99,17 @@ test("published declaration is byte-for-byte equal to the Stage 7A declaration",
   );
 });
 
+test("npm READMEs document exactly the public 16-function facade", () => {
+  for (const filename of ["README.md", "README.en.md"]) {
+    const readme = readFileSync(resolve(packageRoot, filename), "utf8");
+    const table = readme.match(/## (?:公開関数 \(16\)|Public functions \(16\))[\s\S]*?(?=\n## |$)/)?.[0];
+    assert.ok(table);
+    const documented = [...table.matchAll(/^\| `([a-z_]+)` \|/gm)].map((match) => match[1]);
+    assert.deepEqual(documented, publicFunctions, filename);
+    assert.doesNotMatch(readme, /`(?:choose_backend|load_native|load_wasm)`/);
+  }
+});
+
 test("npm pack dry run contains only package metadata, README, license, and dist allowlist", () => {
   const configuredNpmCli = process.env.npm_execpath;
   const npmCli =
@@ -105,6 +135,7 @@ test("npm pack dry run contains only package metadata, README, license, and dist
   assert.deepEqual(files, [
     "LICENSE",
     "README.md",
+    "README.en.md",
     "dist/index.d.ts",
     "dist/native/artifact-manifest.json",
     ...JSON.parse(readFileSync(resolve(packageRoot, "dist/native/artifact-manifest.json"), "utf8")).artifacts.map((artifact) => artifact.relative_path),

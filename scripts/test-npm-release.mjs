@@ -264,6 +264,7 @@ function packageInventory(manifest, entry) {
   const expected = new Set([
     "LICENSE",
     "README.md",
+    "README.en.md",
     "dist/index.d.ts",
     "dist/native/artifact-manifest.json",
     ...manifest.artifacts.map((artifact) => artifact.relative_path),
