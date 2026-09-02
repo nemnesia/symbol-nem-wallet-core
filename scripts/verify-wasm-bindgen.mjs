@@ -1,13 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { wasmBindgenVersionFromCanonicalLock } from "./release-evidence.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const lockfile = readFileSync(resolve(repositoryRoot, "Cargo.lock"), "utf8");
-const lockMatches = [...lockfile.matchAll(/\[\[package\]\]\nname = "wasm-bindgen"\nversion = "([^"]+)"/g)];
-if (lockMatches.length !== 1) throw new Error("Cargo.lock must resolve exactly one wasm-bindgen package");
-const wasmBindgenVersion = lockMatches[0][1];
+const wasmBindgenVersion = wasmBindgenVersionFromCanonicalLock();
 const binary = process.argv[2] ?? process.env.WASM_BINDGEN_BIN ?? "wasm-bindgen";
 let output;
 try {

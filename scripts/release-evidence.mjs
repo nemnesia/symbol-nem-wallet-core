@@ -56,18 +56,42 @@ function packageMetadata() {
   }
 }
 
-export function canonicalCargoLockBytes() {
+export function canonicalTrackedFileBytes(relativePath, label = relativePath) {
   try {
-    return execFileSync("git", ["cat-file", "blob", "HEAD:Cargo.lock"], {
+    return execFileSync("git", ["cat-file", "blob", `HEAD:${relativePath}`], {
       cwd: repositoryRoot,
     });
   } catch {
-    fail("canonical Cargo.lock contents are unavailable");
+    fail(`canonical ${label} contents are unavailable`);
   }
+}
+
+export function canonicalCargoLockBytes() {
+  return canonicalTrackedFileBytes("Cargo.lock", "Cargo.lock");
 }
 
 export function cargoLockSha256() {
   return createHash("sha256").update(canonicalCargoLockBytes()).digest("hex");
+}
+
+export function canonicalPnpmLockBytes() {
+  return canonicalTrackedFileBytes("pnpm-lock.yaml", "pnpm-lock.yaml");
+}
+
+export function pnpmLockSha256() {
+  return createHash("sha256").update(canonicalPnpmLockBytes()).digest("hex");
+}
+
+export function wasmBindgenVersionFromCanonicalLock() {
+  const matches = [
+    ...canonicalCargoLockBytes()
+      .toString("utf8")
+      .matchAll(/\[\[package\]\]\r?\nname = "wasm-bindgen"\r?\nversion = "([^"]+)"/g),
+  ];
+  if (matches.length !== 1 || !/^\d+\.\d+\.\d+$/.test(matches[0][1])) {
+    fail("canonical Cargo.lock wasm-bindgen version is invalid");
+  }
+  return matches[0][1];
 }
 
 function sourceCommitFromGit() {
@@ -263,6 +287,7 @@ function validateWasm(argv) {
     artifact_filename: basename(wasmPath),
     artifact_sha256: sha256(wasmPath),
     artifact_size: fileSize(wasmPath),
+    toolchain_identifier: toolchainIdentifier(),
   };
   if (evidencePath !== undefined) {
     const supplied = readEvidence(resolve(repositoryRoot, evidencePath));
@@ -274,7 +299,8 @@ function validateWasm(argv) {
       supplied.cargo_lock_sha256 !== evidence.cargo_lock_sha256 ||
       supplied.artifact_filename !== evidence.artifact_filename ||
       supplied.artifact_sha256 !== evidence.artifact_sha256 ||
-      supplied.artifact_size !== evidence.artifact_size
+      supplied.artifact_size !== evidence.artifact_size ||
+      supplied.toolchain_identifier !== evidence.toolchain_identifier
     ) {
       fail("WASM artifact evidence mismatch");
     }
@@ -290,6 +316,7 @@ function sourceMetadata() {
     package_name: metadata.name,
     package_version: metadata.version,
     cargo_lock_sha256: cargoLockSha256(),
+    pnpm_lock_sha256: pnpmLockSha256(),
     required_native_targets: REQUIRED_TARGETS,
   };
   process.stdout.write(`${JSON.stringify(result)}\n`);
