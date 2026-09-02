@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageName = "@nemnesia/symbol-nem-wallet-core";
 const browserCandidates = ["google-chrome", "chromium", "chromium-browser", "chrome"];
+const BROWSER_TIMEOUT_MS = 60_000;
 const mv3PublicKey = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuCAJWv09qHrxO6MRY4ATEUhDoUY/Yjbmk0rXEKgzRlvH+yoQyASqqgDOYCVMJ6iZ8JO1zvEaP5UphaWiQjvSrhMKfSn5RvmTEbeIdhRwxclFA/Ps+P2HxYle1MAJ/O9cBFmZ5+fURWnHvjwE5CCV3M145y8M3p5JZa4608TxaYZYB1r/e29Qhyq8aSO170KcIwOz35Cb8vFxvCuNrhMKhFvgX8O8AlXWC09s4gGxA41CY8lyQiUP7qw8hxutTbWn+KmP7ygSw154AXc2S02BrVnJY+bpGMbZe4gbtV9RCyIyfIohK1bCmkAecppBGDx8XDSFmSDbYpR+9DaujKn3ewIDAQAB";
 const mv3ExtensionId = "hanjnjipcnfnadggaiojokcmmdjiplah";
 
@@ -202,21 +203,29 @@ async function runBrowser(outputRoot, browser) {
     const address = server.address();
     if (address === null || typeof address === "string") fail("browser server address unavailable");
     const isFirefox = browser.command.toLowerCase().includes("firefox");
+    const targetUrl = `http://127.0.0.1:${address.port}/`;
     const args = isFirefox
-      ? ["--headless", `http://127.0.0.1:${address.port}/`]
-      : ["--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", `http://127.0.0.1:${address.port}/`];
+      ? ["--headless", targetUrl]
+      : ["--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", targetUrl];
     child = spawn(browser.command, args, { stdio: "ignore" });
     const childExit = new Promise((resolveExit, rejectExit) => {
       child.once("exit", resolveExit);
       child.once("error", rejectExit);
     });
     let timeout;
-    await Promise.race([
-      reportPromise,
-      childExit.then(() => { throw new Error("browser exited before report"); }),
-      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("browser timed out")), 30_000); }),
-    ]);
-    clearTimeout(timeout);
+    try {
+      await Promise.race([
+        reportPromise,
+        childExit.then(() => { throw new Error("browser exited before report"); }),
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error(
+            `browser timed out after ${BROWSER_TIMEOUT_MS}ms: command=${browser.command} version=${browser.version} url=${targetUrl} report_received=${report !== undefined} exit_code=${child.exitCode ?? null} signal=${child.signalCode ?? null}`,
+          )), BROWSER_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
     if (report?.status !== "ok") fail("browser integration operation failed");
     return report;
   } catch (error) {
