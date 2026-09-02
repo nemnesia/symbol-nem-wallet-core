@@ -54,14 +54,15 @@ function allFiles(root, prefix = "") {
   });
 }
 
-function findBrowser() {
-  const candidates = process.env.SNWC_BROWSER ? [process.env.SNWC_BROWSER] : browserCandidates;
+function findBrowser(variableName, fallbackVariableName) {
+  const configured = process.env[variableName] ?? (fallbackVariableName === undefined ? undefined : process.env[fallbackVariableName]);
+  const candidates = configured ? [configured] : browserCandidates;
   for (const candidate of candidates) {
     const probe = spawnSync(candidate, ["--version"], { encoding: "utf8" });
     const version = `${probe.stdout ?? ""}${probe.stderr ?? ""}`.split(/\r?\n/, 1)[0].trim();
     if (probe.status === 0 && version.length > 0) return { command: candidate, version };
   }
-  fail("a Chromium-compatible browser is unavailable");
+  fail(`a Chromium-compatible browser is unavailable for ${variableName}`);
 }
 
 function packageInstallRoot(tarball) {
@@ -514,12 +515,14 @@ async function runMv3(projectRoot, browser) {
 
 const tarball = process.argv[process.argv.indexOf("--tarball") + 1];
 if (typeof tarball !== "string" || tarball.length === 0) fail("usage: node scripts/test-npm-bundlers.mjs --tarball <path>");
-const browser = process.argv.includes("--skip-browser") ? null : findBrowser();
+const skipBrowser = process.argv.includes("--skip-browser");
+const browser = skipBrowser ? null : findBrowser("SNWC_BROWSER");
+const mv3Browser = skipBrowser ? null : findBrowser("SNWC_MV3_BROWSER", "SNWC_BROWSER");
 const projectRoot = packageInstallRoot(resolve(repositoryRoot, tarball));
 try {
   const bundlers = await buildBundlers(projectRoot, browser);
-  const mv3 = await runMv3(projectRoot, browser);
-  process.stdout.write(`${JSON.stringify({ browser, bundlers, mv3 })}\n`);
+  const mv3 = await runMv3(projectRoot, mv3Browser);
+  process.stdout.write(`${JSON.stringify({ browser, mv3_browser: mv3Browser, bundlers, mv3 })}\n`);
 } finally {
   rmSync(projectRoot, { recursive: true, force: true });
 }

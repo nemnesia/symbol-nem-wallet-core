@@ -468,7 +468,10 @@ jobs:
         shell: bash
         env:
           SNWC_BROWSER: google-chrome
+          SNWC_MV3_BROWSER: chromium
         run: |
+          google-chrome --version
+          chromium --version
           tarball="$(find release-output -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           test -n "$tarball"
           node scripts/test-npm-bundlers.mjs --tarball "$tarball"
