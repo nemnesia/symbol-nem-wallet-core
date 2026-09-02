@@ -63,6 +63,9 @@ jobs:
       - name: Verify canonical Cargo.lock identity is representation-independent
         run: node scripts/test-release-evidence.mjs
 
+      - name: Run release identity deterministic tests
+        run: node scripts/test-release-identity.mjs
+
       - name: Upload source evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

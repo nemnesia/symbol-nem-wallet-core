@@ -1,0 +1,39 @@
+name: Release gate
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    name: Validate release identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out release tag with complete history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Ensure the repository main ref is available
+        run: git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+
+      - name: Run release identity deterministic tests
+        run: node scripts/test-release-identity.mjs
+
+      - name: Validate release identity and npm version availability
+        run: node scripts/release-identity.mjs --mode release
