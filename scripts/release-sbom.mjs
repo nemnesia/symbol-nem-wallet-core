@@ -191,10 +191,11 @@ function tokenizeLicenseExpression(expression) {
   return tokens;
 }
 
-function parseLicenseExpression(expression) {
+function parseLicenseExpressionSyntax(expression) {
   const tokens = tokenizeLicenseExpression(expression);
   let index = 0;
   const identifiers = [];
+  const exceptions = [];
 
   function peek() {
     return tokens[index];
@@ -233,7 +234,7 @@ function parseLicenseExpression(expression) {
       fail(`license exception is missing: ${expression}`);
     }
     index += 1;
-    if (!SPDX_EXCEPTION_IDENTIFIER_CATALOGUE.has(exception)) fail(`unknown SPDX exception identifier: ${exception}`);
+    exceptions.push(exception);
     node.exception = exception;
     return node;
   }
@@ -250,16 +251,36 @@ function parseLicenseExpression(expression) {
       fail(`license expression is malformed: ${expression}`);
     }
     index += 1;
-    if (!SPDX_LICENSE_IDENTIFIER_CATALOGUE.has(identifier) && !(identifier.startsWith("LicenseRef-") && identifier.length > "LicenseRef-".length)) {
-      fail(`unknown SPDX license identifier: ${identifier}`);
-    }
     identifiers.push(identifier);
     return { kind: "license", identifier };
   }
 
   const tree = parseOr();
   if (index !== tokens.length) fail(`license expression has trailing tokens: ${expression}`);
-  return { tree, identifiers: [...new Set(identifiers)] };
+  return { tree, identifiers: [...new Set(identifiers)], exceptions: [...new Set(exceptions)] };
+}
+
+function validateSpdxLicenseExpressionSyntax(parsed) {
+  function visit(node) {
+    if (node.kind === "license") {
+      if (!SPDX_LICENSE_IDENTIFIER_CATALOGUE.has(node.identifier) && !(node.identifier.startsWith("LicenseRef-") && node.identifier.length > "LicenseRef-".length)) {
+        fail(`unknown SPDX license identifier: ${node.identifier}`);
+      }
+      if (node.exception !== undefined && !SPDX_EXCEPTION_IDENTIFIER_CATALOGUE.has(node.exception)) {
+        fail(`unknown SPDX exception identifier: ${node.exception}`);
+      }
+      return;
+    }
+    visit(node.left);
+    visit(node.right);
+  }
+  visit(parsed.tree);
+  return parsed;
+}
+
+function parseLicenseExpression(expression) {
+  const parsed = validateSpdxLicenseExpressionSyntax(parseLicenseExpressionSyntax(expression));
+  return { tree: parsed.tree, identifiers: parsed.identifiers };
 }
 
 function tryParseLicenseExpression(expression) {
@@ -1061,6 +1082,8 @@ export {
   SBOM_FILENAME,
   SBOM_SUMS_FILENAME,
   SPDX_VERSION,
+  SPDX_LICENSE_IDENTIFIER_CATALOGUE,
+  SPDX_EXCEPTION_IDENTIFIER_CATALOGUE,
   createLicenseInventory,
   createSpdxDocument,
   buildCargoComponents,
@@ -1069,6 +1092,7 @@ export {
   parseCargoSbom,
   packageIdentityKey,
   parseLicenseExpression,
+  parseLicenseExpressionSyntax,
   renderSbomSums,
   validateGeneratorCoverage,
   validateLicenseInventory,

@@ -66,6 +66,9 @@ jobs:
       - name: Run release identity deterministic tests
         run: node scripts/test-release-identity.mjs
 
+      - name: Run release license policy deterministic and negative tests
+        run: node scripts/test-release-license-policy.mjs
+
       - name: Upload source evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -471,6 +474,23 @@ jobs:
             --cargo-sbom node="$input_root/cargo-sbom-node.json" \
             --cargo-sbom wasm="$input_root/cargo-sbom-wasm.json"
 
+      - name: Generate and strictly validate Phase 4B license policy artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release-license-policy.mjs generate \
+            --inventory release-output/license-inventory.json \
+            --sbom release-output/sbom.spdx.json \
+            --sbom-sha256sums release-output/SBOM-SHA256SUMS \
+            --policy release-output/license-policy.json \
+            --third-party release-output/THIRD_PARTY_LICENSES.json \
+            --policy-sha256sums release-output/LICENSE-POLICY-SHA256SUMS \
+            --cargo-metadata x86_64-pc-windows-msvc="$input_root/cargo-metadata-x86_64-pc-windows-msvc.json" \
+            --cargo-metadata x86_64-apple-darwin="$input_root/cargo-metadata-x86_64-apple-darwin.json" \
+            --cargo-metadata aarch64-apple-darwin="$input_root/cargo-metadata-aarch64-apple-darwin.json" \
+            --cargo-metadata x86_64-unknown-linux-gnu="$input_root/cargo-metadata-x86_64-unknown-linux-gnu.json" \
+            --cargo-metadata wasm32-unknown-unknown="$input_root/cargo-metadata-wasm32-unknown-unknown.json"
+
       - name: Assemble final release evidence bundle
         if: always()
         shell: bash
@@ -534,6 +554,24 @@ jobs:
             --cargo-metadata wasm32-unknown-unknown="$input_root/cargo-metadata-wasm32-unknown-unknown.json" \
             --cargo-sbom node="$input_root/cargo-sbom-node.json" \
             --cargo-sbom wasm="$input_root/cargo-sbom-wasm.json"
+
+      - name: Re-validate final Phase 4B license policy bundle
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release-license-policy.mjs validate \
+            --inventory release-output/license-inventory.json \
+            --sbom release-output/sbom.spdx.json \
+            --sbom-sha256sums release-output/SBOM-SHA256SUMS \
+            --policy release-output/license-policy.json \
+            --third-party release-output/THIRD_PARTY_LICENSES.json \
+            --policy-sha256sums release-output/LICENSE-POLICY-SHA256SUMS \
+            --cargo-metadata x86_64-pc-windows-msvc="$input_root/cargo-metadata-x86_64-pc-windows-msvc.json" \
+            --cargo-metadata x86_64-apple-darwin="$input_root/cargo-metadata-x86_64-apple-darwin.json" \
+            --cargo-metadata aarch64-apple-darwin="$input_root/cargo-metadata-aarch64-apple-darwin.json" \
+            --cargo-metadata x86_64-unknown-linux-gnu="$input_root/cargo-metadata-x86_64-unknown-linux-gnu.json" \
+            --cargo-metadata wasm32-unknown-unknown="$input_root/cargo-metadata-wasm32-unknown-unknown.json"
 
       - name: Upload final npm release candidate evidence bundle
         if: always()
