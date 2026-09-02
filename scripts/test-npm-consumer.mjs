@@ -14,12 +14,25 @@ function fail(message) {
   throw new Error(`Release clean consumer gate failed: ${message}`);
 }
 
-function npmCommand() {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
-}
-
 function run(command, args, options = {}) {
   return execFileSync(command, args, { cwd: repositoryRoot, stdio: "inherit", ...options });
+}
+
+function quoteWindowsCommandArgument(value) {
+  if (typeof value !== "string" || /[\r\n"%!]/.test(value)) {
+    fail("Windows npm argument contains unsupported shell characters");
+  }
+  return `"${value}"`;
+}
+
+function runNpm(args, options = {}) {
+  if (process.platform !== "win32") return run("npm", args, options);
+  const command = ["npm.cmd", ...args].map(quoteWindowsCommandArgument).join(" ");
+  return execFileSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", command], {
+    cwd: repositoryRoot,
+    stdio: "inherit",
+    ...options,
+  });
 }
 
 function quiet(command, args, options = {}) {
@@ -33,7 +46,7 @@ function packageRoot(projectRoot) {
 function install(tarball) {
   const projectRoot = mkdtempSync(resolve(tmpdir(), "snwc-release-consumer-"));
   writeFileSync(resolve(projectRoot, "package.json"), `${JSON.stringify({ name: "snwc-release-consumer", private: true, type: "module" })}\n`);
-  run(npmCommand(), ["install", "--ignore-scripts", "--offline", "--no-audit", "--no-fund", "--package-lock=false", tarball], {
+  runNpm(["install", "--ignore-scripts", "--offline", "--no-audit", "--no-fund", "--package-lock=false", tarball], {
     cwd: projectRoot,
     env: { ...process.env, npm_config_ignore_scripts: "true", npm_config_offline: "true", npm_config_audit: "false", npm_config_fund: "false", npm_config_cache: resolve(tmpdir(), "snwc-npm-cache") },
   });
@@ -112,7 +125,11 @@ function failClosed(projectRoot, targetId) {
 const index = process.argv.indexOf("--tarball");
 const tarball = index >= 0 ? process.argv[index + 1] : undefined;
 if (tarball === undefined) fail("usage: node scripts/test-npm-consumer.mjs --tarball <path>");
-const projectRoot = install(resolve(repositoryRoot, tarball));
+const tarballPath = resolve(repositoryRoot, tarball);
+if (!tarballPath.endsWith(".tgz") || !existsSync(tarballPath) || !statSync(tarballPath).isFile()) {
+  fail("tarball must be an existing local .tgz file");
+}
+const projectRoot = install(tarballPath);
 try {
   const esmNative = runSmoke(projectRoot, "esm", false);
   const cjsNative = runSmoke(projectRoot, "cjs", false);
@@ -127,8 +144,8 @@ try {
     process.platform === "linux" ? process.report?.getReport?.().header?.glibcVersionRuntime : undefined,
   );
   if (targetId === null) fail("consumer runner is not on a supported native target");
-  const fallbackProject = install(resolve(repositoryRoot, tarball));
-  const corruptProject = install(resolve(repositoryRoot, tarball));
+  const fallbackProject = install(tarballPath);
+  const corruptProject = install(tarballPath);
   try {
     process.stdout.write(`${JSON.stringify({
       runtime: process.version,

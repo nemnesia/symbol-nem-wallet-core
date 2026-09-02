@@ -310,12 +310,74 @@ function cdpConnection(wsUrl) {
   return { socket, opened, request };
 }
 
+function waitForChildClose(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolveClose) => {
+    const resolve = () => {
+      child.removeListener("close", resolve);
+      child.removeListener("error", resolve);
+      resolveClose();
+    };
+    child.once("close", resolve);
+    child.once("error", resolve);
+  });
+}
+
+async function waitForChildCloseWithTimeout(child, timeoutMs) {
+  let timer;
+  const result = await Promise.race([
+    waitForChildClose(child).then(() => true),
+    new Promise((resolveTimeout) => {
+      timer = setTimeout(() => resolveTimeout(false), timeoutMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  return result;
+}
+
+async function closeCdp(cdp) {
+  const socket = cdp?.socket;
+  if (socket === undefined || (socket.readyState !== 0 && socket.readyState !== 1)) return;
+  const closed = new Promise((resolveClose) => {
+    socket.addEventListener("close", resolveClose, { once: true });
+  });
+  let timer;
+  try {
+    socket.close();
+  } catch {
+    return;
+  }
+  await Promise.race([
+    closed,
+    new Promise((resolveTimeout) => {
+      timer = setTimeout(resolveTimeout, 1_000);
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
+async function terminateChild(child) {
+  if (child === undefined) return;
+  const closed = waitForChildClose(child);
+  if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+  let exited = await waitForChildCloseWithTimeout(child, 5_000);
+  if (!exited && child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGKILL");
+    exited = await waitForChildCloseWithTimeout(child, 5_000);
+  }
+  if (!exited) throw new Error("Chromium did not exit during MV3 cleanup");
+  await closed;
+}
+
 async function runMv3Browser(extensionRoot, browser) {
   if (!browser.command.toLowerCase().includes("chrome") && !browser.command.toLowerCase().includes("chromium")) {
     fail("MV3 smoke requires Chromium");
   }
   const profileRoot = mkdtempSync(resolve(tmpdir(), "snwc-release-chrome-profile-"));
   let child;
+  let cdp;
+  let result;
+  let functionalError;
   try {
     child = spawn(browser.command, [
       "--headless=new",
@@ -342,7 +404,7 @@ async function runMv3Browser(extensionRoot, browser) {
       await new Promise((resolveWait) => setTimeout(resolveWait, 100));
     }
     if (wsUrl === undefined) fail("Chromium DevTools endpoint was not announced");
-    const cdp = cdpConnection(wsUrl);
+    cdp = cdpConnection(wsUrl);
     await cdp.opened;
     const startTarget = Date.now();
     let report;
@@ -364,11 +426,22 @@ async function runMv3Browser(extensionRoot, browser) {
       fail("MV3 service worker did not complete local WASM smoke");
     }
     if (report.core_error?.code !== "InvalidStore") fail("MV3 Core error semantics mismatch");
-    return report;
-  } finally {
-    if (child !== undefined && child.exitCode === null) child.kill("SIGTERM");
-    rmSync(profileRoot, { recursive: true, force: true });
+    result = report;
+  } catch (error) {
+    functionalError = error;
   }
+
+  let cleanupError;
+  try {
+    await closeCdp(cdp);
+    await terminateChild(child);
+    rmSync(profileRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch (error) {
+    cleanupError = error;
+  }
+  if (functionalError !== undefined) throw functionalError;
+  if (cleanupError !== undefined) throw cleanupError;
+  return result;
 }
 
 async function runMv3(projectRoot, browser) {
