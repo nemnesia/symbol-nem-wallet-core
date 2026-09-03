@@ -49,7 +49,7 @@ function staticAndDynamicConsumers(targetId, root, staticPath, dynamicPath, comp
   if (process.platform === "win32") {
     const common = ["/nologo", "/std:c11", "/W4", "/WX", `/I${headerPath}`];
     run(compiler, [...common, "/c", headerCompilePath, `/Fo${resolve(root, "header_compile.obj")}`], repositoryRoot);
-    run(compiler, [...common, callerPath, staticPath, "bcrypt.lib", "userenv.lib", "ws2_32.lib", "/link", `/OUT:${resolve(root, "static-consumer.exe")}`], repositoryRoot);
+    run(compiler, [...common, callerPath, staticPath, "bcrypt.lib", "ntdll.lib", "userenv.lib", "ws2_32.lib", "/link", `/OUT:${resolve(root, "static-consumer.exe")}`], repositoryRoot);
     cpSync(dynamicPath, resolve(root, "symbol_nem_wallet_core_native.dll"));
     const importLibrary = companionPaths[0];
     if (importLibrary === undefined) fail("Windows dynamic import library is missing");

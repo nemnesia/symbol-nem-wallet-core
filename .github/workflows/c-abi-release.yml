@@ -169,22 +169,26 @@ jobs:
             cargo_lock_sha256="$(shasum -a 256 Cargo.lock | awk '{print $1}')"
           fi
           mkdir -p "release-c-abi-target/${{ matrix.target_id }}"
-          node scripts/c-abi-release.mjs prepare-target \
-            --target-id "${{ matrix.target_id }}" \
-            --rust-target "${{ matrix.rust_target }}" \
-            --runner "${{ matrix.runner }}" \
-            --platform "${{ matrix.platform }}" \
-            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
-            --source-commit "$GITHUB_SHA" \
-            "${release_args[@]}" \
-            --toolchain "$(rustc -Vv | sed -n 's/^release: //p')" \
-            --cargo-lock-sha256 "$cargo_lock_sha256" \
-            --header crates/c-abi/include/symbol_nem_wallet_core.h \
-            --license LICENSE \
-            --static-lib "$static_lib" \
-            --dynamic-lib "$dynamic_lib" \
-            "${companion[@]}" \
+          prepare_args=(
+            --target-id "${{ matrix.target_id }}"
+            --rust-target "${{ matrix.rust_target }}"
+            --runner "${{ matrix.runner }}"
+            --platform "${{ matrix.platform }}"
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")"
+            --source-commit "$GITHUB_SHA"
+            "${release_args[@]}"
+            --toolchain "$(rustc -Vv | sed -n 's/^release: //p')"
+            --cargo-lock-sha256 "$cargo_lock_sha256"
+            --header crates/c-abi/include/symbol_nem_wallet_core.h
+            --license LICENSE
+            --static-lib "$static_lib"
+            --dynamic-lib "$dynamic_lib"
             --output "release-c-abi-target/${{ matrix.target_id }}"
+          )
+          if ((${#companion[@]})); then
+            prepare_args+=("${companion[@]}")
+          fi
+          node scripts/c-abi-release.mjs prepare-target "${prepare_args[@]}"
 
       - name: Validate header and static/dynamic consumer smoke on Unix
         if: runner.os != 'Windows'
