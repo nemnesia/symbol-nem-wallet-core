@@ -73,6 +73,10 @@ SHA256SUMS
 release-manifest.json
 release-source.json
 native-summary.json
+win32-x64-msvc.node
+darwin-x64.node
+darwin-arm64.node
+linux-x64-gnu.node
 win32-x64-msvc.json
 darwin-x64.json
 darwin-arm64.json
