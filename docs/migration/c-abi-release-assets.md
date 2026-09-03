@@ -108,7 +108,10 @@ changing the npm Phase 4B artifacts. New/unapproved licenses, reciprocal
 licenses, unapproved exceptions, malformed metadata, and missing declared
 metadata remain fail-closed according to that policy. Missing third-party text
 is recorded as an observation separate from allowability. Upstream text is
-never guessed or generated.
+never guessed or generated. Checked-in authoritative text and its upstream
+identity are shared through
+`third-party-license-evidence/manifest.json`, so formal validation does not
+depend on live registry availability.
 
 The final formal command includes:
 

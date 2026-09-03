@@ -23,6 +23,11 @@ import {
   SPDX_LICENSE_IDENTIFIER_CATALOGUE,
 } from "./release-sbom.mjs";
 import {
+  readThirdPartyLicenseText,
+  thirdPartyLicenseEvidenceForComponent,
+  thirdPartyLicenseEvidenceMetadata,
+} from "./third-party-license-evidence.mjs";
+import {
   collectReleaseVersionSources,
   isValidCommit,
   isValidSemVer,
@@ -236,6 +241,13 @@ function licenseNormalization(packageData, raw) {
 function licenseFiles(packageData, expression) {
   if (expression === null) return { status: "unavailable", files: [], reason: "Cargo package license metadata is not a valid SPDX expression" };
   if (typeof packageData.manifest_path !== "string") return { status: "unavailable", files: [], reason: "Cargo package manifest path is unavailable" };
+  const checkedInEvidence = thirdPartyLicenseEvidenceForComponent({ ...packageData, license_expression: expression });
+  if (checkedInEvidence !== null) {
+    return {
+      status: "resolved",
+      files: [{ path: checkedInEvidence.upstream_file_path, sha256: checkedInEvidence.collected_text_sha256 }],
+    };
+  }
   const sourceDirectory = typeof packageData.source === "string" ? dirname(packageData.manifest_path) : repositoryRoot;
   let entries;
   try {
@@ -470,8 +482,14 @@ function createThirdPartyEvidence(inventory, components, inventorySha256) {
       license_text_files: component.license_text_files,
       collection_status: component.license_text_status === "resolved" ? "available" : "pending-source-evidence",
     };
+    const checkedInEvidence = thirdPartyLicenseEvidenceForComponent(component);
+    if (checkedInEvidence !== null) item.upstream_evidence = thirdPartyLicenseEvidenceMetadata(checkedInEvidence);
     if (component.license_text_status === "resolved") {
       item.license_texts = component.license_text_files.map((file) => {
+        if (checkedInEvidence !== null) {
+          if (file.path !== checkedInEvidence.upstream_file_path || file.sha256 !== checkedInEvidence.collected_text_sha256) fail(`third-party checked-in evidence identity mismatch: ${component.name}`);
+          return { path: file.path, sha256: file.sha256, text: readThirdPartyLicenseText(checkedInEvidence).toString("utf8") };
+        }
         const metadataPath = components.find((candidate) => candidate.spdx_id === component.spdx_id)?.manifest_path;
         if (typeof metadataPath !== "string") fail(`third-party source path is unavailable: ${component.name}`);
         const path = resolve(dirname(metadataPath), file.path);

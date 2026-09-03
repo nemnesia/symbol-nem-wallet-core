@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "third-party-license-source-evidence",
+  "entries": [
+    {
+      "ecosystem": "cargo",
+      "name": "bitcoin_hashes",
+      "version": "0.14.101",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "spdx_license": "CC0-1.0",
+      "upstream_repository": "https://github.com/rust-bitcoin/rust-bitcoin",
+      "upstream_tag": "bitcoin_hashes-0.14.101",
+      "upstream_commit": "a010f1e9fd7752ee5e7ca60a909d32a58e0d3297",
+      "upstream_file_path": "LICENSE",
+      "upstream_blob_sha1": "6ca207ef004cb69d03041e7e5c288a2be4968045",
+      "checked_in_path": "third-party-license-evidence/bitcoin_hashes/0.14.101/LICENSE",
+      "collected_text_sha256": "7179683e8000e6bdc9bbc60d85edf0a4ac8e76f951857f54fcb775d5886f1309"
+    },
+    {
+      "ecosystem": "cargo",
+      "name": "napi",
+      "version": "3.12.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "spdx_license": "MIT",
+      "upstream_repository": "https://github.com/napi-rs/napi-rs",
+      "upstream_tag": "napi-v3.12.2",
+      "upstream_commit": "444bf29b8534216dd1cec4695a71e5996a173e87",
+      "upstream_file_path": "LICENSE",
+      "upstream_blob_sha1": "7fe7e35eff46457f65a4e30a717fada632de9e03",
+      "checked_in_path": "third-party-license-evidence/napi-rs/LICENSE",
+      "collected_text_sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+    },
+    {
+      "ecosystem": "cargo",
+      "name": "napi-sys",
+      "version": "3.3.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "spdx_license": "MIT",
+      "upstream_repository": "https://github.com/napi-rs/napi-rs",
+      "upstream_tag": "napi-sys-v3.3.0",
+      "upstream_commit": "679eb79f5cf3c7c6b2850f4ab46092126f23dc5c",
+      "upstream_file_path": "LICENSE",
+      "upstream_blob_sha1": "7fe7e35eff46457f65a4e30a717fada632de9e03",
+      "checked_in_path": "third-party-license-evidence/napi-rs/LICENSE",
+      "collected_text_sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+    },
+    {
+      "ecosystem": "cargo",
+      "name": "napi-derive",
+      "version": "3.6.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "spdx_license": "MIT",
+      "upstream_repository": "https://github.com/napi-rs/napi-rs",
+      "upstream_tag": "napi-derive-v3.6.3",
+      "upstream_commit": "956e4525fea6a676ea3680b711382f167b899af9",
+      "upstream_file_path": "LICENSE",
+      "upstream_blob_sha1": "7fe7e35eff46457f65a4e30a717fada632de9e03",
+      "checked_in_path": "third-party-license-evidence/napi-rs/LICENSE",
+      "collected_text_sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+    },
+    {
+      "ecosystem": "cargo",
+      "name": "napi-derive-backend",
+      "version": "6.1.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "spdx_license": "MIT",
+      "upstream_repository": "https://github.com/napi-rs/napi-rs",
+      "upstream_tag": "napi-derive-backend-v6.1.2",
+      "upstream_commit": "956e4525fea6a676ea3680b711382f167b899af9",
+      "upstream_file_path": "LICENSE",
+      "upstream_blob_sha1": "7fe7e35eff46457f65a4e30a717fada632de9e03",
+      "checked_in_path": "third-party-license-evidence/napi-rs/LICENSE",
+      "collected_text_sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+    }
+  ]
+}

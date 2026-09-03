@@ -22,6 +22,8 @@ on:
       - "crates/core/**"
       - "scripts/c-abi-*.mjs"
       - "scripts/test-c-abi-*.mjs"
+      - "scripts/third-party-license-evidence.mjs"
+      - "third-party-license-evidence/**"
       - ".github/workflows/c-abi-release.yml"
   pull_request:
     paths:
@@ -31,6 +33,8 @@ on:
       - "crates/core/**"
       - "scripts/c-abi-*.mjs"
       - "scripts/test-c-abi-*.mjs"
+      - "scripts/third-party-license-evidence.mjs"
+      - "third-party-license-evidence/**"
       - ".github/workflows/c-abi-release.yml"
   workflow_dispatch:
     inputs:

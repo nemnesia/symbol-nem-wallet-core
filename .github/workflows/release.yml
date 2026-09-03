@@ -69,9 +69,67 @@ jobs:
     permissions:
       contents: read
 
+  release-record:
+    name: Assemble unified release evidence record
+    needs: [identity, candidate, c-abi]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Download final npm evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-npm-package
+          path: release-npm-input
+
+      - name: Download final C ABI evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-c-abi
+          path: release-c-abi-input
+
+      - name: Generate and validate pre-publish unified release record
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release-record.mjs generate \
+            --mode release \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA" \
+            --provenance-status required-at-publish \
+            --npm-dir release-npm-input \
+            --c-abi-dir release-c-abi-input \
+            --output release-record-output
+          node scripts/release-record.mjs validate \
+            --mode release \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA" \
+            --provenance-status required-at-publish \
+            --npm-dir release-npm-input \
+            --c-abi-dir release-c-abi-input \
+            --output release-record-output
+
+      - name: Upload unified release record handoff
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-record
+          path: release-record-output/
+
   publish:
     name: Publish npm package with provenance
-    needs: [identity, candidate, c-abi]
+    needs: [identity, candidate, c-abi, release-record]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment:
@@ -105,6 +163,31 @@ jobs:
         with:
           name: release-npm-package
           path: release-output
+
+      - name: Download C ABI release evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-c-abi
+          path: release-c-abi-input
+
+      - name: Download unified release record
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-record
+          path: release-record-input
+
+      - name: Download and validate unified release record
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release-record.mjs validate \
+            --mode release \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA" \
+            --provenance-status required-at-publish \
+            --npm-dir release-output \
+            --c-abi-dir release-c-abi-input \
+            --output release-record-input
 
       - name: Verify release bundle identity and independent evidence digests
         shell: bash

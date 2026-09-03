@@ -16,6 +16,7 @@ import {
   pnpmLockSha256,
 } from "./release-evidence.mjs";
 import { validateReleaseManifest } from "./release-manifest.mjs";
+import { thirdPartyLicenseEvidenceForComponent } from "./third-party-license-evidence.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageRoot = resolve(repositoryRoot, "packages/wallet-core");
@@ -537,11 +538,20 @@ function cargoLicenseMetadata(packageData) {
 }
 
 function packageLicenseFiles(packageData, expression) {
+  const parsed = tryParseLicenseExpression(expression);
+  if (parsed.parsed === undefined) return { status: "unavailable", files: [], reason: parsed.error };
+  if (typeof packageData.source === "string") {
+    const checkedInEvidence = thirdPartyLicenseEvidenceForComponent({ ...packageData, license_expression: expression });
+    if (checkedInEvidence !== null) {
+      return {
+        status: "resolved",
+        files: [{ path: checkedInEvidence.upstream_file_path, sha256: checkedInEvidence.collected_text_sha256 }],
+      };
+    }
+  }
   const sourceDirectory = typeof packageData.source !== "string" ? repositoryRoot : dirname(packageData.manifest_path);
   const entries = readdirSync(sourceDirectory, { withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => entry.name);
   const licenseFiles = entries.filter((entry) => /^(license|copying|unlicense|notice)(?:[-_.].*)?$/i.test(entry));
-  const parsed = tryParseLicenseExpression(expression);
-  if (parsed.parsed === undefined) return { status: "unavailable", files: [], reason: parsed.error };
   const selected = [];
   const used = new Set();
   const generic = licenseFiles.filter((entry) => /^(license|copying|unlicense|notice)$/i.test(entry));

@@ -60,14 +60,21 @@ license / notice file path と SHA-256、および収集状態を deterministic 
 検証し、上流 source の実体収集は metadata を明示した別の finalization 実行へ委譲できる。
 source evidence が見つからない場合も Phase 4B の allowability failure とは分離し、final text
 gate の `pending` として記録する。既存 path が存在するのに SHA-256 が一致しない場合は
-evidence mismatch として fail する。license text の欠落だけでは Phase 4B policy gate を失敗にしない。現在の Phase 4A inventory
-にある次の欠落観測も削除しない。
+evidence mismatch として fail する。license text の欠落だけでは Phase 4B policy gate を失敗にしない。
+checked-in authoritative source evidence は live registry に依存せずに使用できる。
+
+以前の Phase 4A missing observation は、
+[`third-party-license-evidence/manifest.json`](../../third-party-license-evidence/manifest.json)
+に記録した authoritative upstream text で解消する。対象は次のとおりである。
 
 - `bitcoin_hashes@0.14.101` — `CC0-1.0`
 - `napi@3.12.2` — `MIT`
 - `napi-sys@3.3.0` — `MIT`
 - `napi-derive@3.6.3` — `MIT`
 - `napi-derive-backend@6.1.2` — `MIT`
+
+checked-in text の digest または upstream identity が一致しない場合は evidence mismatch として
+fail closed する。法的要否はこの implementation で判断しない。
 
 この artifact は第三者 text の法的要否を決めず、text を推測・生成もしない。最終 release
 では、必要な上流 license / notice text を取得・検証できない場合に fail closed とする。

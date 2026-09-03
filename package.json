@@ -13,6 +13,8 @@
     "test:release-license-policy": "node scripts/test-release-license-policy.mjs",
     "test:c-abi-release": "node scripts/test-c-abi-release.mjs",
     "test:c-abi-sbom": "node scripts/test-c-abi-sbom.mjs",
+    "test:release-record": "node scripts/test-release-record.mjs",
+    "test:third-party-license-evidence": "node scripts/test-third-party-license-evidence.mjs",
     "test:npm:release": "node scripts/test-npm-release.mjs",
     "test:npm:bundlers": "node scripts/test-npm-bundlers.mjs"
   },

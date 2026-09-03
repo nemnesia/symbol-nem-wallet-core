@@ -17,6 +17,11 @@ import {
   parseLicenseExpressionSyntax,
   validateSbomSums,
 } from "./release-sbom.mjs";
+import {
+  readThirdPartyLicenseText,
+  thirdPartyLicenseEvidenceForComponent,
+  thirdPartyLicenseEvidenceMetadata,
+} from "./third-party-license-evidence.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const POLICY_SCHEMA_VERSION = 1;
@@ -464,6 +469,19 @@ function isThirdPartyComponent(component) {
 }
 
 function sourceLicenseTexts(entry, cargoMetadata) {
+  const checkedInEvidence = thirdPartyLicenseEvidenceForComponent(entry);
+  if (checkedInEvidence !== null) {
+    return entry.license_text_files.map((file) => {
+      if (file.path !== checkedInEvidence.upstream_file_path || file.sha256 !== checkedInEvidence.collected_text_sha256) {
+        fail(`third-party checked-in evidence identity mismatch: ${componentIdentity(entry)}`);
+      }
+      return {
+        path: file.path,
+        sha256: file.sha256,
+        text: readThirdPartyLicenseText(checkedInEvidence).toString("utf8"),
+      };
+    });
+  }
   const candidates = cargoMetadata
     .flatMap((metadata) => Array.isArray(metadata.packages) ? metadata.packages : [])
     .filter((packageData) => packageData.name === entry.name && packageData.version === entry.version && packageData.source === entry.source && typeof packageData.manifest_path === "string")
@@ -508,6 +526,8 @@ function createThirdPartyLicenseArtifact(inventory, document, { inventorySha256 
         license_text_files: entry.license_text_files,
         collection_status: entry.license_text_status === "resolved" ? "available" : "pending-source-evidence",
       };
+      const checkedInEvidence = thirdPartyLicenseEvidenceForComponent(entry);
+      if (checkedInEvidence !== null) result.upstream_evidence = thirdPartyLicenseEvidenceMetadata(checkedInEvidence);
       if (entry.license_text_status === "resolved" && cargoMetadata.length > 0) {
         const licenseTexts = sourceLicenseTexts(entry, cargoMetadata);
         if (licenseTexts !== null) result.license_texts = licenseTexts;
