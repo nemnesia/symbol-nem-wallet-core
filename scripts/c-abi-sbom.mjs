@@ -88,7 +88,7 @@ function sha256File(path, label = path) {
 
 function canonicalCargoLockBytes() {
   try {
-    return readFileSync(resolve(repositoryRoot, "Cargo.lock"));
+    return Buffer.from(readFileSync(resolve(repositoryRoot, "Cargo.lock")).toString("utf8").replaceAll("\r\n", "\n"), "utf8");
   } catch {
     fail("Cargo.lock is unavailable");
   }
@@ -673,6 +673,7 @@ function run() {
 
 export {
   C_ABI_PACKAGE_NAME,
+  cargoLockDigest,
   INVENTORY_FILENAME,
   POLICY_FILENAME,
   POLICY_SUMS_FILENAME,

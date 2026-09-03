@@ -24,12 +24,12 @@ import {
   validateTargetEvidence,
   validateTargetEvidenceSet,
 } from "./c-abi-release.mjs";
-import { validateCAbiEvidenceIdentity } from "./c-abi-sbom.mjs";
+import { cargoLockDigest, validateCAbiEvidenceIdentity } from "./c-abi-sbom.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const COMMIT = "be840630e3468515cf197cb1b865372dc002f9d8";
 const VERSION = "0.1.0";
-const LOCK_HASH = createHash("sha256").update(readFileSync(resolve(repositoryRoot, "Cargo.lock"))).digest("hex");
+const LOCK_HASH = cargoLockDigest();
 
 function expectFailure(callback, pattern = /C ABI .*gate failed/) {
   assert.throws(callback, (error) => pattern.test(String(error?.message)), "expected C ABI release gate failure");

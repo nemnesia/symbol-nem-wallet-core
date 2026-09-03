@@ -163,11 +163,8 @@ jobs:
           if [[ -n "$RELEASE_TAG" ]]; then
             release_args+=(--release-tag "$RELEASE_TAG")
           fi
-          if command -v sha256sum >/dev/null 2>&1; then
-            cargo_lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
-          else
-            cargo_lock_sha256="$(shasum -a 256 Cargo.lock | awk '{print $1}')"
-          fi
+          cargo_lock_sha256="$(node scripts/c-abi-release.mjs cargo-lock-sha256)"
+          test -n "$cargo_lock_sha256"
           mkdir -p "release-c-abi-target/${{ matrix.target_id }}"
           prepare_args=(
             --target-id "${{ matrix.target_id }}"

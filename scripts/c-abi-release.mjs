@@ -18,7 +18,7 @@ import {
   cAbiArchiveFilename,
   cAbiTarget,
 } from "./c-abi-targets.mjs";
-import { validateCAbiEvidenceIdentity } from "./c-abi-sbom.mjs";
+import { cargoLockDigest, validateCAbiEvidenceIdentity } from "./c-abi-sbom.mjs";
 import {
   collectReleaseVersionSources,
   isValidCommit,
@@ -686,6 +686,10 @@ function resolved(value, label) {
 function run() {
   const argv = process.argv.slice(2);
   const command = argv[0];
+  if (command === "cargo-lock-sha256") {
+    process.stdout.write(`${cargoLockDigest()}\n`);
+    return;
+  }
   if (command === "prepare-target") {
     prepareTargetArtifacts({
       targetId: argumentValue(argv, "--target-id"),
