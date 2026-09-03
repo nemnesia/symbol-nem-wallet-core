@@ -21,6 +21,7 @@ const NPM_PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
 const C_ABI_PACKAGE_NAME = "symbol-nem-wallet-core-native";
 const NPM_WORKFLOW = ".github/workflows/node.yml";
 const C_ABI_WORKFLOW = ".github/workflows/c-abi-release.yml";
+const PUBLISHED_NPM_EVIDENCE_FILES = ["release-operation.json", "npm-provenance.json"];
 const NPM_REQUIRED_FILES = [
   "release-manifest.json",
   "SHA256SUMS",
@@ -141,7 +142,7 @@ function assertDigestFile(root, filename, expected, label) {
   }
 }
 
-function validateNpmManifest(npmDir, mode, tag, sourceCommit) {
+function validateNpmManifest(npmDir, mode, tag, sourceCommit, provenanceStatus) {
   const manifestPath = resolveUnder(npmDir, "release-manifest.json", "npm release manifest");
   const manifest = json(manifestPath, "npm release manifest");
   if (!isPlainObject(manifest) || manifest.schema_version !== 1 || manifest.package_name !== NPM_PACKAGE_NAME || manifest.mode !== mode || manifest.source_commit !== sourceCommit) fail("npm release manifest identity is invalid");
@@ -171,7 +172,8 @@ function validateNpmManifest(npmDir, mode, tag, sourceCommit) {
   const assets = required.map((filename) => fileRecord(npmDir, filename, `npm evidence ${filename}`));
   const digestRecord = assets.find((entry) => entry.filename === manifest.npm_tarball.filename);
   assertDigestFile(npmDir, "SHA256SUMS", [digestRecord, fileRecord(npmDir, "release-manifest.json", "npm release manifest")], "npm SHA256SUMS required entries");
-  assertExactFiles(npmDir, required, "npm durable evidence set");
+  const publishedEvidence = provenanceStatus === "published" ? PUBLISHED_NPM_EVIDENCE_FILES : [];
+  assertExactFiles(npmDir, [...required, ...publishedEvidence], "npm durable evidence set");
   return { manifest, assets };
 }
 
@@ -239,7 +241,7 @@ function optionalPublishedEvidence(npmDir, provenanceStatus, sourceCommit, versi
 
 export function createReleaseRecord({ npmDir, cAbiDir, outputDir, mode = "candidate", tag = null, sourceCommit, provenanceStatus = mode === "candidate" ? "not-executed" : "required-at-publish", write = true }) {
   if (provenanceStatus === "published" && mode !== "release") fail("published npm provenance requires formal release mode");
-  const npm = validateNpmManifest(npmDir, mode, tag, sourceCommit);
+  const npm = validateNpmManifest(npmDir, mode, tag, sourceCommit, provenanceStatus);
   const cAbi = validateCAbiManifest(cAbiDir, mode, tag, sourceCommit);
   const publishedEvidence = optionalPublishedEvidence(npmDir, provenanceStatus, sourceCommit, npm.manifest.package_version, tag);
   const npmAssets = [...npm.assets, ...publishedEvidence];

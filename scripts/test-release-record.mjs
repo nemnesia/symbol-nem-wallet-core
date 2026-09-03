@@ -206,7 +206,7 @@ try {
   expectFailure(
     "published provenance requires collected release evidence",
     () => createReleaseRecord({ npmDir, cAbiDir, outputDir, mode: "release", tag: `v${VERSION}`, sourceCommit: COMMIT, provenanceStatus: "published" }),
-    /npm release operation evidence is missing/,
+    /missing/,
   );
 
   process.stdout.write("release record deterministic and negative tests passed\n");

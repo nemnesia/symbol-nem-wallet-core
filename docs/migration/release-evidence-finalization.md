@@ -100,6 +100,13 @@ files, `c-abi-release-manifest.json`, `C-ABI-SHA256SUMS`, the C ABI SBOM and
 inventory plus checksum file, and the C ABI policy and third-party evidence
 plus checksum file.
 
+The shared durable release record is attached separately as:
+
+```text
+release-record.json
+RELEASE-RECORD-SHA256
+```
+
 All npm and C ABI records must contain the same version, formal tag, and source
 commit. The record separately states `npm provenance required` and
 `C ABI no additional artifact signing in v1`.
