@@ -221,6 +221,15 @@ try {
   assert.equal(collectedThirdParty.final_release_text_gate.status, "ready");
   assert.equal(collectedThirdParty.components[0].license_texts[0].text, licenseText);
   enforceLicensePolicy(policy, collectedThirdParty, true);
+
+  const unavailableSourceThirdParty = createThirdPartyLicenseArtifact(collectedInventory, document, {
+    inventorySha256: "2".repeat(64),
+    cargoMetadata: [{ packages: [{ name: "example-dependency", version: "1.2.3", source: REGISTRY, manifest_path: resolve(sourceEvidenceRoot, "missing", "Cargo.toml") }] }],
+  });
+  assert.equal(unavailableSourceThirdParty.collection_status, "incomplete");
+  assert.equal(unavailableSourceThirdParty.text_content_status, "not-collected");
+  enforceLicensePolicy(policy, unavailableSourceThirdParty);
+  expectFailure("final unavailable source evidence gate", () => enforceLicensePolicy(policy, unavailableSourceThirdParty, true), /incomplete/);
 } finally {
   rmSync(sourceEvidenceRoot, { recursive: true, force: true });
 }

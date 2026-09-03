@@ -468,20 +468,28 @@ function sourceLicenseTexts(entry, cargoMetadata) {
     .flatMap((metadata) => Array.isArray(metadata.packages) ? metadata.packages : [])
     .filter((packageData) => packageData.name === entry.name && packageData.version === entry.version && packageData.source === entry.source && typeof packageData.manifest_path === "string")
     .sort((left, right) => left.manifest_path.localeCompare(right.manifest_path));
-  if (candidates.length === 0) fail(`third-party source evidence is unavailable: ${componentIdentity(entry)}`);
-  return entry.license_text_files.map((file) => {
+  if (candidates.length === 0) return null;
+  const collected = [];
+  for (const file of entry.license_text_files) {
     const matches = candidates
       .map((packageData) => resolve(dirname(packageData.manifest_path), file.path))
       .filter((path) => existsSync(path))
       .map((path) => ({ path, bytes: readFileSync(path) }))
       .filter(({ bytes }) => createHash("sha256").update(bytes).digest("hex") === file.sha256);
-    if (matches.length === 0) fail(`third-party license text hash mismatch: ${componentIdentity(entry)}/${file.path}`);
-    return {
+    if (matches.length === 0) {
+      const existing = candidates
+        .map((packageData) => resolve(dirname(packageData.manifest_path), file.path))
+        .some((path) => existsSync(path));
+      if (!existing) return null;
+      fail(`third-party license text hash mismatch: ${componentIdentity(entry)}/${file.path}`);
+    }
+    collected.push({
       path: file.path,
       sha256: file.sha256,
       text: matches[0].bytes.toString("utf8"),
-    };
-  });
+    });
+  }
+  return collected;
 }
 
 function createThirdPartyLicenseArtifact(inventory, document, { inventorySha256 = null, cargoMetadata = [] } = {}) {
@@ -500,7 +508,11 @@ function createThirdPartyLicenseArtifact(inventory, document, { inventorySha256 
         license_text_files: entry.license_text_files,
         collection_status: entry.license_text_status === "resolved" ? "available" : "pending-source-evidence",
       };
-      if (entry.license_text_status === "resolved" && cargoMetadata.length > 0) result.license_texts = sourceLicenseTexts(entry, cargoMetadata);
+      if (entry.license_text_status === "resolved" && cargoMetadata.length > 0) {
+        const licenseTexts = sourceLicenseTexts(entry, cargoMetadata);
+        if (licenseTexts !== null) result.license_texts = licenseTexts;
+        else result.collection_status = "pending-source-evidence";
+      }
       return result;
     })
     .sort((left, right) => `${left.name}|${left.version}|${left.source}`.localeCompare(`${right.name}|${right.version}|${right.source}`));
