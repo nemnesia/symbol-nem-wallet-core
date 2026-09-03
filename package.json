@@ -11,6 +11,8 @@
     "test:release-evidence": "node scripts/test-release-evidence.mjs",
     "test:release-sbom": "node scripts/test-release-sbom.mjs",
     "test:release-license-policy": "node scripts/test-release-license-policy.mjs",
+    "test:c-abi-release": "node scripts/test-c-abi-release.mjs",
+    "test:c-abi-sbom": "node scripts/test-c-abi-sbom.mjs",
     "test:npm:release": "node scripts/test-npm-release.mjs",
     "test:npm:bundlers": "node scripts/test-npm-bundlers.mjs"
   },

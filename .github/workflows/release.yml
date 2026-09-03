@@ -59,9 +59,19 @@ jobs:
     permissions:
       contents: read
 
+  c-abi:
+    name: Build and validate formal C ABI release assets
+    needs: [identity, candidate]
+    uses: ./.github/workflows/c-abi-release.yml
+    with:
+      release_mode: release
+      release_tag: ${{ github.ref_name }}
+    permissions:
+      contents: read
+
   publish:
     name: Publish npm package with provenance
-    needs: [identity, candidate]
+    needs: [identity, candidate, c-abi]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment:

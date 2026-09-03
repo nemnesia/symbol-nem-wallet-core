@@ -1,0 +1,357 @@
+name: C ABI release asset preparation
+
+on:
+  workflow_call:
+    inputs:
+      release_mode:
+        description: "Candidate validation or formal release asset mode"
+        required: false
+        default: candidate
+        type: string
+      release_tag:
+        description: "Formal release tag, supplied only for a tag-triggered release"
+        required: false
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/c-abi/**"
+      - "crates/core/**"
+      - "scripts/c-abi-*.mjs"
+      - "scripts/test-c-abi-*.mjs"
+      - ".github/workflows/c-abi-release.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/c-abi/**"
+      - "crates/core/**"
+      - "scripts/c-abi-*.mjs"
+      - "scripts/test-c-abi-*.mjs"
+      - ".github/workflows/c-abi-release.yml"
+  workflow_dispatch:
+    inputs:
+      release_mode:
+        description: "candidate only unless a formal release is explicitly connected"
+        required: false
+        default: candidate
+        type: choice
+        options:
+          - candidate
+          - release
+      release_tag:
+        description: "Formal v<SemVer> tag"
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  target:
+    name: ${{ matrix.target_id }} C ABI release asset
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target_id: win32-x64-msvc
+            rust_target: x86_64-pc-windows-msvc
+            runner: windows-2025-vs2026
+            platform: windows-x64-msvc
+          - target_id: darwin-x64
+            rust_target: x86_64-apple-darwin
+            runner: macos-15-intel
+            platform: macos-x64
+          - target_id: darwin-arm64
+            rust_target: aarch64-apple-darwin
+            runner: macos-15
+            platform: macos-arm64
+          - target_id: linux-x64-gnu
+            rust_target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            platform: linux-x64-glibc
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust_target }}
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Set up MSVC developer environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+
+      - name: Verify checked out source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all -- Cargo.lock)"
+
+      - name: Build C ABI release library on native target
+        if: matrix.target_id != 'linux-x64-gnu'
+        run: cargo build --package symbol-nem-wallet-core-native --target "${{ matrix.rust_target }}" --release --locked
+
+      - name: Build Linux C ABI release library in glibc 2.28 environment
+        if: matrix.target_id == 'linux-x64-gnu'
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain="$(rustc -Vv | sed -n 's/^release: //p')"
+          test -n "$toolchain"
+          docker run --rm \
+            --env RUST_TOOLCHAIN="$toolchain" \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            quay.io/pypa/manylinux_2_28_x86_64:latest \
+            bash -lc '
+              set -euo pipefail
+              curl --fail --silent --show-error --location https://sh.rustup.rs | sh -s -- -y --profile minimal
+              source "$HOME/.cargo/env"
+              rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target x86_64-unknown-linux-gnu
+              cargo +"$RUST_TOOLCHAIN" build --package symbol-nem-wallet-core-native --target x86_64-unknown-linux-gnu --release --locked
+            '
+
+      - name: Prepare deterministic C ABI archive and target evidence
+        shell: bash
+        env:
+          RELEASE_MODE: ${{ inputs.release_mode || 'candidate' }}
+          RELEASE_TAG: ${{ inputs.release_tag || '' }}
+        run: |
+          set -euo pipefail
+          case "${{ matrix.target_id }}" in
+            win32-x64-msvc)
+              static_lib="target/${{ matrix.rust_target }}/release/symbol_nem_wallet_core_native.lib"
+              dynamic_lib="target/${{ matrix.rust_target }}/release/symbol_nem_wallet_core_native.dll"
+              companion=(--companion "target/${{ matrix.rust_target }}/release/symbol_nem_wallet_core_native.dll.lib")
+              ;;
+            darwin-x64|darwin-arm64)
+              static_lib="target/${{ matrix.rust_target }}/release/libsymbol_nem_wallet_core_native.a"
+              dynamic_lib="target/${{ matrix.rust_target }}/release/libsymbol_nem_wallet_core_native.dylib"
+              companion=()
+              ;;
+            linux-x64-gnu)
+              static_lib="target/${{ matrix.rust_target }}/release/libsymbol_nem_wallet_core_native.a"
+              dynamic_lib="target/${{ matrix.rust_target }}/release/libsymbol_nem_wallet_core_native.so"
+              companion=()
+              ;;
+            *) exit 1 ;;
+          esac
+          release_args=(--mode "$RELEASE_MODE")
+          if [[ -n "$RELEASE_TAG" ]]; then
+            release_args+=(--release-tag "$RELEASE_TAG")
+          fi
+          if command -v sha256sum >/dev/null 2>&1; then
+            cargo_lock_sha256="$(sha256sum Cargo.lock | awk '{print $1}')"
+          else
+            cargo_lock_sha256="$(shasum -a 256 Cargo.lock | awk '{print $1}')"
+          fi
+          mkdir -p "release-c-abi-target/${{ matrix.target_id }}"
+          node scripts/c-abi-release.mjs prepare-target \
+            --target-id "${{ matrix.target_id }}" \
+            --rust-target "${{ matrix.rust_target }}" \
+            --runner "${{ matrix.runner }}" \
+            --platform "${{ matrix.platform }}" \
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
+            --source-commit "$GITHUB_SHA" \
+            "${release_args[@]}" \
+            --toolchain "$(rustc -Vv | sed -n 's/^release: //p')" \
+            --cargo-lock-sha256 "$cargo_lock_sha256" \
+            --header crates/c-abi/include/symbol_nem_wallet_core.h \
+            --license LICENSE \
+            --static-lib "$static_lib" \
+            --dynamic-lib "$dynamic_lib" \
+            "${companion[@]}" \
+            --output "release-c-abi-target/${{ matrix.target_id }}"
+
+      - name: Validate header and static/dynamic consumer smoke on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/test-c-abi-consumer.mjs \
+            --target-id "${{ matrix.target_id }}" \
+            --archive "release-c-abi-target/${{ matrix.target_id }}/symbol-nem-wallet-core-c-abi-$(node -p "require('./packages/wallet-core/package.json').version")-${{ matrix.target_id }}.tar.gz" \
+            --evidence "release-c-abi-target/${{ matrix.target_id }}/c-abi-artifact.json"
+
+      - name: Validate header and static/dynamic consumer smoke on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >-
+          node scripts/test-c-abi-consumer.mjs
+          --target-id "${{ matrix.target_id }}"
+          --archive "release-c-abi-target/${{ matrix.target_id }}/symbol-nem-wallet-core-c-abi-$(node -p "require('./packages/wallet-core/package.json').version")-${{ matrix.target_id }}.tar.gz"
+          --evidence "release-c-abi-target/${{ matrix.target_id }}/c-abi-artifact.json"
+
+      - name: Upload validated target archive and evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-c-abi-${{ matrix.target_id }}
+          path: release-c-abi-target/${{ matrix.target_id }}/
+
+  aggregate:
+    name: Aggregate C ABI release asset set
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    needs: target
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Download target archives and evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-c-abi-win32-x64-msvc
+          path: release-c-abi-input/win32-x64-msvc
+
+      - name: Download macOS x64 archive and evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-c-abi-darwin-x64
+          path: release-c-abi-input/darwin-x64
+
+      - name: Download macOS arm64 archive and evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-c-abi-darwin-arm64
+          path: release-c-abi-input/darwin-arm64
+
+      - name: Download Linux archive and evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-c-abi-linux-x64-gnu
+          path: release-c-abi-input/linux-x64-gnu
+
+      - name: Download formal release identity evidence
+        if: inputs.release_mode == 'release'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-identity
+          path: release-identity-input
+
+      - name: Download formal npm release manifest evidence
+        if: inputs.release_mode == 'release'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-npm-package
+          path: release-npm-input
+
+      - name: Verify source checkout and Cargo metadata target closure inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all -- Cargo.lock)"
+          mkdir -p release-c-abi-metadata
+          cargo metadata --format-version 1 --locked --filter-platform x86_64-pc-windows-msvc > release-c-abi-metadata/windows.json
+          cargo metadata --format-version 1 --locked --filter-platform x86_64-apple-darwin > release-c-abi-metadata/macos-x64.json
+          cargo metadata --format-version 1 --locked --filter-platform aarch64-apple-darwin > release-c-abi-metadata/macos-arm64.json
+          cargo metadata --format-version 1 --locked --filter-platform x86_64-unknown-linux-gnu > release-c-abi-metadata/linux.json
+
+      - name: Generate and validate C ABI SPDX, inventory, policy, and notice evidence
+        shell: bash
+        env:
+          RELEASE_MODE: ${{ inputs.release_mode || 'candidate' }}
+          RELEASE_TAG: ${{ inputs.release_tag || '' }}
+        run: |
+          set -euo pipefail
+          release_args=(--mode "$RELEASE_MODE")
+          if [[ -n "$RELEASE_TAG" ]]; then
+            release_args+=(--release-tag "$RELEASE_TAG")
+          fi
+          text_gate=()
+          if [[ "$RELEASE_MODE" == release ]]; then
+            text_gate=(--require-third-party-license-text)
+          fi
+          node scripts/c-abi-sbom.mjs generate \
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
+            --source-commit "$GITHUB_SHA" \
+            "${release_args[@]}" \
+            --output release-c-abi-evidence \
+            --cargo-metadata x86_64-pc-windows-msvc=release-c-abi-metadata/windows.json \
+            --cargo-metadata x86_64-apple-darwin=release-c-abi-metadata/macos-x64.json \
+            --cargo-metadata aarch64-apple-darwin=release-c-abi-metadata/macos-arm64.json \
+            --cargo-metadata x86_64-unknown-linux-gnu=release-c-abi-metadata/linux.json \
+            "${text_gate[@]}"
+          node scripts/c-abi-sbom.mjs validate \
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
+            --source-commit "$GITHUB_SHA" \
+            "${release_args[@]}" \
+            --output release-c-abi-evidence \
+            --cargo-metadata x86_64-pc-windows-msvc=release-c-abi-metadata/windows.json \
+            --cargo-metadata x86_64-apple-darwin=release-c-abi-metadata/macos-x64.json \
+            --cargo-metadata aarch64-apple-darwin=release-c-abi-metadata/macos-arm64.json \
+            --cargo-metadata x86_64-unknown-linux-gnu=release-c-abi-metadata/linux.json \
+            "${text_gate[@]}"
+
+      - name: Aggregate and validate exact C ABI GitHub Release asset set
+        shell: bash
+        env:
+          RELEASE_MODE: ${{ inputs.release_mode || 'candidate' }}
+          RELEASE_TAG: ${{ inputs.release_tag || '' }}
+        run: |
+          set -euo pipefail
+          release_args=(--mode "$RELEASE_MODE")
+          if [[ -n "$RELEASE_TAG" ]]; then
+            release_args+=(--release-tag "$RELEASE_TAG")
+          fi
+          identity_args=()
+          if [[ "$RELEASE_MODE" == release ]]; then
+            identity_args=(--release-identity release-identity-input/release-identity.json)
+            identity_args+=(--npm-manifest release-npm-input/release-manifest.json)
+          fi
+          node scripts/c-abi-release.mjs aggregate \
+            --input release-c-abi-input \
+            --output release-c-abi-output \
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
+            --source-commit "$GITHUB_SHA" \
+            "${release_args[@]}" \
+            --sbom release-c-abi-evidence/c-abi-sbom.spdx.json \
+            --inventory release-c-abi-evidence/c-abi-license-inventory.json \
+            --sbom-sums release-c-abi-evidence/C-ABI-SBOM-SHA256SUMS \
+            --policy release-c-abi-evidence/c-abi-license-policy.json \
+            --third-party release-c-abi-evidence/c-abi-third-party-licenses.json \
+            --policy-sums release-c-abi-evidence/C-ABI-LICENSE-POLICY-SHA256SUMS \
+            "${identity_args[@]}"
+
+      - name: Upload exact validated C ABI release asset set
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-c-abi
+          path: release-c-abi-output/
