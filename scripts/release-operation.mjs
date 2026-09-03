@@ -10,6 +10,7 @@ import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isValidSemVer, parseSemVer } from "./release-identity.mjs";
+import { validateNpmRepositoryMetadata } from "./npm-repository.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
@@ -365,6 +366,11 @@ function validateTarball(releaseDir, manifest) {
   if (!isPlainObject(metadata) || metadata.name !== PACKAGE_NAME || metadata.version !== manifest.package_version) {
     fail("npm tarball package identity differs from the release manifest");
   }
+  try {
+    validateNpmRepositoryMetadata(metadata, "npm tarball package metadata");
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
   safeRelativePath(manifest.wasm.canonical_artifact.relative_path, "canonical WASM path");
   const wasmPath = `package/${manifest.wasm.canonical_artifact.relative_path}`;
   const wasmBytes = readTarEntry(tarballPath, wasmPath);
@@ -437,6 +443,12 @@ function validatePhaseEvidence(releaseDir, manifest) {
 }
 
 export function validateReleaseBundle({ releaseDir, identityPath, tag, sourceCommit, environment = RELEASE_ENVIRONMENT }) {
+  const sourceMetadata = json(resolve(repositoryRoot, "packages/wallet-core/package.json"), "source npm package metadata");
+  try {
+    validateNpmRepositoryMetadata(sourceMetadata, "source npm package metadata");
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
   const manifestPath = requiredFile(releaseDir, "release-manifest.json", "release manifest");
   const manifest = validateReleaseManifestIdentity(json(manifestPath, "release manifest"), tag, sourceCommit);
   const identity = json(identityPath, "release identity evidence");

@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "Synchronous Symbol and NEM wallet core facade",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nemnesia/symbol-nem-wallet-core.git",
+    "directory": "packages/wallet-core"
+  },
   "type": "module",
   "types": "./dist/index.d.ts",
   "main": "./dist/wasm/index.cjs",

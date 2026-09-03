@@ -23,6 +23,8 @@ durable GitHub Release publication、CHANGELOG、actual npm publish および Gi
   同じ commit であることを確認する。
 - npm registry の既存 version、network error、曖昧な HTTP response を区別し、duplicate または
   確認不能の場合は fail closed とする。
+- publish 対象 package の source / tarball `package.json` に、`nemnesia/symbol-nem-wallet-core` と
+  `packages/wallet-core` を指す canonical npm repository metadata が存在することを確認する。
 
 `scripts/release-operation.mjs` は、release identity evidence、release manifest、npm tarball、
 native / WASM evidence、Phase 4A / 4B evidence の identity と digest を publish job で再確認する。
@@ -91,10 +93,28 @@ license text の法的要否はこの実装で判断しない。回収不能、�
    release tag に限定する。workflow の identity gate も同じ条件を検証する。
 4. npm package `@nemnesia/symbol-nem-wallet-core` の Trusted Publisher を GitHub Actions / OIDC
    として設定する。repository owner は `nemnesia`、repository は
-   `symbol-nem-wallet-core`、workflow file は `.github/workflows/release.yml`、Environment は
-   `release` とする。通常 release 用の long-lived npm automation token は登録・保存しない。
+   `symbol-nem-wallet-core`、Environment は `release` とする。repository 内の実ファイル path:
+   `.github/workflows/release.yml`。npm Trusted Publisher の workflow filename 設定値:
+   `release.yml` だけである。npm 側へ full path を入力しない。通常 release 用の long-lived npm
+   automation token は登録・保存しない。
 5. GitHub Actions の repository policy が required reviewer、OIDC token issuance および tag
    workflow 実行を許可することを確認する。
+
+### Environment bootstrap order
+
+正式 release workflow を有効にする前、最低でも最初の `v<SemVer>` tag push より前に、次の順序で
+外部設定を完了する。
+
+1. GitHub Environment `release` を明示的に作成する。
+2. `release` に required reviewer を1名設定する。
+3. deployment branch / tag protection を承認済み release policy に合わせて設定する。
+4. 設定完了を確認してから npm Trusted Publisher を有効化する。
+5. その後にのみ production release tag を作成する。
+
+Environment が workflow 実行で暗黙生成されることを正常な bootstrap path としない。GitHub が
+workflow の Environment 参照を契機に `release` を protection rule なしで暗黙生成する場合があっても、
+`release` の事前作成と protection 設定が確認できるまで、Trusted Publisher の有効化および production
+tag 作成へ進めない。
 
 Environment protection rule の追加条件、Trusted Publisher の複数候補、break-glass policy、
 pre-release policy の変更または permission 拡大が必要になった場合は、実装者が決定せず
@@ -119,9 +139,9 @@ workflow 内に publish command は実装済みだが、tag push と reviewer ap
 ## Validation intent
 
 `test-release-operation.mjs` は valid tag、malformed / mismatched tag、version mismatch、source
-commit mismatch、non-main ancestry、Environment boundary、least-privilege permission、OIDC-only
-publish、provenance fallback 不在、長期 token 不在、Phase 4A / 4B digest mismatch rejection を
-deterministically 確認する。
+commit mismatch、non-main ancestry、repository metadata / tarball metadata mismatch、Environment
+boundary、least-privilege permission、OIDC-only publish、provenance fallback 不在、長期 token 不在、
+Phase 4A / 4B digest mismatch rejection を deterministically 確認する。
 
 formal release を実際に進める前には、既存の Phase 1〜4B evidence と current release candidate
 assembly を含む relevant CI を通し、`release` Environment と npm Trusted Publisher の設定を

@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { targetForRuntime, validateNativeManifest } from "../packages/wallet-core/src/manifest.mjs";
+import { validateNpmRepositoryMetadata } from "./npm-repository.mjs";
 import { validatePackageContents } from "./package-contents.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -260,6 +261,24 @@ function pack() {
   return { destination, tarball, entry };
 }
 
+function validatePackedRepositoryMetadata(tarball, packageMetadata) {
+  let packedMetadata;
+  try {
+    packedMetadata = JSON.parse(execFileSync("tar", ["-xOf", tarball, "package/package.json"], { encoding: "utf8" }));
+  } catch {
+    fail("npm tarball package metadata is unreadable");
+  }
+  try {
+    validateNpmRepositoryMetadata(packedMetadata, "npm tarball package metadata");
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  if (JSON.stringify(packedMetadata.repository) !== JSON.stringify(packageMetadata.repository)) {
+    fail("npm tarball repository metadata differs from source package metadata");
+  }
+  return { source: packageMetadata.repository, tarball: packedMetadata.repository };
+}
+
 function packageInventory(manifest, entry) {
   const expected = new Set([
     "LICENSE",
@@ -327,6 +346,8 @@ function sizeEvidence(manifest, entry, tarball) {
 
 const packResult = pack();
 const meta = packageMeta();
+validateNpmRepositoryMetadata(meta, "source npm package metadata");
+const repositoryMetadata = validatePackedRepositoryMetadata(packResult.tarball, meta);
 const manifest = json(resolve(packageRoot, "dist/native/artifact-manifest.json"));
 validateNativeManifest(manifest, meta);
 validateAssembledManifest(manifest, meta);
@@ -357,6 +378,7 @@ try {
     const failClosed = runCorruptArtifact(corruptProject, targetId);
     process.stdout.write(`${JSON.stringify({
       package: packageName,
+      repository_metadata: repositoryMetadata,
       native_targets: manifest.artifacts.map((artifact) => artifact.target_id),
       single_canonical_wasm: true,
       inventory,

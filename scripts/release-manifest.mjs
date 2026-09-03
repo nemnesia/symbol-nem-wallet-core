@@ -20,6 +20,7 @@ import {
   wasmBindgenVersionFromCanonicalLock,
 } from "./release-evidence.mjs";
 import { isValidSemVer, parseSemVer } from "./release-identity.mjs";
+import { validateNpmRepositoryMetadata } from "./npm-repository.mjs";
 import { validatePackageContents } from "./package-contents.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -157,9 +158,14 @@ function readCommit() {
 
 function packageMetadata(packageRoot) {
   const metadata = json(resolve(packageRoot, "package.json"), "npm package metadata");
-  exactKeys(metadata, ["name", "version", "description", "license", "type", "types", "main", "module", "exports", "engines", "files"], "npm package metadata");
+  exactKeys(metadata, ["name", "version", "description", "license", "repository", "type", "types", "main", "module", "exports", "engines", "files"], "npm package metadata");
   if (metadata.name !== packageName) fail("npm package name is unexpected");
   validVersion(metadata.version, "npm package version");
+  try {
+    validateNpmRepositoryMetadata(metadata);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
   return metadata;
 }
 
