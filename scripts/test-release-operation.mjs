@@ -24,6 +24,7 @@ import {
   validateEvidenceDigests,
   validateReleaseOperationIdentity,
   validateReleaseWorkflowBoundary,
+  validateSpdxReleaseIdentity,
 } from "./release-operation.mjs";
 import { validateReleaseIdentity } from "./release-identity.mjs";
 import {
@@ -88,6 +89,34 @@ function releaseIdentityFixture(overrides = {}) {
       npm: { relative_path: "packages/wallet-core/package.json", package_name: "@nemnesia/symbol-nem-wallet-core", version: VERSION },
     },
     ...overrides,
+  };
+}
+
+function releaseManifestFixture(overrides = {}) {
+  return {
+    package_name: "@nemnesia/symbol-nem-wallet-core",
+    package_version: VERSION,
+    source_commit: COMMIT,
+    ...overrides,
+  };
+}
+
+function spdxReleaseFixture({ rootPackage = {}, packages, documentDescribes, ...documentOverrides } = {}) {
+  const root = {
+    SPDXID: "SPDXRef-Package-root",
+    name: "@nemnesia/symbol-nem-wallet-core",
+    versionInfo: VERSION,
+    ...rootPackage,
+  };
+  return {
+    SPDXID: "SPDXRef-DOCUMENT",
+    spdxVersion: "SPDX-2.3",
+    dataLicense: "CC0-1.0",
+    name: `symbol-nem-wallet-core-${VERSION}`,
+    documentNamespace: `https://spdx.org/spdxdocs/symbol-nem-wallet-core-${VERSION}-${COMMIT}`,
+    documentDescribes: documentDescribes ?? [root.SPDXID],
+    packages: packages ?? [root],
+    ...documentOverrides,
   };
 }
 
@@ -297,6 +326,68 @@ try {
   rmSync(evidenceTempRoot, { recursive: true, force: true });
 }
 
+const releaseManifest = releaseManifestFixture();
+const validSpdx = spdxReleaseFixture();
+assert.equal(Object.hasOwn(validSpdx, "package_name"), false);
+assert.equal(Object.hasOwn(validSpdx, "package_version"), false);
+assert.equal(Object.hasOwn(validSpdx, "source_commit"), false);
+assert.equal(validateSpdxReleaseIdentity(validSpdx, releaseManifest), true);
+
+expectFailure(
+  () => validateSpdxReleaseIdentity({ ...validSpdx, spdxVersion: "SPDX-2.2" }, releaseManifest),
+  /SPDX document identity is invalid/,
+);
+expectFailure(
+  () => validateSpdxReleaseIdentity({ ...validSpdx, name: "symbol-nem-wallet-core-0.1.1" }, releaseManifest),
+  /SPDX document name differs/,
+);
+expectFailure(
+  () => validateSpdxReleaseIdentity({ ...validSpdx, documentNamespace: `https://spdx.org/spdxdocs/symbol-nem-wallet-core-0.1.1-${COMMIT}` }, releaseManifest),
+  /SPDX document namespace differs/,
+);
+expectFailure(
+  () => validateSpdxReleaseIdentity({ ...validSpdx, documentNamespace: `https://spdx.org/spdxdocs/symbol-nem-wallet-core-${VERSION}-${OTHER_COMMIT}` }, releaseManifest),
+  /SPDX document namespace differs/,
+);
+const missingDocumentDescribes = { ...validSpdx };
+delete missingDocumentDescribes.documentDescribes;
+expectFailure(
+  () => validateSpdxReleaseIdentity(missingDocumentDescribes, releaseManifest),
+  /SPDX document root package identity is invalid/,
+);
+expectFailure(
+  () => validateSpdxReleaseIdentity({ ...validSpdx, documentDescribes: ["SPDXRef-Package-missing"] }, releaseManifest),
+  /SPDX document root package is missing or duplicated/,
+);
+expectFailure(
+  () => validateSpdxReleaseIdentity(spdxReleaseFixture({ rootPackage: { name: "wrong-package" } }), releaseManifest),
+  /SPDX root npm package is missing or duplicated/,
+);
+expectFailure(
+  () => validateSpdxReleaseIdentity(spdxReleaseFixture({ rootPackage: { versionInfo: "0.1.1" } }), releaseManifest),
+  /SPDX root npm package is missing or duplicated/,
+);
+expectFailure(
+  () => validateSpdxReleaseIdentity({ ...validSpdx, packages: undefined }, releaseManifest),
+  /SPDX packages are missing or malformed/,
+);
+expectFailure(
+  () => validateSpdxReleaseIdentity({ ...validSpdx, packages: [{}] }, releaseManifest),
+  /SPDX packages are missing or malformed/,
+);
+expectFailure(
+  () => validateSpdxReleaseIdentity(spdxReleaseFixture({ rootPackage: { SPDXID: "SPDXRef-Package-wrong" }, documentDescribes: ["SPDXRef-Package-root"] }), releaseManifest),
+  /SPDX document root package is missing or duplicated/,
+);
+expectFailure(
+  () => validateSpdxReleaseIdentity(spdxReleaseFixture({ packages: [validSpdx.packages[0], { ...validSpdx.packages[0], SPDXID: "SPDXRef-Package-duplicate" }] }), releaseManifest),
+  /SPDX root npm package is missing or duplicated/,
+);
+expectFailure(
+  () => validateSpdxReleaseIdentity({ ...validSpdx, documentDescribes: ["SPDXRef-Package-root", "SPDXRef-Package-other"] }, releaseManifest),
+  /SPDX document root package identity is invalid/,
+);
+
 const root = mkdtempSync(resolve(tmpdir(), "snwc-release-operation-test-"));
 try {
   const paths = {
@@ -308,7 +399,7 @@ try {
     policySha256sumsPath: resolve(root, "LICENSE-POLICY-SHA256SUMS"),
   };
   const write = (path, value) => writeFileSync(path, value);
-  write(paths.sbomPath, "spdx fixture\n");
+  write(paths.sbomPath, `${JSON.stringify(validSpdx, null, 2)}\n`);
   write(paths.inventoryPath, "inventory fixture\n");
   write(paths.policyPath, "policy fixture\n");
   write(paths.thirdPartyPath, "third-party fixture\n");

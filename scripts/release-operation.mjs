@@ -158,6 +158,73 @@ export function validateEvidenceDigests({
   return { sbom: true, license_policy: true };
 }
 
+export function validateSpdxReleaseIdentity(sbom, manifest) {
+  if (
+    !isPlainObject(manifest) ||
+    manifest.package_name !== PACKAGE_NAME ||
+    typeof manifest.package_version !== "string" ||
+    typeof manifest.source_commit !== "string"
+  ) {
+    fail("release manifest identity is invalid");
+  }
+  validFormalVersion(manifest.package_version, "release manifest version");
+  validCommit(manifest.source_commit, "release manifest source commit");
+
+  if (
+    !isPlainObject(sbom) ||
+    sbom.SPDXID !== "SPDXRef-DOCUMENT" ||
+    sbom.spdxVersion !== "SPDX-2.3" ||
+    sbom.dataLicense !== "CC0-1.0"
+  ) {
+    fail("SPDX document identity is invalid");
+  }
+
+  if (sbom.name !== `symbol-nem-wallet-core-${manifest.package_version}`) {
+    fail("SPDX document name differs from the release manifest");
+  }
+  if (
+    sbom.documentNamespace !==
+    `https://spdx.org/spdxdocs/symbol-nem-wallet-core-${manifest.package_version}-${manifest.source_commit}`
+  ) {
+    fail("SPDX document namespace differs from the release manifest");
+  }
+  if (
+    !Array.isArray(sbom.documentDescribes) ||
+    sbom.documentDescribes.length !== 1 ||
+    typeof sbom.documentDescribes[0] !== "string"
+  ) {
+    fail("SPDX document root package identity is invalid");
+  }
+  if (!Array.isArray(sbom.packages)) fail("SPDX packages are missing or malformed");
+
+  const packageIds = new Set();
+  for (const packageData of sbom.packages) {
+    if (
+      !isPlainObject(packageData) ||
+      typeof packageData.SPDXID !== "string" ||
+      !/^SPDXRef-[A-Za-z0-9.-]+$/.test(packageData.SPDXID) ||
+      typeof packageData.name !== "string" ||
+      typeof packageData.versionInfo !== "string"
+    ) {
+      fail("SPDX packages are missing or malformed");
+    }
+    if (packageIds.has(packageData.SPDXID)) fail("SPDX package IDs are duplicated");
+    packageIds.add(packageData.SPDXID);
+  }
+
+  const describedSpdxId = sbom.documentDescribes[0];
+  const describedPackages = sbom.packages.filter((packageData) => packageData.SPDXID === describedSpdxId);
+  if (describedPackages.length !== 1) fail("SPDX document root package is missing or duplicated");
+
+  const rootPackages = sbom.packages.filter(
+    (packageData) => packageData.name === PACKAGE_NAME && packageData.versionInfo === manifest.package_version,
+  );
+  if (rootPackages.length !== 1) fail("SPDX root npm package is missing or duplicated");
+  if (describedPackages[0] !== rootPackages[0]) fail("SPDX document root package identity differs from the release manifest");
+
+  return true;
+}
+
 function validateTag(tag, version) {
   validFormalVersion(version, "release version");
   if (typeof tag !== "string" || tag !== `v${version}`) fail("release tag/version mismatch");
@@ -409,12 +476,13 @@ function validatePhaseEvidence(releaseDir, manifest) {
   const inventory = json(inventoryPath, "license inventory");
   const policy = json(policyPath, "license policy");
   const thirdParty = json(thirdPartyPath, "third-party license evidence");
-  for (const [label, value] of [["SBOM", sbom], ["license inventory", inventory], ["license policy", policy], ["third-party license evidence", thirdParty]]) {
+  validateSpdxReleaseIdentity(sbom, manifest);
+  for (const [label, value] of [["license inventory", inventory], ["license policy", policy], ["third-party license evidence", thirdParty]]) {
     if (!isPlainObject(value) || value.package_name !== PACKAGE_NAME || value.package_version !== manifest.package_version || value.source_commit !== manifest.source_commit) {
       fail(`${label} identity differs from the release manifest`);
     }
   }
-  if (sbom.SPDXID !== "SPDXRef-DOCUMENT" || inventory.sbom_file !== "sbom.spdx.json") fail("Phase 4A evidence identity is invalid");
+  if (inventory.sbom_file !== "sbom.spdx.json") fail("Phase 4A evidence identity is invalid");
   if (
     policy.inventory_sha256 !== sha256File(inventoryPath, "license inventory") ||
     policy.sbom_sha256 !== sha256File(sbomPath, "SPDX SBOM") ||
