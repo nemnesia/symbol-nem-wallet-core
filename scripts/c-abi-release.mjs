@@ -89,6 +89,14 @@ function sha256File(path, label = path) {
   }
 }
 
+function canonicalTextBytes(path, label = path) {
+  try {
+    return Buffer.from(readFileSync(path).toString("utf8").replaceAll("\r\n", "\n"), "utf8");
+  } catch {
+    fail(`${label} is unreadable`);
+  }
+}
+
 function readJson(path, label = path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
@@ -409,7 +417,7 @@ function prepareTargetArtifacts({
   if (inputNames.some((name) => name.endsWith(".rlib") || name.endsWith(".node") || name.endsWith(".pdb") || name.endsWith(".dSYM"))) fail("debug, rlib, or Node-API input was supplied to C ABI release preparation");
   const glibcMaxRequired = target.glibc_baseline === undefined ? undefined : glibcMaximum(dynamicLibraryPath);
   if (glibcMaxRequired !== undefined && compareVersions(glibcMaxRequired, target.glibc_baseline) > 0) fail("Linux C ABI dynamic library exceeds the glibc 2.28 boundary");
-  const header = readFileSync(headerPath);
+  const header = canonicalTextBytes(headerPath, "C ABI public header");
   const license = readFileSync(licensePath);
   const staticLibrary = readFileSync(staticLibraryPath);
   const dynamicLibrary = readFileSync(dynamicLibraryPath);
@@ -742,6 +750,7 @@ export {
   C_ABI_TARGET_ORDER,
   C_ABI_TARGETS,
   aggregateCAbiArtifacts,
+  canonicalTextBytes,
   cAbiArchiveFilename,
   createTarGz,
   parseTarGz,

@@ -18,6 +18,7 @@ import {
   C_ABI_TARGET_ORDER,
   C_ABI_TARGETS,
   aggregateCAbiArtifacts,
+  canonicalTextBytes,
   cAbiArchiveFilename,
   createTarGz,
   parseTarGz,
@@ -30,6 +31,15 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const COMMIT = "be840630e3468515cf197cb1b865372dc002f9d8";
 const VERSION = "0.1.0";
 const LOCK_HASH = cargoLockDigest();
+
+const lineEndingFixture = mkdtempSync(resolve(tmpdir(), "snwc-c-abi-line-ending-test-"));
+try {
+  const path = resolve(lineEndingFixture, "header.h");
+  writeFileSync(path, "#ifndef FIXTURE\r\n#define FIXTURE\r\n#endif\r\n");
+  assert.equal(canonicalTextBytes(path).toString("utf8"), "#ifndef FIXTURE\n#define FIXTURE\n#endif\n");
+} finally {
+  rmSync(lineEndingFixture, { recursive: true, force: true });
+}
 
 function expectFailure(callback, pattern = /C ABI .*gate failed/) {
   assert.throws(callback, (error) => pattern.test(String(error?.message)), "expected C ABI release gate failure");
