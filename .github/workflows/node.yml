@@ -478,6 +478,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          input_root="$RUNNER_TEMP/snwc-release-sbom-input"
           node scripts/release-license-policy.mjs generate \
             --inventory release-output/license-inventory.json \
             --sbom release-output/sbom.spdx.json \
@@ -560,6 +561,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          input_root="$RUNNER_TEMP/snwc-release-sbom-input"
           node scripts/release-license-policy.mjs validate \
             --inventory release-output/license-inventory.json \
             --sbom release-output/sbom.spdx.json \
