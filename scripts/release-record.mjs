@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   statSync,
   writeFileSync,
@@ -113,6 +114,14 @@ function fileRecord(root, filename, label = filename) {
   return { filename, sha256: hashFile(path, label) };
 }
 
+function assertExactFiles(root, expected, label) {
+  const expectedNames = [...new Set(expected)].sort();
+  const actualNames = readdirSync(root, { withFileTypes: true })
+    .map((entry) => entry.isDirectory() ? `${entry.name}/` : entry.name)
+    .sort();
+  if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames)) fail(`${label} contains missing or unexpected files`);
+}
+
 function assertDigestFile(root, filename, expected, label) {
   const path = resolveUnder(root, filename, label);
   const content = bytes(path, label).toString("utf8");
@@ -158,6 +167,7 @@ function validateNpmManifest(npmDir, mode, tag, sourceCommit) {
   const assets = required.map((filename) => fileRecord(npmDir, filename, `npm evidence ${filename}`));
   const digestRecord = assets.find((entry) => entry.filename === manifest.npm_tarball.filename);
   assertDigestFile(npmDir, "SHA256SUMS", [digestRecord, fileRecord(npmDir, "release-manifest.json", "npm release manifest")], "npm SHA256SUMS required entries");
+  assertExactFiles(npmDir, required, "npm durable evidence set");
   return { manifest, assets };
 }
 
@@ -207,6 +217,7 @@ function validateCAbiManifest(cAbiDir, mode, tag, sourceCommit) {
   if (!isPlainObject(cAbiThirdParty) || cAbiThirdParty.package_name !== C_ABI_PACKAGE_NAME || cAbiThirdParty.npm_package_name !== NPM_PACKAGE_NAME || cAbiThirdParty.package_version !== manifest.package_version || cAbiThirdParty.source_commit !== sourceCommit) fail("C ABI third-party evidence identity differs from the release manifest");
   if (mode === "release" && cAbiThirdParty.final_release_text_gate?.status !== "ready") fail("formal C ABI third-party license text gate is not ready");
   assets.push(fileRecord(cAbiDir, "C-ABI-SHA256SUMS", "C-ABI-SHA256SUMS"));
+  assertExactFiles(cAbiDir, assets.map((entry) => entry.filename), "C ABI durable evidence set");
   return { manifest, assets };
 }
 
