@@ -227,7 +227,7 @@ Symbol and NEM are not treated as one scheme for HD derivation, public keys, add
 
 ## Native C ABI
 
-The Native C ABI is not the npm public API. It is the native integration package `symbol-nem-wallet-core-native` and the [public header](crates/c-abi/include/symbol_nem_wallet_core.h). It is not the same artifact as the Node-API `.node` artifact. This README does not imply an unimplemented GitHub Release distribution.
+The Native C ABI is not the npm public API. It is the native integration package `symbol-nem-wallet-core-native` and the [public header](crates/c-abi/include/symbol_nem_wallet_core.h). It is a different artifact from the Node-API `.node` artifact. Formal releases retain the archives and evidence for the four supported desktop targets as GitHub Release assets, separately from the npm package. Android / iOS C ABI support is deferred until MosaicLynx integration.
 
 ```bash
 cargo build --package symbol-nem-wallet-core-native --release --locked
@@ -284,7 +284,7 @@ Do not output or copy Mnemonics, private keys, Profile passwords, seeds, decrypt
 
 Temporarily receiving a secret copy for explicit handoff or export does not transfer continuing ownership of the original held by Core. Protection against a compromised Browser or host process is outside the Core / Binding guarantee boundary.
 
-The project does not describe provenance, SBOM, runtime digest verification, Trusted Publishing, or other later release / supply-chain work as completed runtime security features.
+For a supported native target, the Node loader compares the package-local manifest SHA-256 with the exact artifact bytes before loading. A digest mismatch, unreadable artifact, load failure, or initialization failure is fail-closed as `WalletCoreBackendInitializationError` and is not converted into a WASM fallback or a Core operation error. This is a package / loader-boundary control, not a replacement for Core cryptography or authorization. Provenance, SBOM, and Trusted Publishing are release / supply-chain evidence rather than Core runtime security features. Formal npm publishing is limited to GitHub Actions using OIDC and the required npm provenance path.
 
 ## Out of scope
 

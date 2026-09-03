@@ -118,6 +118,7 @@ assert.match(migrationDocumentation, /正式 release workflow を有効にする
 assert.match(migrationDocumentation, /Environment が workflow 実行で暗黙生成されることを正常な bootstrap path としない/);
 const workflow = validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWorkflow });
 assert.equal(workflow.environment, RELEASE_ENVIRONMENT);
+assert.deepEqual(workflow.protected_jobs, ["publish", "publication"]);
 assert.equal(workflow.provenance_command, PROVENANCE_PUBLISH_COMMAND);
 assert.equal(workflow.publication_job, "publication");
 assert.equal(workflow.durable_release_record, "GitHub Release assets");
@@ -132,7 +133,17 @@ expectFailure(
 );
 expectFailure(
   () => validateReleaseWorkflowBoundary({ releaseWorkflow: `${releaseWorkflow}\n    environment:\n      name: release\n`, candidateWorkflow }),
-  /exactly one release job/,
+  /exactly two release jobs/,
+);
+expectFailure(
+  () => validateReleaseWorkflowBoundary({
+    releaseWorkflow: releaseWorkflow.replace(
+      "    environment:\n      name: release\n    permissions:\n      contents: write",
+      "    permissions:\n      contents: write",
+    ),
+    candidateWorkflow,
+  }),
+  /publication job is not protected/,
 );
 
 const root = mkdtempSync(resolve(tmpdir(), "snwc-release-operation-test-"));

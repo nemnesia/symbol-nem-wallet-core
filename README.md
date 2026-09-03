@@ -284,7 +284,7 @@ Mnemonic、private key、Profile password、seed、decrypted secret material、s
 
 Application が explicit handoff / export のために secret copy を一時的に受け取ることは、Core 内原本の継続 ownership の移転を意味しません。Browser や host process の侵害防止は Core / Binding の保証範囲外です。
 
-provenance、SBOM、runtime digest verification、Trusted Publishing など release / supply-chain evidence を、完成済みの runtime security feature として表現しません。正式 release の npm publish は GitHub Actions / OIDC / npm provenance path に限定します。
+supported native target では、Node loader が load 前に package-local manifest の SHA-256 と native artifact の exact bytes を照合します。digest 不一致、artifact の読込不能、load failure、初期化失敗は `WalletCoreBackendInitializationError` として fail closed し、WASM fallback や Core operation error へ変換しません。これは package / loader boundary の control であり、Core の cryptography や authorization を代替しません。provenance、SBOM、Trusted Publishing は Core の runtime security feature ではなく release / supply-chain evidence として扱います。正式 release の npm publish は GitHub Actions / OIDC / required npm provenance path に限定します。
 
 ## 対応外
 

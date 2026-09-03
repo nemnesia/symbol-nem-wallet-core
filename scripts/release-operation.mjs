@@ -573,13 +573,19 @@ export function validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWork
   requireWorkflowText(releaseWorkflow, /release_mode: release/, "formal release mode is not selected");
   requireWorkflowText(releaseWorkflow, /release_tag: \$\{\{ github\.ref_name \}\}/, "release tag is not passed from the tag event");
   const environmentMatches = releaseWorkflow.match(/^    environment:\n      name: release$/gm) ?? [];
-  if (environmentMatches.length !== 1) fail("exactly one release job must use Environment release");
   const publish = jobBlock(releaseWorkflow, "publish");
   const publication = jobBlock(releaseWorkflow, "publication");
   if (!publish.includes("    environment:\n      name: release")) fail("publish job is not protected by Environment release");
+  if (!publication.includes("    environment:\n      name: release")) fail("publication job is not protected by Environment release");
+  if (environmentMatches.length !== 2) fail("exactly two release jobs must use Environment release");
   if (!publish.includes("    permissions:\n      contents: read\n      id-token: write")) fail("publish job permissions are not the least-privilege OIDC boundary");
   if (publish.includes("contents: write")) fail("publish job has GitHub Release write permission");
   if (!publication.includes("    permissions:\n      contents: write")) fail("publication job does not have GitHub Release write permission");
+  for (const jobId of ["identity", "candidate", "c-abi", "release-record"]) {
+    if (jobBlock(releaseWorkflow, jobId).includes("    environment:\n      name: release")) {
+      fail(`${jobId} job uses Environment release`);
+    }
+  }
   if (!publication.includes("scripts/release-publication.mjs assemble") || !publication.includes("scripts/github-release.mjs plan") || !publication.includes("scripts/github-release.mjs verify") || !publication.includes("gh release create") || !publication.includes("gh release upload")) fail("publication job does not implement durable GitHub Release publication");
   if (!releaseWorkflow.includes("--allow-existing-version") || !publish.includes("SNWC_PUBLICATION_MODE=recovered-existing") || !publish.includes("scripts/npm-provenance.mjs capture") || !publish.includes("scripts/release-operation.mjs finalize") || !publish.includes("--provenance-status published")) fail("release workflow does not implement fail-closed publish retry recovery");
   if ((releaseWorkflow.match(/id-token: write/g) ?? []).length !== 1) fail("id-token: write is granted outside the publish job");
@@ -595,7 +601,7 @@ export function validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWork
   requireWorkflowText(candidateWorkflow, /^  workflow_call:$/m, "candidate workflow is not reusable");
   return {
     environment: RELEASE_ENVIRONMENT,
-    protected_job: "publish",
+    protected_jobs: ["publish", "publication"],
     candidate_workflow: ".github/workflows/node.yml",
     oidc_permission: "publish only",
     publication_job: "publication",

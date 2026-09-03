@@ -336,6 +336,8 @@ jobs:
     if: needs.publish.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    environment:
+      name: release
     permissions:
       contents: write
     steps:

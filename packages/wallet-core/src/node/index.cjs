@@ -2,6 +2,7 @@
 /* @snwc-manifest-runtime */
 
 const { createRequire } = require("node:module");
+const { createHash } = require("node:crypto");
 const { readFileSync } = require("node:fs");
 const { resolve } = require("node:path");
 
@@ -53,6 +54,10 @@ function loadNativeBackend() {
 
   try {
     const artifactPath = resolve(packageRoot, entry.relative_path);
+    const actualSha256 = createHash("sha256").update(readFileSync(artifactPath)).digest("hex");
+    if (actualSha256 !== entry.sha256) {
+      throw backendInitializationError();
+    }
     return createRequire(__filename)(artifactPath);
   } catch {
     throw backendInitializationError();

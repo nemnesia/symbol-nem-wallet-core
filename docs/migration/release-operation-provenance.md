@@ -42,11 +42,24 @@ native / WASM evidence、Phase 4A / 4B evidence の identity と digest を publ
 | `identity` | なし | `contents: read` | tag、source、version、npm duplicate gate |
 | `candidate` | なし | `contents: read` | reusable `node.yml` による build / test / assembly / evidence |
 | `publish` | `release` | `contents: read`, `id-token: write` | publish 前の bundle gate と npm provenance publish |
-| `publication` | なし | `contents: write` | exact asset set の GitHub Release durable publication / verification |
+| `publication` | `release` | `contents: write` | exact asset set の GitHub Release durable publication / verification |
 
 通常の build / test / SBOM / license policy / assembly job は `release` Environment に接続しない。
 `packages: write`、`actions: write` および長期 npm token は workflow に要求しない。publication job
 だけに `contents: write` を付与し、npm publish job には付与しない。
+
+`publish` と `publication` の両 job を protected `release` Environment に接続し、npm publish と
+GitHub Release durable publication の双方を通常 CI から分離する。`id-token: write` は `publish`
+だけに、`contents: write` は `publication` だけに付与する。
+
+### Node native runtime integrity
+
+Node の ESM / CJS loader は、supported target の manifest entry を選択した後、load 前に package-local
+native artifact の exact bytes を SHA-256 し、`entry.sha256` と strict に比較する。artifact の
+missing、unreadable、digest mismatch、load failure または addon initialization failure は
+`WalletCoreBackendInitializationError` として fail closed し、WASM fallback や Core operation error
+へ変換しない。manifest entry がない unsupported target と明示的な `--no-addons` だけが package-local
+WASM fallback の条件である。
 
 ### Trusted Publishing / provenance
 
@@ -169,9 +182,10 @@ workflow 内に publish / durable publication command は実装済みだが、ta
 ## Validation intent
 
 `test-release-operation.mjs` は valid tag、malformed / mismatched tag、version mismatch、source
-commit mismatch、non-main ancestry、repository metadata / tarball metadata mismatch、Environment
-boundary、least-privilege permission、OIDC-only publish、provenance fallback 不在、長期 token 不在、
-Phase 4A / 4B digest mismatch rejection を deterministically 確認する。
+commit mismatch、non-main ancestry、repository metadata / tarball metadata mismatch、両 write-side
+job の protected Environment boundary、least-privilege permission、OIDC-only publish、provenance
+fallback 不在、長期 token 不在、Phase 4A / 4B digest mismatch rejection を deterministically
+確認する。
 
 formal release を実際に進める前には、既存の Phase 1〜4B evidence と current release candidate
 assembly を含む relevant CI を通し、`release` Environment と npm Trusted Publisher の設定を

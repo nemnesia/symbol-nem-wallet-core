@@ -374,7 +374,7 @@ Input binary ownership remains with the caller; the facade does not retain it. R
 - When a supported target has a manifest entry, the package-local Node-API native backend is preferred.
 - `node --no-addons` uses the package-local WASM backend.
 - An unsupported target without a native artifact uses the package-local WASM backend.
-- A missing, corrupt, unreadable, or initialization-failing native artifact with a manifest entry is `WalletCoreBackendInitializationError`.
+- A missing, corrupt, unreadable, digest-mismatched, or initialization-failing native artifact with a manifest entry is `WalletCoreBackendInitializationError`.
 - A declared native artifact failure is not silently retried through WASM.
 
 The Linux native target mapping is limited to x64 with recognized glibc `>=2.28`. Other platform / architecture / libc combinations proceed through WASM. The package-local manifest determines which native artifacts a package assembly contains; consumers have no public API to select a backend directly.
@@ -407,7 +407,7 @@ Raw `.node`, raw `.wasm`, generated modules, and the manifest are implementation
 
 The facade only mediates type, binary, and error representations. It does not replace cryptography, authentication, authorization, confirmation / approval generation, Transaction interpretation, Store semantics, migration, current-Store selection, or Chain / Network policy. It does not guarantee protection against a compromised Application or Browser host.
 
-The package does not claim provenance, SBOM, runtime digest verification, Trusted Publishing, or other later release / supply-chain work as completed runtime security features.
+Runtime SHA-256 verification of native artifacts is a package / loader-boundary control. The package does not claim provenance, SBOM, Trusted Publishing, or other later release / supply-chain work as Core runtime security features.
 
 ## Errors
 

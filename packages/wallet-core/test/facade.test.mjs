@@ -520,6 +520,60 @@ test(
   },
 );
 
+test(
+  "a loadable native artifact with a mismatched manifest digest fails closed without WASM fallback",
+  { skip: currentNativeArtifact === null || !existsSync(currentNativeArtifact) },
+  () => {
+    const { directory, copy } = makePackageCopy();
+    try {
+      const manifestPath = resolve(copy, "dist/native/artifact-manifest.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      const entry = manifest.artifacts.find((artifact) => artifact.target_id === currentTargetId);
+      assert.ok(entry);
+
+      const runNative = (syntax) => {
+        const args = syntax === "esm"
+          ? [
+              "--input-type=module",
+              "-e",
+              `import(${JSON.stringify(packageName)}).then((m)=>console.log(JSON.stringify({isBytes:m.create_empty_store() instanceof Uint8Array})))`,
+            ]
+          : [
+              "-e",
+              `const m=require(${JSON.stringify(packageName)}); console.log(JSON.stringify({isBytes:m.create_empty_store() instanceof Uint8Array}));`,
+            ];
+        return JSON.parse(runNode(args, copy));
+      };
+
+      for (const syntax of ["esm", "cjs"]) {
+        assert.deepEqual(runNative(syntax), { isBytes: true }, syntax);
+      }
+
+      entry.sha256 = `${entry.sha256[0] === "0" ? "1" : "0"}${entry.sha256.slice(1)}`;
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+      for (const syntax of ["esm", "cjs"]) {
+        const args = syntax === "esm"
+          ? [
+              "--input-type=module",
+              "-e",
+              `import(${JSON.stringify(packageName)}).then(()=>process.exit(2)).catch((error)=>console.log(JSON.stringify({name:error.name,message:error.message,code:error.code})))`,
+            ]
+          : [
+              "-e",
+              `try { require(${JSON.stringify(packageName)}); process.exitCode=2; } catch (error) { console.log(JSON.stringify({name:error.name,message:error.message,code:error.code})); }`,
+            ];
+        assert.deepEqual(JSON.parse(runNode(args, copy)), {
+          name: "WalletCoreBackendInitializationError",
+          message: "backend initialization failed",
+        }, syntax);
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
+
 test("a valid manifest without the current target falls back to package-local WASM", () => {
   const { directory, copy } = makePackageCopy();
   try {

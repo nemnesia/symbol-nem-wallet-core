@@ -888,15 +888,15 @@ manifest entry あり + binary missing / unreadable / invalid
 ```
 
 valid manifest に target entry がない場合だけ、§10.2 の WASM fallback を許可する。
-manifest file 自体の missing、invalid JSON、schema mismatch、package version mismatch または
-assembly-time metadata mismatch は `BackendInitializationError` とする。runtime の毎回 hash
-計算はここに含めず、§12.2 の OPEN-006 defer を優先する。
+manifest file 自体の missing、invalid JSON、schema mismatch、package version mismatch、
+assembly-time metadata mismatch または runtime の SHA-256 mismatch は
+`BackendInitializationError` とする。runtime の hash は native load 前に、manifest entry が
+指す exact bytes に対して計算する。
 
-manifest の `sha256` は assembly / release evidence と runtime lookup の metadata である。
-OPEN-006 の runtime hash verification は release gate へ DEFERRED とする。Stage 7 の
-facade は runtime の毎回 SHA-256 検証を必須にせず、manifest metadata の存在だけを理由に
-verification を行わない。将来 runtime verification を導入する場合は、失敗を
-`BackendInitializationError` とし、Core error や WASM retry に変換しない。
+manifest の `sha256` は assembly / release evidence と runtime integrity verification の metadata
+である。Stage 7 で OPEN-006 として release gate へ defer していた runtime hash verification は、
+承認済み release implementation により実装する。失敗は `BackendInitializationError` とし、Core
+error や WASM retry に変換しない。
 
 ## 13. Stage 7 / Stage 9 assembly boundary
 

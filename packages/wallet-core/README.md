@@ -370,7 +370,7 @@ Node runtime では `Buffer` が `Uint8Array` compatible input として受理�
 - supported target に manifest entry がある場合、package-local Node-API native backend を優先します。
 - `node --no-addons` は package-local WASM backend を使用します。
 - native artifact がない unsupported target は package-local WASM backend を使用します。
-- manifest entry がある native artifact の欠落、破損、読込失敗、初期化失敗は `WalletCoreBackendInitializationError` です。
+- manifest entry がある native artifact の欠落、破損、読込不能、SHA-256 不一致、初期化失敗は `WalletCoreBackendInitializationError` です。
 - declared native artifact の failure を WASM へ silent fallback しません。
 
 Linux native target は x64 + recognized glibc `>=2.28` の manifest mapping だけです。その他の platform / architecture / libc combination は WASM 側へ進みます。現在の package assembly がどの native artifact を含むかは package-local manifest によって決まり、consumer が backend を直接選択する API はありません。
@@ -403,7 +403,7 @@ raw `.node`、raw `.wasm`、generated module、manifest は implementation asset
 
 facade は型・binary・error の representation を橋渡しするだけです。暗号、認証、authorization、confirmation / approval の生成、Transaction interpretation、Store の意味解釈、migration、current Store 判定、Chain / Network policy を代替しません。Application や Browser host の侵害防止も保証しません。
 
-provenance、SBOM、runtime digest verification、Trusted Publishing など release / supply-chain の後続項目を、この package の runtime security feature として保証しません。
+native artifact の runtime SHA-256 verification は package / loader boundary の control です。provenance、SBOM、Trusted Publishing など release / supply-chain の後続項目を、この package の Core runtime security feature として保証するものではありません。
 
 ## Errors
 
