@@ -148,6 +148,7 @@ try {
 
 const releaseWorkflow = readFileSync(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
 const candidateWorkflow = readFileSync(resolve(repositoryRoot, ".github/workflows/node.yml"), "utf8");
+const cAbiWorkflow = readFileSync(resolve(repositoryRoot, ".github/workflows/c-abi-release.yml"), "utf8");
 const migrationDocumentation = readFileSync(resolve(repositoryRoot, "docs/migration/release-operation-provenance.md"), "utf8");
 const trustedPublisherSectionStart = migrationDocumentation.indexOf("4. npm package");
 const trustedPublisherSectionEnd = migrationDocumentation.indexOf("\n5.", trustedPublisherSectionStart);
@@ -158,9 +159,14 @@ assert.match(trustedPublisherSection, /npm Trusted Publisher の workflow filena
 assert.doesNotMatch(trustedPublisherSection, /workflow filename 設定値: `\.github\/workflows\/release\.yml`/);
 assert.match(migrationDocumentation, /正式 release workflow を有効にする前、最低でも最初の `v<SemVer>` tag push より前に/);
 assert.match(migrationDocumentation, /Environment が workflow 実行で暗黙生成されることを正常な bootstrap path としない/);
-const workflow = validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWorkflow });
+const workflow = validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWorkflow, cAbiWorkflow });
 assert.equal(workflow.environment, RELEASE_ENVIRONMENT);
 assert.deepEqual(workflow.protected_jobs, ["publish", "publication"]);
+assert.deepEqual(workflow.concurrency, {
+  release: { group: "${{ github.workflow }}-${{ github.ref }}", cancel_in_progress: true },
+  candidate: { group: "node-${{ github.ref }}", cancel_in_progress: true },
+  c_abi: { group: "c-abi-release-${{ github.ref }}", cancel_in_progress: true },
+});
 assert.equal(workflow.provenance_command, PROVENANCE_PUBLISH_COMMAND);
 assert.equal(workflow.publication_job, "publication");
 assert.equal(workflow.durable_release_record, "GitHub Release assets");
@@ -182,15 +188,15 @@ const identityTeeIndex = identityStep.indexOf('| tee "$identity_tmp"');
 const identityCopyIndex = identityStep.indexOf('cp "$identity_tmp" release-identity.json');
 assert.ok(identityNodeIndex >= 0 && identityNodeIndex < identityTeeIndex && identityTeeIndex < identityCopyIndex);
 expectFailure(
-  () => validateReleaseWorkflowBoundary({ releaseWorkflow: releaseWorkflow.replace(PROVENANCE_PUBLISH_COMMAND, "npm publish"), candidateWorkflow }),
+  () => validateReleaseWorkflowBoundary({ releaseWorkflow: releaseWorkflow.replace(PROVENANCE_PUBLISH_COMMAND, "npm publish"), candidateWorkflow, cAbiWorkflow }),
   /provenance/,
 );
 expectFailure(
-  () => validateReleaseWorkflowBoundary({ releaseWorkflow: releaseWorkflow.replace("name: release\n", "name: production\n"), candidateWorkflow }),
+  () => validateReleaseWorkflowBoundary({ releaseWorkflow: releaseWorkflow.replace("name: release\n", "name: production\n"), candidateWorkflow, cAbiWorkflow }),
   /Environment release/,
 );
 expectFailure(
-  () => validateReleaseWorkflowBoundary({ releaseWorkflow: `${releaseWorkflow}\n    environment:\n      name: release\n`, candidateWorkflow }),
+  () => validateReleaseWorkflowBoundary({ releaseWorkflow: `${releaseWorkflow}\n    environment:\n      name: release\n`, candidateWorkflow, cAbiWorkflow }),
   /exactly two release jobs/,
 );
 expectFailure(
@@ -200,8 +206,53 @@ expectFailure(
       "    permissions:\n      contents: write",
     ),
     candidateWorkflow,
+    cAbiWorkflow,
   }),
   /publication job is not protected/,
+);
+expectFailure(
+  () => validateReleaseWorkflowBoundary({
+    releaseWorkflow,
+    candidateWorkflow: candidateWorkflow.replace(
+      "  group: node-${{ github.ref }}",
+      "  group: ${{ github.workflow }}-${{ github.ref }}",
+    ),
+    cAbiWorkflow,
+  }),
+  /candidate reusable workflow concurrency group collides with release caller/,
+);
+expectFailure(
+  () => validateReleaseWorkflowBoundary({
+    releaseWorkflow,
+    candidateWorkflow,
+    cAbiWorkflow: cAbiWorkflow.replace(
+      "  group: c-abi-release-${{ github.ref }}",
+      "  group: ${{ github.workflow }}-${{ github.ref }}",
+    ),
+  }),
+  /C ABI reusable workflow concurrency group collides with release caller/,
+);
+expectFailure(
+  () => validateReleaseWorkflowBoundary({
+    releaseWorkflow,
+    candidateWorkflow: candidateWorkflow.replace(
+      "  group: node-${{ github.ref }}",
+      "  group: ci-${{ github.ref }}",
+    ),
+    cAbiWorkflow,
+  }),
+  /candidate reusable workflow concurrency group is not deterministic/,
+);
+expectFailure(
+  () => validateReleaseWorkflowBoundary({
+    releaseWorkflow,
+    candidateWorkflow: candidateWorkflow.replace(
+      "  cancel-in-progress: true",
+      "  cancel-in-progress: false",
+    ),
+    cAbiWorkflow,
+  }),
+  /candidate reusable workflow must cancel duplicate in-progress runs/,
 );
 
 const cleanlinessRoot = mkdtempSync(resolve(tmpdir(), "snwc-release-identity-cleanliness-test-"));

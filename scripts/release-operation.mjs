@@ -17,6 +17,8 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
 const RELEASE_ENVIRONMENT = "release";
 const PROVENANCE_PUBLISH_COMMAND = "npm publish --provenance";
+const RELEASE_CONCURRENCY_GROUP = "${{ github.workflow }}-${{ github.ref }}";
+const REF_CONCURRENCY_SUFFIX = "${{ github.ref }}";
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const REQUIRED_VERSION_SOURCE_IDS = ["core", "cAbi", "node", "wasm", "npm"];
@@ -566,12 +568,45 @@ function requireWorkflowText(workflow, pattern, message) {
   if (!pattern.test(workflow)) fail(message);
 }
 
-export function validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWorkflow }) {
+function workflowConcurrency(workflow, label) {
+  if (typeof workflow !== "string") fail(`${label} is unavailable`);
+  const match = workflow.match(/^concurrency:\n  group: (.+)\n  cancel-in-progress: (true|false)$/m);
+  if (!match) fail(`${label} concurrency boundary is missing`);
+  return {
+    group: match[1],
+    cancelInProgress: match[2] === "true",
+  };
+}
+
+export function validateReleaseWorkflowConcurrency({ releaseWorkflow, candidateWorkflow, cAbiWorkflow }) {
+  const release = workflowConcurrency(releaseWorkflow, "release workflow");
+  const candidate = workflowConcurrency(candidateWorkflow, "candidate workflow");
+  const cAbi = workflowConcurrency(cAbiWorkflow, "C ABI workflow");
+
+  if (release.group !== RELEASE_CONCURRENCY_GROUP) fail("release workflow concurrency group changed");
+  if (!release.cancelInProgress) fail("release workflow must cancel duplicate in-progress runs");
+  if (candidate.group === release.group) fail("candidate reusable workflow concurrency group collides with release caller");
+  if (cAbi.group === release.group) fail("C ABI reusable workflow concurrency group collides with release caller");
+  if (candidate.group === cAbi.group) fail("called reusable workflow concurrency groups are not unique");
+  if (candidate.group !== `node-${REF_CONCURRENCY_SUFFIX}`) fail("candidate reusable workflow concurrency group is not deterministic");
+  if (cAbi.group !== `c-abi-release-${REF_CONCURRENCY_SUFFIX}`) fail("C ABI reusable workflow concurrency group is not deterministic");
+  if (!candidate.cancelInProgress) fail("candidate reusable workflow must cancel duplicate in-progress runs");
+  if (!cAbi.cancelInProgress) fail("C ABI reusable workflow must cancel duplicate in-progress runs");
+
+  return {
+    release: { group: release.group, cancel_in_progress: release.cancelInProgress },
+    candidate: { group: candidate.group, cancel_in_progress: candidate.cancelInProgress },
+    c_abi: { group: cAbi.group, cancel_in_progress: cAbi.cancelInProgress },
+  };
+}
+
+export function validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWorkflow, cAbiWorkflow }) {
   requireWorkflowText(releaseWorkflow, /^name: Release operation$/m, "release workflow name is invalid");
   requireWorkflowText(releaseWorkflow, /^    tags:\n      - ["']v\*["']$/m, "release workflow is not tag-triggered");
   requireWorkflowText(releaseWorkflow, /uses: \.\/\.github\/workflows\/node\.yml/, "release workflow does not call candidate validation");
   requireWorkflowText(releaseWorkflow, /release_mode: release/, "formal release mode is not selected");
   requireWorkflowText(releaseWorkflow, /release_tag: \$\{\{ github\.ref_name \}\}/, "release tag is not passed from the tag event");
+  const concurrency = validateReleaseWorkflowConcurrency({ releaseWorkflow, candidateWorkflow, cAbiWorkflow });
   const environmentMatches = releaseWorkflow.match(/^    environment:\n      name: release$/gm) ?? [];
   const publish = jobBlock(releaseWorkflow, "publish");
   const publication = jobBlock(releaseWorkflow, "publication");
@@ -603,6 +638,7 @@ export function validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWork
     environment: RELEASE_ENVIRONMENT,
     protected_jobs: ["publish", "publication"],
     candidate_workflow: ".github/workflows/node.yml",
+    concurrency,
     oidc_permission: "publish only",
     publication_job: "publication",
     durable_release_record: "GitHub Release assets",
