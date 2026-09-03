@@ -50,7 +50,9 @@ npm publish --access public --tag bootstrap
 
 Codex must not execute this command. This command is documented for the user operation only.
 
-Do not use the `latest` dist-tag for the bootstrap package.
+The publish command requests the `bootstrap` dist-tag. On an initial namespace bootstrap,
+the registry may also retain `latest` at the bootstrap version. This is an allowed
+pre-production state; do not make removal of `latest` part of this operation.
 
 ## Step 4: verify the npm registry state
 
@@ -59,7 +61,15 @@ After the manual publish, the user verifies that:
 - the package exists;
 - version `0.0.0-bootstrap.0` exists;
 - the `bootstrap` dist-tag points to `0.0.0-bootstrap.0`; and
-- `latest` does not point to the bootstrap version.
+- the following state is accepted for the initial namespace bootstrap:
+
+```text
+bootstrap: 0.0.0-bootstrap.0
+latest: 0.0.0-bootstrap.0
+```
+
+This is temporary bootstrap state. Do not unpublish or republish the bootstrap version,
+and do not retry deleting `latest` as an operation requirement.
 
 ## Step 5: configure npm Trusted Publishing
 
@@ -84,8 +94,29 @@ After Trusted Publisher configuration is confirmed, the bootstrap operation is c
 The release history is:
 
 ```text
-0.0.0-bootstrap.0  -> bootstrap dist-tag only
+0.0.0-bootstrap.0  -> bootstrap dist-tag; latest may temporarily point here
 0.1.0              -> first production release / latest
 ```
 
 The formal `0.1.0` package is published later only by the existing release workflow with npm Trusted Publishing, OIDC, and provenance.
+
+## Step 7: post-release verification
+
+After the existing release workflow publishes the formal `0.1.0` package, verify the
+registry state:
+
+```bash
+npm dist-tag ls @nemnesia/symbol-nem-wallet-core
+```
+
+The expected state after the formal release is:
+
+```text
+bootstrap: 0.0.0-bootstrap.0
+latest: 0.1.0
+```
+
+The formal publish must use only the existing GitHub Actions / Trusted Publishing / OIDC /
+provenance path. Do not manually publish `0.1.0`, change the production package version,
+change release workflow semantics, or create a production tag as part of this bootstrap
+operation.

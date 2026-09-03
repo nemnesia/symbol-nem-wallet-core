@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageRoot = resolve(repositoryRoot, "tools/npm-bootstrap");
+const documentationPath = resolve(repositoryRoot, "docs/migration/npm-bootstrap-publish.md");
 const expectedPackageName = "@nemnesia/symbol-nem-wallet-core";
 const expectedVersion = "0.0.0-bootstrap.0";
 const expectedFiles = ["README.md", "package.json"];
@@ -94,10 +95,31 @@ function parsePackResult(stdout) {
 }
 
 check(existsSync(packageRoot), "bootstrap directory is missing");
+check(existsSync(documentationPath), "bootstrap operation documentation is missing");
 const manifestPath = resolve(packageRoot, "package.json");
 const readmePath = resolve(packageRoot, "README.md");
 check(existsSync(manifestPath), "package.json is missing");
 check(existsSync(readmePath), "README.md is missing");
+
+const bootstrapDocumentation = readFileSync(documentationPath, "utf8");
+const expectedPreProductionState = `bootstrap: ${expectedVersion}\nlatest: ${expectedVersion}`;
+const expectedPostReleaseState = `bootstrap: ${expectedVersion}\nlatest: 0.1.0`;
+check(
+  bootstrapDocumentation.includes(expectedPreProductionState),
+  "documentation does not allow the observed pre-production dist-tag state",
+);
+check(
+  bootstrapDocumentation.includes(expectedPostReleaseState),
+  "documentation does not define the expected post-release dist-tag state",
+);
+check(
+  bootstrapDocumentation.includes(`npm dist-tag ls ${expectedPackageName}`),
+  "documentation does not define post-release dist-tag verification",
+);
+check(
+  !bootstrapDocumentation.includes("latest does not point to the bootstrap version"),
+  "documentation still requires latest to differ from the bootstrap version",
+);
 
 let manifest;
 try {
@@ -138,15 +160,12 @@ for (const file of sourceFiles) {
 }
 
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-const npmInvocation = process.platform === "win32" ? npmCommand : "/bin/bash";
-const npmArguments = process.platform === "win32"
-  ? ["pack", "--dry-run", "--json", "--ignore-scripts"]
-  : [npmCommand, "pack", "--dry-run", "--json", "--ignore-scripts"];
+const npmArguments = ["pack", "--dry-run", "--json", "--ignore-scripts"];
 const npmCache = mkdtempSync(resolve(tmpdir(), "snwc-npm-bootstrap-cache-"));
 let packOutput;
 try {
   packOutput = execFileSync(
-    npmInvocation,
+    npmCommand,
     npmArguments,
     {
       cwd: packageRoot,
