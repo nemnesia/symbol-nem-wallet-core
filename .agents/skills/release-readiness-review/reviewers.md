@@ -1,23 +1,36 @@
 # Reviewers
 
-メインエージェントは Chair として、対象、根拠、公開阻害事項、SemVer、判定、成果物を担当する。Phase 1 では次の4パスを独立して実施する。
+メインエージェントは Chair として、対象 release set、根拠、公開阻害事項、SemVer、判定、
+成果物を担当する。composite release target では発見した各 distribution surface を別々に
+確認し、4つの独立パスを維持する。サブエージェントを使わない場合は自己レビューの各観点を
+実施し、実施していない起動や並列実行を記録しない。
 
-## Reviewer A: 対象・文書
+## Reviewer A: Public contract / Documentation
 
-対象 crate / binding の公開意図、README、利用方法、API、環境、license、移行情報を確認する。
+README、translation parity、root / package README、CHANGELOG、public docs、LICENSE、
+migration / release notes、公開 API、unsupported / deferred claims、security boundary を
+確認する。利用者向け public fact と複数文書間の semantic parity を対象にする。
 
-## Reviewer B: Metadata・依存・配布物
+## Reviewer B: Metadata / Package / Artifact
 
-Cargo.toml / Cargo.lock、workspace依存、公開API、Native header、WASM生成物、package dry-run、秘密情報の同梱を確認する。
+Cargo / npm metadata、workspace、package inventory、npm tarball、Node addon、WASM、C ABI、
+archive、header、manifest、checksum、不要ファイル、secret / credential の混入を確認する。
+存在する surface と生成手順を discovery し、固定 path や asset 数を推測しない。
 
-## Reviewer C: SemVer・公開契約
+## Reviewer C: Version / Compatibility / Distribution contract
 
-差分、Rust API、C ABI、WASM export、型、Wallet Store、error、既定動作、tagを照合し、versionと互換性を判定する。
+SemVer、Rust / TypeScript API、C ABI、WASM、Node runtime routing、Store / wire / error
+compatibility、binary type、ownership、supported platform / environment、native / fallback
+contract を照合する。npm native addon と C ABI、Symbol と NEM、Mainnet と Testnet を混同しない。
 
-## Reviewer D: 検証・evidence
+## Reviewer D: Validation / Supply chain / Release operation
 
-scripts、fmt、clippy、test、WASM check、Native C ABI runtime、coverage、release evidence、registry確認の実行可否と結果を確認する。未実行を成功扱いにしない。
+CI、tests、fmt / clippy、WASM / Native validation、SBOM、license policy、third-party license
+text、provenance、OIDC、release-record、durable GitHub Release、registry state、permissions、
+partial failure、retry / recovery、publish boundary を確認する。未実行を成功扱いにしない。
 
 ## Chair の採用基準
 
-公開した場合の具体的な利用不能、誤配布、互換性誤認、秘密情報同梱、重要検証失敗だけを公開阻害事項とする。Minorな改善、任意のcoverage数値、将来のrelease機能は阻害事項にしない。
+公開した場合の具体的な利用不能、誤配布、互換性誤認、秘密情報同梱、重要な検証失敗、
+provenance / durable evidence の欠落だけを公開阻害事項とする。任意の改善、coverage 数値、
+将来機能、repository に存在しない surface の要求は blocker にしない。
