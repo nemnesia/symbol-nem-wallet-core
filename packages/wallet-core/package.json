@@ -2,7 +2,24 @@
   "name": "@nemnesia/symbol-nem-wallet-core",
   "version": "0.1.0",
   "description": "Synchronous Symbol and NEM wallet core facade",
+  "author": "ccHarvestasya",
+  "homepage": "https://github.com/nemnesia/symbol-nem-wallet-core#readme",
+  "bugs": {
+    "url": "https://github.com/nemnesia/symbol-nem-wallet-core/issues"
+  },
+  "keywords": [
+    "symbol",
+    "nem",
+    "wallet",
+    "wallet-core",
+    "cryptography",
+    "webassembly",
+    "napi"
+  ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nemnesia/symbol-nem-wallet-core.git",

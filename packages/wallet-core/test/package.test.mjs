@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { validatePackageContents } from "../../../scripts/package-contents.mjs";
+import { NPM_PACKAGE_METADATA, validateNpmPackageMetadata } from "../../../scripts/npm-repository.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
@@ -38,6 +39,12 @@ function allFiles(root, prefix = "") {
 }
 
 test("package metadata keeps conditional export order and package-local allowlist", () => {
+  assert.equal(validateNpmPackageMetadata(packageJson), true);
+  for (const [key, expected] of Object.entries(NPM_PACKAGE_METADATA)) {
+    assert.deepEqual(packageJson[key], expected);
+  }
+  const license = readFileSync(resolve(packageRoot, "LICENSE"), "utf8");
+  assert.match(license, /Copyright \(c\) 2026 ccHarvestasya/);
   assert.deepEqual(packageJson.exports, {
     ".": {
       types: "./dist/index.d.ts",

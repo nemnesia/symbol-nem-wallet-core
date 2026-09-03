@@ -32,6 +32,7 @@ const C_ABI_PACKAGE_NAME = "symbol-nem-wallet-core-native";
 const NPM_PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
 const HEADER_FILENAME = "symbol_nem_wallet_core.h";
 const LICENSE_FILENAME = "LICENSE";
+const PROJECT_COPYRIGHT_NOTICE = "Copyright (c) 2026 ccHarvestasya";
 const ARCHIVE_FORMAT = "tar.gz";
 const SCHEMA_VERSION = 1;
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
@@ -61,6 +62,13 @@ function validHash(value, label) {
 
 function validCommit(value, label) {
   if (typeof value !== "string" || !COMMIT_PATTERN.test(value)) fail(`${label} is not a commit`);
+}
+
+function validateProjectLicense(license, label) {
+  const text = license.toString("utf8");
+  if (!text.includes(PROJECT_COPYRIGHT_NOTICE)) {
+    fail(`${label} has an invalid project copyright year`);
+  }
 }
 
 function validSafePath(value, label) {
@@ -419,6 +427,7 @@ function prepareTargetArtifacts({
   if (glibcMaxRequired !== undefined && compareVersions(glibcMaxRequired, target.glibc_baseline) > 0) fail("Linux C ABI dynamic library exceeds the glibc 2.28 boundary");
   const header = canonicalTextBytes(headerPath, "C ABI public header");
   const license = readFileSync(licensePath);
+  validateProjectLicense(license, "C ABI project LICENSE");
   const staticLibrary = readFileSync(staticLibraryPath);
   const dynamicLibrary = readFileSync(dynamicLibraryPath);
   const companions = new Map(companionPaths.map((path) => [basename(path), readFileSync(path)]));
@@ -467,6 +476,7 @@ function validateTargetEvidence(evidence, { archivePath, sourceRoot = repository
   for (const [name, expectedHash] of expectedHashes) {
     if (sha256Bytes(entries.get(name)) !== expectedHash) fail(`C ABI archive entry hash mismatch: ${evidence.target_id}/${name}`);
   }
+  validateProjectLicense(entries.get(LICENSE_FILENAME), `C ABI archive LICENSE: ${evidence.target_id}`);
   const metadata = readJsonFromBytes(entries.get("metadata/c-abi-artifact.json"), "C ABI archive metadata");
   exactKeys(metadata, [
     "schema_version", "artifact_kind", "project_name", "package_name", "npm_package_name", "package_version",

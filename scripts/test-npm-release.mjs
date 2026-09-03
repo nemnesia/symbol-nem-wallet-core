@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { targetForRuntime, validateNativeManifest } from "../packages/wallet-core/src/manifest.mjs";
-import { validateNpmRepositoryMetadata } from "./npm-repository.mjs";
+import { validateNpmPackageMetadata } from "./npm-repository.mjs";
 import { validatePackageContents } from "./package-contents.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -81,6 +81,13 @@ function files(root, prefix = "") {
 
 function packageMeta() {
   return json(resolve(packageRoot, "package.json"));
+}
+
+function validateProjectLicense(content, label) {
+  const text = Buffer.isBuffer(content) ? content.toString("utf8") : content;
+  if (!text.includes("Copyright (c) 2026 ccHarvestasya")) {
+    fail(`${label} has an invalid project copyright year`);
+  }
 }
 
 function validateAssembledManifest(manifest, meta) {
@@ -269,14 +276,21 @@ function validatePackedRepositoryMetadata(tarball, packageMetadata) {
     fail("npm tarball package metadata is unreadable");
   }
   try {
-    validateNpmRepositoryMetadata(packedMetadata, "npm tarball package metadata");
+    validateNpmPackageMetadata(packedMetadata, "npm tarball package metadata");
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
-  if (JSON.stringify(packedMetadata.repository) !== JSON.stringify(packageMetadata.repository)) {
-    fail("npm tarball repository metadata differs from source package metadata");
+  if (JSON.stringify(packedMetadata) !== JSON.stringify(packageMetadata)) {
+    fail("npm tarball package metadata differs from source package metadata");
   }
-  return { source: packageMetadata.repository, tarball: packedMetadata.repository };
+  let packedLicense;
+  try {
+    packedLicense = execFileSync("tar", ["-xOf", tarball, "package/LICENSE"]);
+  } catch {
+    fail("npm tarball LICENSE is unreadable");
+  }
+  validateProjectLicense(packedLicense, "npm tarball LICENSE");
+  return { source: packageMetadata.repository, tarball: packedMetadata.repository, license_copyright_year: 2026 };
 }
 
 function packageInventory(manifest, entry) {
@@ -346,7 +360,8 @@ function sizeEvidence(manifest, entry, tarball) {
 
 const packResult = pack();
 const meta = packageMeta();
-validateNpmRepositoryMetadata(meta, "source npm package metadata");
+validateNpmPackageMetadata(meta, "source npm package metadata");
+validateProjectLicense(bytes(resolve(packageRoot, "LICENSE")), "source npm package LICENSE");
 const repositoryMetadata = validatePackedRepositoryMetadata(packResult.tarball, meta);
 const manifest = json(resolve(packageRoot, "dist/native/artifact-manifest.json"));
 validateNativeManifest(manifest, meta);

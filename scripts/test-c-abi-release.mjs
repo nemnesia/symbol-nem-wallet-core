@@ -52,7 +52,7 @@ function hash(bytes) {
 function fixtureTarget(targetId, extraEntries = {}) {
   const target = C_ABI_TARGETS[targetId];
   const header = Buffer.from("/* canonical C ABI header fixture */\n");
-  const license = Buffer.from("MIT license evidence fixture\n");
+  const license = Buffer.from("MIT License\n\nCopyright (c) 2026 ccHarvestasya\n");
   const staticLibrary = Buffer.from(`static-${targetId}\n`);
   const dynamicLibrary = Buffer.from(`dynamic-${targetId}\n`);
   const companions = new Map(target.companion_libraries.map((name) => [name, Buffer.from(`companion-${name}\n`)]));
