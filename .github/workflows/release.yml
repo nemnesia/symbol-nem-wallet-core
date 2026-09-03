@@ -54,7 +54,10 @@ jobs:
           if [[ "$GITHUB_RUN_ATTEMPT" -gt 1 ]]; then
             identity_args+=(--allow-existing-version)
           fi
-          node scripts/release-identity.mjs "${identity_args[@]}" | tee release-identity.json
+          identity_tmp="$RUNNER_TEMP/release-identity.json"
+          node scripts/release-identity.mjs "${identity_args[@]}" \
+            | tee "$identity_tmp"
+          cp "$identity_tmp" release-identity.json
 
       - name: Upload release identity evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

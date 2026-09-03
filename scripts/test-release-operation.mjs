@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -24,6 +25,7 @@ import {
   validateReleaseOperationIdentity,
   validateReleaseWorkflowBoundary,
 } from "./release-operation.mjs";
+import { validateReleaseIdentity } from "./release-identity.mjs";
 import {
   PROVENANCE_PREDICATE_TYPES,
   WORKFLOW_PATH,
@@ -35,6 +37,7 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const COMMIT = "a".repeat(40);
 const OTHER_COMMIT = "b".repeat(40);
 const VERSION = "0.1.0";
+const ZERO_COMMIT = "0".repeat(40);
 
 function expectFailure(callback, pattern) {
   assert.throws(callback, pattern);
@@ -56,6 +59,45 @@ function identityFixture(overrides = {}) {
     oidcRequired: true,
     ...overrides,
   };
+}
+
+function releaseIdentityFixture(overrides = {}) {
+  return {
+    mode: "release",
+    tag: `v${VERSION}`,
+    tagEvent: {
+      ref: `refs/tags/v${VERSION}`,
+      created: true,
+      deleted: false,
+      forced: false,
+      before: ZERO_COMMIT,
+    },
+    tagRefExists: true,
+    checkoutHead: COMMIT,
+    sourceCommit: COMMIT,
+    tagCommit: COMMIT,
+    mainRef: "refs/remotes/origin/main",
+    mainRefCommit: OTHER_COMMIT,
+    mainAncestry: true,
+    clean: true,
+    versionSources: {
+      core: { relative_path: "crates/core/Cargo.toml", package_name: "symbol-nem-wallet-core", version: VERSION },
+      cAbi: { relative_path: "crates/c-abi/Cargo.toml", package_name: "symbol-nem-wallet-core-native", version: VERSION },
+      node: { relative_path: "crates/node/Cargo.toml", package_name: "symbol-nem-wallet-core-node", version: VERSION },
+      wasm: { relative_path: "crates/wasm/Cargo.toml", package_name: "symbol-nem-wallet-core-wasm", version: VERSION },
+      npm: { relative_path: "packages/wallet-core/package.json", package_name: "@nemnesia/symbol-nem-wallet-core", version: VERSION },
+    },
+    ...overrides,
+  };
+}
+
+function worktreeIsClean(root) {
+  return execFileSync("git", [
+    "status",
+    "--porcelain=v1",
+    "--untracked-files=all",
+    "--ignored=matching",
+  ], { cwd: root, encoding: "utf8" }) === "";
 }
 
 const valid = validateReleaseOperationIdentity(identityFixture());
@@ -123,6 +165,22 @@ assert.equal(workflow.provenance_command, PROVENANCE_PUBLISH_COMMAND);
 assert.equal(workflow.publication_job, "publication");
 assert.equal(workflow.durable_release_record, "GitHub Release assets");
 assert.equal(workflow.retry_recovery, "existing-version provenance verification without republish");
+const identityStepStart = releaseWorkflow.indexOf("      - name: Validate release identity and npm version availability");
+const identityStepEnd = releaseWorkflow.indexOf("      - name: Upload release identity evidence", identityStepStart);
+assert.ok(identityStepStart >= 0 && identityStepEnd > identityStepStart);
+const identityStep = releaseWorkflow.slice(identityStepStart, identityStepEnd);
+assert.match(identityStep, /set -euo pipefail/);
+assert.match(identityStep, /identity_tmp="\$RUNNER_TEMP\/release-identity\.json"/);
+assert.match(
+  identityStep,
+  /node scripts\/release-identity\.mjs "\$\{identity_args\[@\]\}" \\\n\s+\| tee "\$identity_tmp"/,
+);
+assert.match(identityStep, /cp "\$identity_tmp" release-identity\.json/);
+assert.doesNotMatch(releaseWorkflow, /\|\s*tee\s+release-identity\.json/);
+const identityNodeIndex = identityStep.indexOf('node scripts/release-identity.mjs "${identity_args[@]}"');
+const identityTeeIndex = identityStep.indexOf('| tee "$identity_tmp"');
+const identityCopyIndex = identityStep.indexOf('cp "$identity_tmp" release-identity.json');
+assert.ok(identityNodeIndex >= 0 && identityNodeIndex < identityTeeIndex && identityTeeIndex < identityCopyIndex);
 expectFailure(
   () => validateReleaseWorkflowBoundary({ releaseWorkflow: releaseWorkflow.replace(PROVENANCE_PUBLISH_COMMAND, "npm publish"), candidateWorkflow }),
   /provenance/,
@@ -145,6 +203,48 @@ expectFailure(
   }),
   /publication job is not protected/,
 );
+
+const cleanlinessRoot = mkdtempSync(resolve(tmpdir(), "snwc-release-identity-cleanliness-test-"));
+const evidenceTempRoot = mkdtempSync(resolve(tmpdir(), "snwc-release-identity-evidence-test-"));
+try {
+  execFileSync("git", ["init", "--quiet"], { cwd: cleanlinessRoot });
+  execFileSync("git", ["config", "user.email", "release-test@example.invalid"], { cwd: cleanlinessRoot });
+  execFileSync("git", ["config", "user.name", "Release Test"], { cwd: cleanlinessRoot });
+  const trackedPath = resolve(cleanlinessRoot, "tracked.txt");
+  writeFileSync(trackedPath, "tracked fixture\n");
+  execFileSync("git", ["add", "tracked.txt"], { cwd: cleanlinessRoot });
+  execFileSync("git", ["commit", "--quiet", "-m", "fixture"], { cwd: cleanlinessRoot });
+
+  const repositoryEvidencePath = resolve(cleanlinessRoot, "release-identity.json");
+  writeFileSync(repositoryEvidencePath, "old capture\n");
+  assert.equal(worktreeIsClean(cleanlinessRoot), false);
+  rmSync(repositoryEvidencePath);
+  assert.equal(worktreeIsClean(cleanlinessRoot), true);
+
+  const temporaryEvidencePath = resolve(evidenceTempRoot, "release-identity.json");
+  const cleanBeforeValidation = worktreeIsClean(cleanlinessRoot);
+  assert.equal(cleanBeforeValidation, true);
+  const identity = validateReleaseIdentity(releaseIdentityFixture({ clean: cleanBeforeValidation }));
+  writeFileSync(temporaryEvidencePath, `${JSON.stringify({ ...identity, npm_registry: { status: "not-found" } })}\n`);
+  assert.equal(worktreeIsClean(cleanlinessRoot), true);
+  assert.equal(existsSync(temporaryEvidencePath), true);
+
+  execFileSync("cp", [temporaryEvidencePath, repositoryEvidencePath]);
+  assert.equal(readFileSync(repositoryEvidencePath, "utf8"), readFileSync(temporaryEvidencePath, "utf8"));
+  assert.equal(worktreeIsClean(cleanlinessRoot), false);
+
+  const failedCapturePath = resolve(evidenceTempRoot, "failed-release-identity.json");
+  const shouldNotCopyPath = resolve(cleanlinessRoot, "failed-release-identity.json");
+  assert.throws(() => execFileSync("bash", ["-c", [
+    "set -euo pipefail",
+    `false | tee "${failedCapturePath}"`,
+    `cp "${failedCapturePath}" "${shouldNotCopyPath}"`,
+  ].join("\n")]));
+  assert.equal(existsSync(shouldNotCopyPath), false);
+} finally {
+  rmSync(cleanlinessRoot, { recursive: true, force: true });
+  rmSync(evidenceTempRoot, { recursive: true, force: true });
+}
 
 const root = mkdtempSync(resolve(tmpdir(), "snwc-release-operation-test-"));
 try {
