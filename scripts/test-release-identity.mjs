@@ -90,10 +90,12 @@ expectIdentityFailure({ tag: "v0.1.1", tagEvent: { ...identityFixture().tagEvent
 expectIdentityFailure({ versionSources: { ...fixtureVersionSources(), npm: { ...fixtureVersionSources().npm, version: "0.1.1" } } }, "release version mismatch");
 expectIdentityFailure({ versionSources: { ...fixtureVersionSources(), wasm: { ...fixtureVersionSources().wasm, version: "0.1.1" } } }, "release version mismatch");
 expectIdentityFailure({ clean: false }, "not clean");
+expectIdentityFailure({ tagRefExists: false }, "tag ref does not exist");
 expectIdentityFailure({ checkoutHead: MAIN_COMMIT }, "checkout HEAD differs");
 expectIdentityFailure({ tagCommit: MAIN_COMMIT }, "tag target differs");
 expectIdentityFailure({ mainAncestry: false }, "not contained in main");
 expectIdentityFailure({ tagEvent: { ...identityFixture().tagEvent, created: false, forced: true } }, "tag event is not");
+expectIdentityFailure({ tagEvent: { ...identityFixture().tagEvent, deleted: true } }, "tag event is not");
 expectIdentityFailure({ versionSources: { ...fixtureVersionSources(), core: { ...fixtureVersionSources().core, version: "1.2.3-beta.1" } } }, "pre-release version");
 
 let requestedUrl;

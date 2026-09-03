@@ -7,6 +7,7 @@
     "test:npm": "node scripts/test-npm-package.mjs",
     "test:npm:parity": "node scripts/test-npm-parity.mjs",
     "test:release-identity": "node scripts/test-release-identity.mjs",
+    "test:release-operation": "node scripts/test-release-operation.mjs",
     "test:release-evidence": "node scripts/test-release-evidence.mjs",
     "test:release-sbom": "node scripts/test-release-sbom.mjs",
     "test:release-license-policy": "node scripts/test-release-license-policy.mjs",

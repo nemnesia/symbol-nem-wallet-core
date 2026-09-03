@@ -1,6 +1,17 @@
 name: Release candidate validation
 
 on:
+  workflow_call:
+    inputs:
+      release_mode:
+        description: "Candidate validation or formal release manifest mode"
+        required: false
+        default: candidate
+        type: string
+      release_tag:
+        description: "Formal release tag, supplied only for a tag-triggered release"
+        required: false
+        type: string
   push:
     branches:
       - main
@@ -393,8 +404,13 @@ jobs:
           set -euo pipefail
           tarball="$(find release-output -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           test -n "$tarball"
+          manifest_args=(--mode "${RELEASE_MODE}")
+          if [[ "${RELEASE_MODE}" == "release" ]]; then
+            test -n "${RELEASE_TAG}"
+            manifest_args+=(--release-tag "${RELEASE_TAG}")
+          fi
           node scripts/release-manifest.mjs generate \
-            --mode candidate \
+            "${manifest_args[@]}" \
             --source-evidence release-input/source/release-source.json \
             --native-summary release-input/native-summary.json \
             --native-evidence-root release-input/native \
@@ -406,6 +422,10 @@ jobs:
             --tarball "$tarball" \
             --manifest release-output/release-manifest.json \
             --sha256sums release-output/SHA256SUMS
+
+        env:
+          RELEASE_MODE: ${{ inputs.release_mode || 'candidate' }}
+          RELEASE_TAG: ${{ inputs.release_tag || '' }}
 
       - name: Install pinned cargo-sbom generator
         shell: bash
@@ -486,6 +506,26 @@ jobs:
             --third-party release-output/THIRD_PARTY_LICENSES.json \
             --policy-sha256sums release-output/LICENSE-POLICY-SHA256SUMS
 
+      - name: Enforce final third-party license text gate for formal release
+        if: inputs.release_mode == 'release'
+        shell: bash
+        run: |
+          set -euo pipefail
+          input_root="$RUNNER_TEMP/snwc-release-sbom-input"
+          node scripts/release-license-policy.mjs generate \
+            --inventory release-output/license-inventory.json \
+            --sbom release-output/sbom.spdx.json \
+            --sbom-sha256sums release-output/SBOM-SHA256SUMS \
+            --policy release-output/license-policy.json \
+            --third-party release-output/THIRD_PARTY_LICENSES.json \
+            --policy-sha256sums release-output/LICENSE-POLICY-SHA256SUMS \
+            --cargo-metadata x86_64-pc-windows-msvc="$input_root/cargo-metadata-x86_64-pc-windows-msvc.json" \
+            --cargo-metadata x86_64-apple-darwin="$input_root/cargo-metadata-x86_64-apple-darwin.json" \
+            --cargo-metadata aarch64-apple-darwin="$input_root/cargo-metadata-aarch64-apple-darwin.json" \
+            --cargo-metadata x86_64-unknown-linux-gnu="$input_root/cargo-metadata-x86_64-unknown-linux-gnu.json" \
+            --cargo-metadata wasm32-unknown-unknown="$input_root/cargo-metadata-wasm32-unknown-unknown.json" \
+            --require-third-party-license-text
+
       - name: Assemble final release evidence bundle
         if: always()
         shell: bash
@@ -551,7 +591,7 @@ jobs:
             --cargo-sbom wasm="$input_root/cargo-sbom-wasm.json"
 
       - name: Re-validate final Phase 4B license policy bundle
-        if: always()
+        if: always() && inputs.release_mode != 'release'
         shell: bash
         run: |
           set -euo pipefail
@@ -562,6 +602,26 @@ jobs:
             --policy release-output/license-policy.json \
             --third-party release-output/THIRD_PARTY_LICENSES.json \
             --policy-sha256sums release-output/LICENSE-POLICY-SHA256SUMS
+
+      - name: Re-validate final formal release license policy bundle
+        if: always() && inputs.release_mode == 'release'
+        shell: bash
+        run: |
+          set -euo pipefail
+          input_root="$RUNNER_TEMP/snwc-release-sbom-input"
+          node scripts/release-license-policy.mjs validate \
+            --inventory release-output/license-inventory.json \
+            --sbom release-output/sbom.spdx.json \
+            --sbom-sha256sums release-output/SBOM-SHA256SUMS \
+            --policy release-output/license-policy.json \
+            --third-party release-output/THIRD_PARTY_LICENSES.json \
+            --policy-sha256sums release-output/LICENSE-POLICY-SHA256SUMS \
+            --cargo-metadata x86_64-pc-windows-msvc="$input_root/cargo-metadata-x86_64-pc-windows-msvc.json" \
+            --cargo-metadata x86_64-apple-darwin="$input_root/cargo-metadata-x86_64-apple-darwin.json" \
+            --cargo-metadata aarch64-apple-darwin="$input_root/cargo-metadata-aarch64-apple-darwin.json" \
+            --cargo-metadata x86_64-unknown-linux-gnu="$input_root/cargo-metadata-x86_64-unknown-linux-gnu.json" \
+            --cargo-metadata wasm32-unknown-unknown="$input_root/cargo-metadata-wasm32-unknown-unknown.json" \
+            --require-third-party-license-text
 
       - name: Upload final npm release candidate evidence bundle
         if: always()
