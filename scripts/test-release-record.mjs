@@ -168,6 +168,11 @@ try {
   assert.equal(generated.record.npm.provenance.status, "not-executed");
   assert.equal(generated.record.durable_asset_list.c_abi.length, 16);
   validateReleaseRecord({ npmDir, cAbiDir, outputDir, mode: "candidate", tag: null, sourceCommit: COMMIT });
+  expectFailure(
+    "candidate tag is rejected",
+    () => createReleaseRecord({ npmDir, cAbiDir, outputDir, mode: "candidate", tag: "null", sourceCommit: COMMIT }),
+    /candidate release record must not contain a tag/,
+  );
 
   const tampered = JSON.parse(readFileSync(generated.recordPath, "utf8"));
   tampered.source_commit = "d".repeat(40);

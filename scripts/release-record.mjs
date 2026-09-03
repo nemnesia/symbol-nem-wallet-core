@@ -146,7 +146,7 @@ function validateNpmManifest(npmDir, mode, tag, sourceCommit) {
   const manifest = json(manifestPath, "npm release manifest");
   if (!isPlainObject(manifest) || manifest.schema_version !== 1 || manifest.package_name !== NPM_PACKAGE_NAME || manifest.mode !== mode || manifest.source_commit !== sourceCommit) fail("npm release manifest identity is invalid");
   if (manifest.package_version === undefined) fail("npm release manifest version is missing");
-  validIdentity(manifest.package_version, sourceCommit, mode === "release" ? tag : null, mode);
+  validIdentity(manifest.package_version, sourceCommit, tag, mode);
   if (mode === "release" && manifest.release_tag !== tag) fail("npm release manifest tag differs from release record");
   if (mode === "candidate" && Object.prototype.hasOwnProperty.call(manifest, "release_tag")) fail("candidate npm release manifest contains a release tag");
   validHash(manifest.cargo_lock_sha256, "npm Cargo.lock identity");
@@ -179,7 +179,7 @@ function validateCAbiManifest(cAbiDir, mode, tag, sourceCommit) {
   const manifestPath = resolveUnder(cAbiDir, "c-abi-release-manifest.json", "C ABI release manifest");
   const manifest = json(manifestPath, "C ABI release manifest");
   if (!isPlainObject(manifest) || manifest.schema_version !== 1 || manifest.artifact_kind !== "c-abi-release-manifest" || manifest.package_name !== C_ABI_PACKAGE_NAME || manifest.npm_package_name !== NPM_PACKAGE_NAME || manifest.mode !== mode || manifest.source_commit !== sourceCommit) fail("C ABI release manifest identity is invalid");
-  validIdentity(manifest.package_version, sourceCommit, mode === "release" ? tag : null, mode);
+  validIdentity(manifest.package_version, sourceCommit, tag, mode);
   if (mode === "release" && manifest.release_tag !== tag) fail("C ABI release manifest tag differs from release record");
   if (mode === "candidate" && manifest.release_tag !== null) fail("candidate C ABI release manifest contains a release tag");
   validHash(manifest.cargo_lock_sha256, "C ABI Cargo.lock identity");
