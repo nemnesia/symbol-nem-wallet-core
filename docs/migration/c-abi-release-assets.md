@@ -45,11 +45,12 @@ LICENSE
 metadata/c-abi-artifact.json
 ```
 
-The header is copied byte-for-byte from
-`crates/c-abi/include/symbol_nem_wallet_core.h` for every target. Rust `rlib`,
-debug-symbol files, and Node-API `.node` files are rejected. The Windows import
-library is required in `lib/dynamic/`; no platform companion is silently
-omitted.
+The header is derived from
+`crates/c-abi/include/symbol_nem_wallet_core.h` using canonical LF line endings
+for every target, so the archive bytes and SHA-256 are identical across
+platforms. Rust `rlib`, debug-symbol files, and Node-API `.node` files are
+rejected. The Windows import library is required in `lib/dynamic/`; no platform
+companion is silently omitted.
 
 The archive writer fixes entry order, paths, ownership, mode, and timestamps.
 `metadata/c-abi-artifact.json` records the archive filename but not its own
