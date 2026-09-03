@@ -1,0 +1,10 @@
+{
+  "name": "@nemnesia/symbol-nem-wallet-core",
+  "version": "0.0.0-bootstrap.0",
+  "private": false,
+  "description": "Bootstrap package used only to establish npm Trusted Publishing for @nemnesia/symbol-nem-wallet-core.",
+  "license": "MIT",
+  "files": [
+    "README.md"
+  ]
+}
