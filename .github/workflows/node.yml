@@ -478,24 +478,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          policy_output="$RUNNER_TEMP/snwc-phase4b-policy-output.txt"
-          set +e
           node scripts/release-license-policy.mjs generate \
             --inventory release-output/license-inventory.json \
             --sbom release-output/sbom.spdx.json \
             --sbom-sha256sums release-output/SBOM-SHA256SUMS \
             --policy release-output/license-policy.json \
             --third-party release-output/THIRD_PARTY_LICENSES.json \
-            --policy-sha256sums release-output/LICENSE-POLICY-SHA256SUMS >"$policy_output" 2>&1
-          policy_status=$?
-          set -e
-          cat "$policy_output"
-          if [ "$policy_status" -ne 0 ]; then
-            while IFS= read -r line; do
-              [ -n "$line" ] && echo "::error title=Phase 4B policy::$line"
-            done < "$policy_output"
-            exit "$policy_status"
-          fi
+            --policy-sha256sums release-output/LICENSE-POLICY-SHA256SUMS
 
       - name: Assemble final release evidence bundle
         if: always()
@@ -566,24 +555,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          policy_output="$RUNNER_TEMP/snwc-phase4b-policy-output.txt"
-          set +e
           node scripts/release-license-policy.mjs validate \
             --inventory release-output/license-inventory.json \
             --sbom release-output/sbom.spdx.json \
             --sbom-sha256sums release-output/SBOM-SHA256SUMS \
             --policy release-output/license-policy.json \
             --third-party release-output/THIRD_PARTY_LICENSES.json \
-            --policy-sha256sums release-output/LICENSE-POLICY-SHA256SUMS >"$policy_output" 2>&1
-          policy_status=$?
-          set -e
-          cat "$policy_output"
-          if [ "$policy_status" -ne 0 ]; then
-            while IFS= read -r line; do
-              [ -n "$line" ] && echo "::error title=Phase 4B policy::$line"
-            done < "$policy_output"
-            exit "$policy_status"
-          fi
+            --policy-sha256sums release-output/LICENSE-POLICY-SHA256SUMS
 
       - name: Upload final npm release candidate evidence bundle
         if: always()

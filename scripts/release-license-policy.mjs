@@ -629,7 +629,7 @@ function run() {
   const paths = pathsFromArguments(argv.slice(1));
   const inventory = json(paths.inventoryPath, "license inventory");
   const document = json(paths.sbomPath, "SPDX SBOM");
-  validateSbomSums(paths.sbomSha256sPath, paths.sbomPath, paths.inventoryPath);
+  validateSbomSums(paths.sbomSha256sumsPath, paths.sbomPath, paths.inventoryPath);
   validateInventoryAndSbom(inventory, document);
   const cargoMetadata = paths.cargoMetadataPaths.map((metadataPath) => json(metadataPath, `Cargo metadata ${metadataPath}`));
   if (command === "generate") {
