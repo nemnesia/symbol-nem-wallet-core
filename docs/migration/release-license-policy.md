@@ -53,9 +53,11 @@ fail する。inventory と SBOM の identity、license、source comment また�
 ## License text / notice evidence boundary
 
 `THIRD_PARTY_LICENSES.json` は、runtime の Cargo registry component ごとに Phase 4A が観測した
-license / notice file path と SHA-256、および収集状態を deterministic に記録する。release CI
-では target-filtered Cargo metadata の `manifest_path` から上流 file を読み、inventory の
-SHA-256 と一致した text だけを `license_texts` として artifact に収録する。
+license / notice file path と SHA-256、および収集状態を deterministic に記録する。metadata を
+明示した finalization 実行では target-filtered Cargo metadata の `manifest_path` から上流 file
+を読み、inventory の SHA-256 と一致した text だけを `license_texts` として artifact に収録する。
+通常の Phase 4B CI では inventory の path / SHA-256 と policy artifact の deterministic 構造を
+検証し、上流 source の実体収集は metadata を明示した別の finalization 実行へ委譲できる。
 source evidence が見つからない場合も Phase 4B の allowability failure とは分離し、final text
 gate の `pending` として記録する。既存 path が存在するのに SHA-256 が一致しない場合は
 evidence mismatch として fail する。license text の欠落だけでは Phase 4B policy gate を失敗にしない。現在の Phase 4A inventory
