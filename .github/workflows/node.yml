@@ -80,11 +80,18 @@ jobs:
       - name: Run release license policy deterministic and negative tests
         run: node scripts/test-release-license-policy.mjs
 
+      - name: Run final release evidence deterministic fixtures
+        run: |
+          node scripts/test-npm-provenance.mjs
+          node scripts/test-github-release.mjs
+          node scripts/test-release-record.mjs
+
       - name: Upload source evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-source
           path: release-source.json
+          overwrite: true
 
   core-c-abi:
     name: Core and C ABI maintained CI
@@ -179,6 +186,7 @@ jobs:
         with:
           name: release-wasm
           path: release-wasm/
+          overwrite: true
 
   native:
     name: ${{ matrix.target_id }} native release artifact
@@ -266,6 +274,7 @@ jobs:
         with:
           name: release-native-${{ matrix.target_id }}
           path: release-native/
+          overwrite: true
 
   parity-regression:
     name: Native / WASM / npm parity regression
@@ -630,6 +639,7 @@ jobs:
         with:
           name: release-npm-package
           path: release-output/
+          overwrite: true
 
   npm-consumer:
     name: ${{ matrix.platform }} / Node ${{ matrix.node }} clean tarball consumer

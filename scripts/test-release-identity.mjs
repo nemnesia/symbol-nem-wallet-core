@@ -118,6 +118,15 @@ await assert.rejects(
   }),
   /npm version already exists/,
 );
+assert.deepEqual(
+  await checkNpmVersionAvailability({
+    packageName: "@nemnesia/symbol-nem-wallet-core",
+    version: VERSION,
+    allowExisting: true,
+    request: async () => ({ status: 200 }),
+  }),
+  { status: "exists" },
+);
 await assert.rejects(
   checkNpmVersionAvailability({
     packageName: "@nemnesia/symbol-nem-wallet-core",

@@ -14,6 +14,15 @@ Trusted Publishing、SBOM生成、provenance生成、runtime digest verification
 workflow の実装を開始しない。今回確定した decision は、実装上の事実ではなく、後続の
 implementation / operation が従う policy として記録する。
 
+### Current Final RC implementation status
+
+上記は Stage 10 decision gate 時点の記録である。Final RC ではこの policy に従う release workflow
+実装を追加し、`0.1.0` / `v0.1.0`、npm package、4 target の C ABI asset、SPDX SBOM、license
+evidence、npm provenance、published release record、および durable GitHub Release asset set の
+binding を deterministic gate として検証する。正式 release の tag、npm publish、GitHub Release
+作成は Final RC では実行しない。Android / iOS C ABI は `DEFERRED — MosaicLynx integration` の
+ままである。
+
 対象は次の公開物と release evidence である。
 
 - `@nemnesia/symbol-nem-wallet-core` npm package と、その単一 tarball に同梱される

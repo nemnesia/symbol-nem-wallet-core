@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -17,6 +18,7 @@ import {
   NPM_REQUIRED_FILES,
   validateReleaseRecord,
 } from "./release-record.mjs";
+import { assemblePublicationAssets } from "./release-publication.mjs";
 import {
   loadThirdPartyLicenseEvidence,
   readThirdPartyLicenseText,
@@ -208,6 +210,47 @@ try {
     () => createReleaseRecord({ npmDir, cAbiDir, outputDir, mode: "release", tag: `v${VERSION}`, sourceCommit: COMMIT, provenanceStatus: "published" }),
     /missing/,
   );
+
+  const provenancePath = resolve(npmDir, "npm-provenance.json");
+  writeJson(provenancePath, {
+    schema_version: 1,
+    artifact_kind: "npm-provenance",
+    package_name: "@nemnesia/symbol-nem-wallet-core",
+    package_version: VERSION,
+    release_tag: `v${VERSION}`,
+    source_commit: COMMIT,
+    environment: "release",
+    verification: { status: "PASS" },
+  });
+  writeJson(resolve(npmDir, "release-operation.json"), {
+    package_name: "@nemnesia/symbol-nem-wallet-core",
+    package_version: VERSION,
+    release_tag: `v${VERSION}`,
+    source_commit: COMMIT,
+    environment: "release",
+    provenance: {
+      required: true,
+      status: "published",
+      evidence: { filename: "npm-provenance.json", sha256: hash(readFileSync(provenancePath)) },
+    },
+    publication: {
+      mode: "published",
+      repository: "nemnesia/symbol-nem-wallet-core",
+      workflow_ref: `nemnesia/symbol-nem-wallet-core/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+      workflow_run_id: "123",
+      workflow_run_attempt: 1,
+    },
+  });
+  const publishedRecordDir = resolve(root, "published-record");
+  const publishedRecord = createReleaseRecord({ npmDir, cAbiDir, outputDir: publishedRecordDir, mode: "release", tag: `v${VERSION}`, sourceCommit: COMMIT, provenanceStatus: "published" });
+  validateReleaseRecord({ npmDir, cAbiDir, outputDir: publishedRecordDir, mode: "release", tag: `v${VERSION}`, sourceCommit: COMMIT, provenanceStatus: "published" });
+  const publicationDir = resolve(root, "github-release-assets");
+  const publication = assemblePublicationAssets({ npmDir, cAbiDir, recordDir: publishedRecordDir, outputDir: publicationDir, tag: `v${VERSION}`, sourceCommit: COMMIT });
+  assert.equal(publication.npm_asset_count, 24);
+  assert.equal(publication.c_abi_asset_count, 16);
+  assert.equal(publication.shared_asset_count, 2);
+  assert.equal(publication.asset_count, 42);
+  assert.equal(readdirSync(publicationDir).length, publication.asset_count);
 
   process.stdout.write("release record deterministic and negative tests passed\n");
 } finally {

@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import { isValidSemVer, parseSemVer } from "./release-identity.mjs";
 import { validateNpmRepositoryMetadata } from "./npm-repository.mjs";
+import { REPOSITORY, validateNpmProvenanceEvidence } from "./npm-provenance.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
@@ -485,6 +486,74 @@ export function validateReleaseBundle({ releaseDir, identityPath, tag, sourceCom
   };
 }
 
+export function finalizeReleaseOperation({
+  preOperationPath,
+  provenancePath,
+  manifestPath,
+  tag,
+  sourceCommit,
+  environment = RELEASE_ENVIRONMENT,
+  publicationMode,
+  workflowRef,
+  repository,
+  runId,
+  runAttempt,
+  outputPath,
+}) {
+  if (publicationMode !== "published" && publicationMode !== "recovered-existing") fail("release publication mode is invalid");
+  const operation = json(preOperationPath, "pre-publish release operation evidence");
+  const provenance = json(provenancePath, "npm provenance evidence");
+  const manifest = json(manifestPath, "release manifest");
+  validCommit(sourceCommit, "release source commit");
+  if (!isValidSemVer(manifest.package_version) || tag !== `v${manifest.package_version}`) fail("release tag/version identity is invalid");
+  if (!isPlainObject(operation) || operation.package_name !== PACKAGE_NAME || operation.package_version !== manifest.package_version || operation.release_tag !== tag || operation.source_commit !== sourceCommit || operation.provenance?.status !== "required-at-publish") {
+    fail("pre-publish release operation identity is invalid");
+  }
+  if (repository !== REPOSITORY) fail("GitHub repository is not the approved release repository");
+  if (workflowRef !== `${repository}/.github/workflows/release.yml@refs/tags/${tag}`) fail("GitHub workflow identity differs from the release tag");
+  if (typeof runId !== "string" || !/^\d+$/.test(runId)) fail("GitHub workflow run identity is invalid");
+  if (!Number.isInteger(runAttempt) || runAttempt < 1) fail("GitHub workflow run attempt is invalid");
+  if (!isPlainObject(manifest.npm_tarball) || typeof manifest.npm_tarball.sha256 !== "string" || !Number.isInteger(manifest.npm_tarball.size)) fail("release manifest npm tarball identity is invalid");
+  validateNpmProvenanceEvidence(provenance, {
+    packageName: PACKAGE_NAME,
+    version: manifest.package_version,
+    tag,
+    sourceCommit,
+    environment,
+    repository,
+    tarballSha256: manifest.npm_tarball.sha256,
+    tarballSize: manifest.npm_tarball.size,
+    tarballSha512: provenance.registry?.tarball_sha512,
+  });
+  const provenanceDigest = sha256File(provenancePath, "npm provenance evidence");
+  const finalOperation = {
+    ...operation,
+    provenance: {
+      ...operation.provenance,
+      status: "published",
+      evidence: {
+        filename: "npm-provenance.json",
+        sha256: provenanceDigest,
+      },
+      predicate_types: provenance.provenance.predicate_types,
+      actual_publish_invocation_ids: provenance.provenance.identities.map((identity) => identity.invocation_id),
+    },
+    publication: {
+      mode: publicationMode,
+      repository,
+      workflow_ref: workflowRef,
+      workflow_run_id: runId,
+      workflow_run_attempt: runAttempt,
+      registry_metadata_url: provenance.registry.metadata_url,
+      registry_tarball_url: provenance.registry.tarball_url,
+      registry_attestations_url: provenance.registry.attestations_url,
+      registry_tarball_sha256: provenance.registry.tarball_sha256,
+    },
+  };
+  if (outputPath !== undefined) writeJson(outputPath, finalOperation);
+  return finalOperation;
+}
+
 function jobBlock(workflow, jobId) {
   const start = workflow.indexOf(`  ${jobId}:\n`);
   if (start < 0) fail(`workflow job is missing: ${jobId}`);
@@ -506,10 +575,15 @@ export function validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWork
   const environmentMatches = releaseWorkflow.match(/^    environment:\n      name: release$/gm) ?? [];
   if (environmentMatches.length !== 1) fail("exactly one release job must use Environment release");
   const publish = jobBlock(releaseWorkflow, "publish");
+  const publication = jobBlock(releaseWorkflow, "publication");
   if (!publish.includes("    environment:\n      name: release")) fail("publish job is not protected by Environment release");
   if (!publish.includes("    permissions:\n      contents: read\n      id-token: write")) fail("publish job permissions are not the least-privilege OIDC boundary");
+  if (publish.includes("contents: write")) fail("publish job has GitHub Release write permission");
+  if (!publication.includes("    permissions:\n      contents: write")) fail("publication job does not have GitHub Release write permission");
+  if (!publication.includes("scripts/release-publication.mjs assemble") || !publication.includes("scripts/github-release.mjs plan") || !publication.includes("scripts/github-release.mjs verify") || !publication.includes("gh release create") || !publication.includes("gh release upload")) fail("publication job does not implement durable GitHub Release publication");
+  if (!releaseWorkflow.includes("--allow-existing-version") || !publish.includes("SNWC_PUBLICATION_MODE=recovered-existing") || !publish.includes("scripts/npm-provenance.mjs capture") || !publish.includes("scripts/release-operation.mjs finalize") || !publish.includes("--provenance-status published")) fail("release workflow does not implement fail-closed publish retry recovery");
   if ((releaseWorkflow.match(/id-token: write/g) ?? []).length !== 1) fail("id-token: write is granted outside the publish job");
-  if (/contents: write|packages: write|actions: write|NODE_AUTH_TOKEN|NPM_TOKEN|_authToken/.test(releaseWorkflow)) {
+  if ((releaseWorkflow.match(/contents: write/g) ?? []).length !== 1 || /packages: write|actions: write|NODE_AUTH_TOKEN|NPM_TOKEN|_authToken/.test(releaseWorkflow)) {
     fail("release workflow contains an unnecessary write permission or long-lived npm token requirement");
   }
   const publishCommands = releaseWorkflow.split(/\r?\n/).filter((line) => line.includes("npm publish"));
@@ -524,6 +598,9 @@ export function validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWork
     protected_job: "publish",
     candidate_workflow: ".github/workflows/node.yml",
     oidc_permission: "publish only",
+    publication_job: "publication",
+    durable_release_record: "GitHub Release assets",
+    retry_recovery: "existing-version provenance verification without republish",
     provenance_command: PROVENANCE_PUBLISH_COMMAND,
   };
 }
@@ -569,7 +646,27 @@ function isAncestor(ancestor, descendant) {
 function run() {
   const argv = process.argv.slice(2);
   const command = argv.shift();
-  if (command !== "verify") fail("usage: verify");
+  if (command !== "verify" && command !== "finalize") fail("usage: verify | finalize");
+  if (command === "finalize") {
+    const publicationMode = argument(argv, "--publication-mode");
+    const runAttemptValue = argument(argv, "--run-attempt", process.env.GITHUB_RUN_ATTEMPT);
+    const result = finalizeReleaseOperation({
+      preOperationPath: resolve(repositoryRoot, argument(argv, "--pre-operation")),
+      provenancePath: resolve(repositoryRoot, argument(argv, "--provenance")),
+      manifestPath: resolve(repositoryRoot, argument(argv, "--manifest")),
+      tag: argument(argv, "--tag", process.env.GITHUB_REF_NAME),
+      sourceCommit: argument(argv, "--source-commit", process.env.GITHUB_SHA),
+      environment: argument(argv, "--environment", process.env.SNWC_RELEASE_ENVIRONMENT ?? RELEASE_ENVIRONMENT),
+      publicationMode,
+      workflowRef: argument(argv, "--workflow-ref", process.env.GITHUB_WORKFLOW_REF),
+      repository: argument(argv, "--repository", process.env.GITHUB_REPOSITORY),
+      runId: argument(argv, "--run-id", process.env.GITHUB_RUN_ID),
+      runAttempt: Number(runAttemptValue),
+      outputPath: resolve(repositoryRoot, argument(argv, "--output")),
+    });
+    process.stdout.write(`${JSON.stringify({ operation: result, status: "published" })}\n`);
+    return;
+  }
   const releaseDir = resolve(repositoryRoot, argument(argv, "--release-dir"));
   const identityPath = resolve(repositoryRoot, argument(argv, "--identity"));
   const tag = argument(argv, "--tag", process.env.GITHUB_REF_NAME);

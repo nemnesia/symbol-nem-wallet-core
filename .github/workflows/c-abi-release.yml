@@ -215,6 +215,7 @@ jobs:
         with:
           name: release-c-abi-${{ matrix.target_id }}
           path: release-c-abi-target/${{ matrix.target_id }}/
+          overwrite: true
 
   aggregate:
     name: Aggregate C ABI release asset set
@@ -360,3 +361,4 @@ jobs:
         with:
           name: release-c-abi
           path: release-c-abi-output/
+          overwrite: true

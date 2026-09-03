@@ -19,10 +19,17 @@ import {
 import {
   PROVENANCE_PUBLISH_COMMAND,
   RELEASE_ENVIRONMENT,
+  finalizeReleaseOperation,
   validateEvidenceDigests,
   validateReleaseOperationIdentity,
   validateReleaseWorkflowBoundary,
 } from "./release-operation.mjs";
+import {
+  PROVENANCE_PREDICATE_TYPES,
+  WORKFLOW_PATH,
+  packagePurl,
+  provenanceIdentities,
+} from "./npm-provenance.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const COMMIT = "a".repeat(40);
@@ -112,6 +119,9 @@ assert.match(migrationDocumentation, /Environment が workflow 実行で暗黙�
 const workflow = validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWorkflow });
 assert.equal(workflow.environment, RELEASE_ENVIRONMENT);
 assert.equal(workflow.provenance_command, PROVENANCE_PUBLISH_COMMAND);
+assert.equal(workflow.publication_job, "publication");
+assert.equal(workflow.durable_release_record, "GitHub Release assets");
+assert.equal(workflow.retry_recovery, "existing-version provenance verification without republish");
 expectFailure(
   () => validateReleaseWorkflowBoundary({ releaseWorkflow: releaseWorkflow.replace(PROVENANCE_PUBLISH_COMMAND, "npm publish"), candidateWorkflow }),
   /provenance/,
@@ -148,6 +158,97 @@ try {
   expectFailure(() => validateEvidenceDigests(paths), /SBOM-SHA256SUMS entry/);
 } finally {
   rmSync(root, { recursive: true, force: true });
+}
+
+const finalizeRoot = mkdtempSync(resolve(tmpdir(), "snwc-release-operation-finalize-test-"));
+try {
+  const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+  const tarSha256 = "b".repeat(64);
+  const tarSha512 = "c".repeat(128);
+  const repository = "nemnesia/symbol-nem-wallet-core";
+  const predicateType = [...PROVENANCE_PREDICATE_TYPES][0];
+  const statement = {
+    predicateType,
+    subject: [{ name: packagePurl("@nemnesia/symbol-nem-wallet-core", VERSION), digest: { sha512: tarSha512 } }],
+    predicate: {
+      buildDefinition: {
+        externalParameters: { workflow: { repository: `https://github.com/${repository}`, path: WORKFLOW_PATH, ref: `refs/tags/v${VERSION}` } },
+        resolvedDependencies: [{ uri: `git+https://github.com/${repository}@refs/tags/v${VERSION}`, digest: { gitCommit: COMMIT } }],
+      },
+      runDetails: { metadata: { invocationId: `https://github.com/${repository}/actions/runs/123` } },
+    },
+  };
+  const attestation = {
+    predicateType,
+    bundle: { dsseEnvelope: { payload: Buffer.from(JSON.stringify(statement), "utf8").toString("base64") } },
+  };
+  const identities = provenanceIdentities([attestation], {
+    packageName: "@nemnesia/symbol-nem-wallet-core",
+    version: VERSION,
+    tag: `v${VERSION}`,
+    sourceCommit: COMMIT,
+    repository,
+    tarballSha512: tarSha512,
+  });
+  const provenancePath = resolve(finalizeRoot, "npm-provenance.json");
+  const manifestPath = resolve(finalizeRoot, "release-manifest.json");
+  const operationPath = resolve(finalizeRoot, "release-operation.json");
+  const outputPath = resolve(finalizeRoot, "release-operation-final.json");
+  writeJson(manifestPath, {
+    package_version: VERSION,
+    npm_tarball: { sha256: tarSha256, size: 123 },
+  });
+  writeJson(operationPath, {
+    package_name: "@nemnesia/symbol-nem-wallet-core",
+    package_version: VERSION,
+    release_tag: `v${VERSION}`,
+    source_commit: COMMIT,
+    provenance: { required: true, status: "required-at-publish" },
+  });
+  writeJson(provenancePath, {
+    schema_version: 1,
+    artifact_kind: "npm-provenance",
+    package_name: "@nemnesia/symbol-nem-wallet-core",
+    package_version: VERSION,
+    release_tag: `v${VERSION}`,
+    source_commit: COMMIT,
+    environment: RELEASE_ENVIRONMENT,
+    registry: {
+      package_name: "@nemnesia/symbol-nem-wallet-core",
+      package_version: VERSION,
+      metadata_url: "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/0.1.0",
+      tarball_url: "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/-/symbol-nem-wallet-core-0.1.0.tgz",
+      tarball_sha256: tarSha256,
+      tarball_sha512: tarSha512,
+      tarball_size: 123,
+      dist_integrity: `sha512-${Buffer.from(tarSha512, "hex").toString("base64")}`,
+      attestations_url: "https://registry.npmjs.org/-/npm/v1/attestations/@nemnesia%2Fsymbol-nem-wallet-core@0.1.0",
+    },
+    registry_attestations: { attestations: [attestation] },
+    provenance: { predicate_types: identities.map((identity) => identity.predicate_type), identities },
+    verification: { status: "PASS", command: "npm audit signatures --json --include-attestations" },
+    audit_signatures: { invalid: [], missing: [], verified: [{ name: "@nemnesia/symbol-nem-wallet-core", version: VERSION, attestationBundles: [{ predicateType }] }] },
+  });
+  const finalized = finalizeReleaseOperation({
+    preOperationPath: operationPath,
+    provenancePath,
+    manifestPath,
+    tag: `v${VERSION}`,
+    sourceCommit: COMMIT,
+    environment: RELEASE_ENVIRONMENT,
+    publicationMode: "published",
+    workflowRef: `${repository}/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    repository,
+    runId: "123",
+    runAttempt: 1,
+    outputPath,
+  });
+  assert.equal(finalized.provenance.status, "published");
+  assert.equal(finalized.publication.mode, "published");
+  assert.equal(finalized.provenance.evidence.sha256, createHash("sha256").update(readFileSync(provenancePath)).digest("hex"));
+  assert.deepEqual(JSON.parse(readFileSync(outputPath, "utf8")), finalized);
+} finally {
+  rmSync(finalizeRoot, { recursive: true, force: true });
 }
 
 process.stdout.write("release operation deterministic tests passed\n");

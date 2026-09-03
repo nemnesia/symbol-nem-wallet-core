@@ -40,14 +40,28 @@ jobs:
       - name: Run release operation deterministic tests
         run: node scripts/test-release-operation.mjs
 
+      - name: Run final release evidence deterministic fixture tests
+        run: |
+          node scripts/test-npm-provenance.mjs
+          node scripts/test-github-release.mjs
+          node scripts/test-release-record.mjs
+
       - name: Validate release identity and npm version availability
-        run: node scripts/release-identity.mjs --mode release | tee release-identity.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          identity_args=(--mode release)
+          if [[ "$GITHUB_RUN_ATTEMPT" -gt 1 ]]; then
+            identity_args+=(--allow-existing-version)
+          fi
+          node scripts/release-identity.mjs "${identity_args[@]}" | tee release-identity.json
 
       - name: Upload release identity evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-identity
           path: release-identity.json
+          overwrite: true
 
   candidate:
     name: Build and validate formal release candidate
@@ -126,6 +140,7 @@ jobs:
         with:
           name: release-record
           path: release-record-output/
+          overwrite: true
 
   publish:
     name: Publish npm package with provenance
@@ -220,7 +235,92 @@ jobs:
           set -euo pipefail
           tarball="$(node --input-type=module -e 'const fs = await import("node:fs"); const path = await import("node:path"); const manifest = JSON.parse(fs.readFileSync("release-output/release-manifest.json", "utf8")); process.stdout.write(path.resolve("release-output", manifest.npm_tarball.filename))')"
           test -f "$tarball"
-          npm publish --provenance --access public "$tarball"
+          registry_status="$(node --input-type=module -e 'const fs = await import("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync("release-identity-input/release-identity.json", "utf8")).npm_registry?.status ?? "")')"
+          case "$registry_status" in
+            not-found)
+              npm publish --provenance --access public "$tarball"
+              echo "SNWC_PUBLICATION_MODE=published" >> "$GITHUB_ENV"
+              ;;
+            exists)
+              echo "SNWC_PUBLICATION_MODE=recovered-existing" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "unexpected npm registry status: $registry_status" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Capture and verify actual npm provenance
+        shell: bash
+        env:
+          SNWC_RELEASE_ENVIRONMENT: release
+        run: |
+          set -euo pipefail
+          node scripts/npm-provenance.mjs capture \
+            --manifest release-output/release-manifest.json \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA" \
+            --environment "$SNWC_RELEASE_ENVIRONMENT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --output release-output/npm-provenance.json
+
+      - name: Finalize published release operation evidence
+        shell: bash
+        env:
+          SNWC_RELEASE_ENVIRONMENT: release
+        run: |
+          set -euo pipefail
+          node scripts/release-operation.mjs finalize \
+            --pre-operation release-output/release-operation.json \
+            --provenance release-output/npm-provenance.json \
+            --manifest release-output/release-manifest.json \
+            --publication-mode "$SNWC_PUBLICATION_MODE" \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA" \
+            --environment "$SNWC_RELEASE_ENVIRONMENT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow-ref "$GITHUB_WORKFLOW_REF" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output release-output/release-operation-final.json
+          mv release-output/release-operation-final.json release-output/release-operation.json
+
+      - name: Generate and validate published-mode unified release record
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release-record.mjs generate \
+            --mode release \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA" \
+            --provenance-status published \
+            --npm-dir release-output \
+            --c-abi-dir release-c-abi-input \
+            --output release-record-published
+          node scripts/release-record.mjs validate \
+            --mode release \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA" \
+            --provenance-status published \
+            --npm-dir release-output \
+            --c-abi-dir release-c-abi-input \
+            --output release-record-published
+
+      - name: Upload published npm release evidence
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-published-npm
+          path: release-output/
+          overwrite: true
+
+      - name: Upload published unified release record
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-record-published
+          path: release-record-published/
+          overwrite: true
 
       - name: Upload release operation evidence
         if: always()
@@ -228,3 +328,125 @@ jobs:
         with:
           name: release-operation
           path: release-output/release-operation.json
+          overwrite: true
+
+  publication:
+    name: Publish durable GitHub Release evidence
+    needs: [publish]
+    if: needs.publish.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Download published npm evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-published-npm
+          path: release-published-npm
+
+      - name: Download C ABI evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-c-abi
+          path: release-c-abi-input
+
+      - name: Download published unified release record
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-record-published
+          path: release-record-published
+
+      - name: Assemble exact durable GitHub Release asset set
+        run: |
+          mkdir -p release-github-assets
+          node scripts/release-publication.mjs assemble \
+            --npm-dir release-published-npm \
+            --c-abi-dir release-c-abi-input \
+            --record-dir release-record-published \
+            --output release-github-assets \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA" \
+            --asset-list "$RUNNER_TEMP/release-assets.txt"
+
+      - name: Create or resume the exact GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_url="https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME"
+          status="$(curl --silent --show-error \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output "$RUNNER_TEMP/release.json" \
+            --write-out '%{http_code}' \
+            "$release_url")"
+          case "$status" in
+            200)
+              node scripts/github-release.mjs plan \
+                --release-json "$RUNNER_TEMP/release.json" \
+                --asset-root release-github-assets \
+                --repository "$GITHUB_REPOSITORY" \
+                --tag "$GITHUB_REF_NAME" \
+                --source-commit "$GITHUB_SHA" \
+                --missing-output "$RUNNER_TEMP/missing-assets.txt"
+              mapfile -t missing_assets < "$RUNNER_TEMP/missing-assets.txt"
+              if ((${#missing_assets[@]} > 0)); then
+                upload_paths=()
+                for asset in "${missing_assets[@]}"; do
+                  upload_paths+=("release-github-assets/$asset")
+                done
+                gh release upload "$GITHUB_REF_NAME" "${upload_paths[@]}" --repo "$GITHUB_REPOSITORY"
+              fi
+              ;;
+            404)
+              mapfile -t release_assets < "$RUNNER_TEMP/release-assets.txt"
+              release_paths=()
+              for asset in "${release_assets[@]}"; do
+                release_paths+=("release-github-assets/$asset")
+              done
+              gh release create "$GITHUB_REF_NAME" \
+                --repo "$GITHUB_REPOSITORY" \
+                --verify-tag \
+                --target "$GITHUB_SHA" \
+                --title "$GITHUB_REF_NAME" \
+                --notes "Formal release $GITHUB_REF_NAME for $GITHUB_REPOSITORY at source commit $GITHUB_SHA." \
+                "${release_paths[@]}"
+              ;;
+            *)
+              echo "GitHub Release lookup returned unexpected HTTP status: $status" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Verify durable GitHub Release metadata and assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output "$RUNNER_TEMP/release-final.json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME"
+          node scripts/github-release.mjs verify \
+            --release-json "$RUNNER_TEMP/release-final.json" \
+            --asset-root release-github-assets \
+            --repository "$GITHUB_REPOSITORY" \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA"

@@ -227,7 +227,7 @@ Symbol と NEM は HD 導出、public key、address、署名 scheme を同一視
 
 ## Native C ABI
 
-Native C ABI は npm public API ではなく、native integration 用の `symbol-nem-wallet-core-native` package と [公開 header](crates/c-abi/include/symbol_nem_wallet_core.h) です。Node-API `.node` artifact と同一物ではありません。未実装の GitHub Release distribution を前提にしません。
+Native C ABI は npm public API ではなく、native integration 用の `symbol-nem-wallet-core-native` package と [公開 header](crates/c-abi/include/symbol_nem_wallet_core.h) です。Node-API `.node` artifact と同一物ではありません。正式 release では、4 target の C ABI archive と evidence を npm package とは分離した GitHub Release asset として保存します。Android / iOS C ABI support is deferred to MosaicLynx integration.
 
 ```bash
 cargo build --package symbol-nem-wallet-core-native --release --locked
@@ -284,7 +284,7 @@ Mnemonic、private key、Profile password、seed、decrypted secret material、s
 
 Application が explicit handoff / export のために secret copy を一時的に受け取ることは、Core 内原本の継続 ownership の移転を意味しません。Browser や host process の侵害防止は Core / Binding の保証範囲外です。
 
-provenance、SBOM、runtime digest verification、Trusted Publishing など release / supply-chain の後続項目を、完成済みの runtime security feature として表現しません。
+provenance、SBOM、runtime digest verification、Trusted Publishing など release / supply-chain evidence を、完成済みの runtime security feature として表現しません。正式 release の npm publish は GitHub Actions / OIDC / npm provenance path に限定します。
 
 ## 対応外
 

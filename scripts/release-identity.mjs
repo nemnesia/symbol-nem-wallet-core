@@ -251,7 +251,7 @@ export function npmVersionUrl(packageName, version) {
   return `https://registry.npmjs.org/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`;
 }
 
-export async function checkNpmVersionAvailability({ packageName, version, request }) {
+export async function checkNpmVersionAvailability({ packageName, version, request, allowExisting = false }) {
   if (packageName !== NPM_PACKAGE_NAME || !isValidSemVer(version)) {
     fail("invalid npm duplicate-check identity");
   }
@@ -270,6 +270,9 @@ export async function checkNpmVersionAvailability({ packageName, version, reques
     return { status: "not-found" };
   }
   if (response.status >= 200 && response.status < 300) {
+    if (allowExisting === true) {
+      return { status: "exists" };
+    }
     throw new Error(`Release identity gate failed: npm version already exists: ${packageName}@${version}`);
   }
   throw new Error(`Release identity gate failed: npm registry response is ambiguous (HTTP ${response.status})`);
@@ -348,6 +351,7 @@ async function run() {
   const tag = argument("--tag", argv, process.env.GITHUB_REF_NAME);
   const sourceCommit = argument("--source-commit", argv, process.env.GITHUB_SHA);
   const eventPath = argument("--event-path", argv, process.env.GITHUB_EVENT_PATH);
+  const allowExistingVersion = argv.includes("--allow-existing-version");
 
   if (mode !== "release") fail("only formal release mode is supported");
   if (typeof tag !== "string") fail("release tag is unavailable");
@@ -377,6 +381,7 @@ async function run() {
   const npmRegistry = await checkNpmVersionAvailability({
     packageName: NPM_PACKAGE_NAME,
     version: identity.version,
+    allowExisting: allowExistingVersion,
     request: async (url) => {
       if (typeof fetch !== "function") throw new Error("fetch is unavailable");
       return fetch(url, {

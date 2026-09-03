@@ -3,13 +3,15 @@
 ## Scope
 
 本書は、Stage 10 で承認された release / supply-chain policy を workflow、gate、テストへ
-接続した実装記録である。対象は npm package の formal release path と、その publish 前に必要な
+接続した Final RC 実装記録である。対象は npm package の formal release path、post-publish
+provenance、durable GitHub Release record、その retry boundary、および publish 前後の
 source / version / evidence / permission boundary である。
 
 既存の Core security semantics、runtime / public API、native target matrix、canonical WASM、npm
 assembly、`release-manifest.json` schema v1、Phase 4A / 4B artifact は変更しない。C ABI の
-durable GitHub Release publication、CHANGELOG、actual npm publish および GitHub Release publication
-はこの工程の対象外である。
+durable asset publication は npm の actual publish と分離する。actual npm publish は Final RC
+では実行しないが、正式 workflow の実装対象である。GitHub Release publication と CHANGELOG も
+同じ正式 release path の対象である。
 
 ## Implemented
 
@@ -22,7 +24,8 @@ durable GitHub Release publication、CHANGELOG、actual npm publish および Gi
 - tag event が exact tag の unforced creation であること、tag target / checkout / source evidence が
   同じ commit であることを確認する。
 - npm registry の既存 version、network error、曖昧な HTTP response を区別し、duplicate または
-  確認不能の場合は fail closed とする。
+  確認不能の場合は fail closed とする。workflow retry では既存 version を検知して npm publish
+  を再実行せず、registry tarball と provenance を再検証する。
 - publish 対象 package の source / tarball `package.json` に、`nemnesia/symbol-nem-wallet-core` と
   `packages/wallet-core` を指す canonical npm repository metadata が存在することを確認する。
 
@@ -39,10 +42,11 @@ native / WASM evidence、Phase 4A / 4B evidence の identity と digest を publ
 | `identity` | なし | `contents: read` | tag、source、version、npm duplicate gate |
 | `candidate` | なし | `contents: read` | reusable `node.yml` による build / test / assembly / evidence |
 | `publish` | `release` | `contents: read`, `id-token: write` | publish 前の bundle gate と npm provenance publish |
+| `publication` | なし | `contents: write` | exact asset set の GitHub Release durable publication / verification |
 
 通常の build / test / SBOM / license policy / assembly job は `release` Environment に接続しない。
-`packages: write`、`actions: write`、`contents: write` および長期 npm token は workflow に要求して
-いない。GitHub Release upload job はまだ追加していないため、`contents: write` も先行付与しない。
+`packages: write`、`actions: write` および長期 npm token は workflow に要求しない。publication job
+だけに `contents: write` を付与し、npm publish job には付与しない。
 
 ### Trusted Publishing / provenance
 
@@ -70,6 +74,32 @@ git tag
 artifact digest、build / lockfile / toolchain evidence、SBOM / license evidence digest は npm
 provenance へ統合せず、独立した assurance として保持する。
 
+### Post-publish provenance and durable release record
+
+publish job は registry metadata、published tarball、tarball integrity、attestation endpoint
+を取得する。registry tarball の SHA-256 / SHA-512 が release manifest と一致し、npm の実際の
+signature verifier が対象 package の provenance attestation を `verified` と報告しなければ
+停止する。raw attestation の DSSE payload は package PURL、tarball SHA-512、repository、
+`release.yml`、`refs/tags/v0.1.0`、source commit、workflow invocation identity を照合する。
+この検証結果と registry response は `npm-provenance.json` に保存する。自己申告の
+`--provenance` 実行結果や mock evidence は PASS の根拠にしない。
+
+`release-operation.json` は publication mode、workflow ref、run id / attempt、registry URL、
+provenance evidence digest および実際の provenance invocation identity を記録する。
+published-mode `release-record.json` はこの2ファイルを exact npm evidence set に含め、
+`RELEASE-RECORD-SHA256` とともに durable GitHub Release へ保存する。
+
+### Partial failure and retry
+
+`npm publish` 成功後に provenance capture、published record、または GitHub Release upload が
+失敗した場合、workflow rerun は `GITHUB_RUN_ATTEMPT > 1` の identity gate で既存 version を
+明示的に認識する。publish job は `recovered-existing` mode へ入り、同じ source-built tarball、
+registry integrity、実 provenance、published record を検証してから publication job へ進む。
+既存 version の bytes、attestation identity、tag/source/workflow binding が一致しない場合は
+再 publish や asset 上書きをせず fail closed とする。既存 GitHub Release は exact metadata と
+existing asset digest を検証し、欠落 asset だけを upload する。unexpected asset、同名の異なる
+asset、draft/prerelease、tag/source mismatch は自動 recovery しない。
+
 ### Phase 4A / 4B final boundary
 
 通常の release candidate validation は既存どおり Phase 4B artifact を生成する。formal release
@@ -85,7 +115,8 @@ license text の法的要否はこの実装で判断しない。回収不能、�
 
 ## User-side configuration required
 
-次は repository / external service 側で設定する必要があり、workflow の commit だけでは完了しない。
+次は repository / external service 側の設定であり、workflow の commit だけでは完了しない。Final RC
+では、ユーザーが提示した設定済み状態を前提として扱う。
 
 1. GitHub repository の Environment 名を正確に `release` として作成する。
 2. `release` に required reviewer を1名設定する。
@@ -122,19 +153,18 @@ pre-release policy の変更または permission 拡大が必要になった場�
 
 ## Not executed
 
-この工程では次を実行していない。
+Final RC では次を実行していない。
 
 - actual `npm publish`
 - npm version の registry 公開
-- GitHub Release の作成・公開
+- GitHub Release の作成・公開（workflow path と deterministic fixture は検証済み）
 - production release tag の作成
 - npm Trusted Publisher の外部設定変更
 - GitHub Environment の外部設定変更
-- C ABI durable release publication
-- CHANGELOG の作成・finalization
+- C ABI durable release publication（production tag が未作成のため）
 
-workflow 内に publish command は実装済みだが、tag push と reviewer approval が発生していない
-ため、公開操作は行われていない。
+workflow 内に publish / durable publication command は実装済みだが、tag push と reviewer approval
+が発生していないため、公開操作は行われていない。
 
 ## Validation intent
 

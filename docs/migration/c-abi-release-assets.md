@@ -142,14 +142,15 @@ version. Formal mode requires `main`, an exact `v<SemVer>` tag, the tag target
 to equal the checked-out source commit, and the existing release identity
 evidence. Candidate mode produces no formal tag claim.
 
-The workflow only builds, validates, and uploads a workflow artifact named
-`release-c-abi`. It does not create a GitHub Release, upload a GitHub Release
-asset, create a production tag, publish to npm, configure the `release`
-Environment, configure npm Trusted Publishing, publish a C ABI ABI/provenance
-attestation, or finalize CHANGELOG. A later Final Release operation can pass
-the exact validated `release-c-abi` asset set to the GitHub Release upload
-boundary. Any future GitHub Release write permission must be limited to that
-future publication job; the preparation workflow has only `contents: read`.
+The preparation workflow only builds, validates, and uploads a workflow
+artifact named `release-c-abi`; it keeps `contents: read`. The formal release
+workflow consumes that exact validated artifact, combines it with the npm and
+shared release-record sets, and uploads the resulting exact set to the durable
+GitHub Release publication job. The preparation workflow itself does not create
+a GitHub Release, create a production tag, publish to npm, configure the
+`release` Environment, configure npm Trusted Publishing, or publish a C ABI
+attestation. Android / iOS C ABI support remains deferred to MosaicLynx
+integration.
 
 ## User-side configuration
 

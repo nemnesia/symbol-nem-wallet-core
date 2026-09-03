@@ -18,6 +18,7 @@ const RECORD_SCHEMA_VERSION = 1;
 const RECORD_FILENAME = "release-record.json";
 const RECORD_SUMS_FILENAME = "RELEASE-RECORD-SHA256";
 const NPM_PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
+const NPM_REPOSITORY = "nemnesia/symbol-nem-wallet-core";
 const C_ABI_PACKAGE_NAME = "symbol-nem-wallet-core-native";
 const NPM_WORKFLOW = ".github/workflows/node.yml";
 const C_ABI_WORKFLOW = ".github/workflows/c-abi-release.yml";
@@ -233,9 +234,10 @@ function optionalPublishedEvidence(npmDir, provenanceStatus, sourceCommit, versi
   const operation = fileRecord(npmDir, "release-operation.json", "npm release operation evidence");
   const provenance = fileRecord(npmDir, "npm-provenance.json", "npm provenance record");
   const operationDocument = json(resolveUnder(npmDir, "release-operation.json", "npm release operation evidence"), "npm release operation evidence");
-  if (!isPlainObject(operationDocument) || operationDocument.package_version !== version || operationDocument.release_tag !== tag || operationDocument.source_commit !== sourceCommit || operationDocument.provenance?.required !== true) fail("npm release operation evidence identity is invalid");
+  if (!isPlainObject(operationDocument) || operationDocument.package_name !== NPM_PACKAGE_NAME || operationDocument.package_version !== version || operationDocument.release_tag !== tag || operationDocument.source_commit !== sourceCommit || operationDocument.environment !== "release" || operationDocument.provenance?.required !== true || operationDocument.provenance?.status !== "published" || operationDocument.provenance?.evidence?.filename !== "npm-provenance.json" || operationDocument.publication?.repository !== NPM_REPOSITORY || operationDocument.publication?.workflow_ref !== `${NPM_REPOSITORY}/.github/workflows/release.yml@refs/tags/${tag}` || !["published", "recovered-existing"].includes(operationDocument.publication?.mode) || typeof operationDocument.publication?.workflow_run_id !== "string" || !/^\d+$/.test(operationDocument.publication.workflow_run_id) || !Number.isInteger(operationDocument.publication?.workflow_run_attempt) || operationDocument.publication.workflow_run_attempt < 1) fail("npm release operation evidence identity is invalid");
+  if (operationDocument.provenance.evidence.sha256 !== provenance.sha256) fail("npm release operation provenance digest differs from the published evidence");
   const provenanceDocument = json(resolveUnder(npmDir, "npm-provenance.json", "npm provenance record"), "npm provenance record");
-  if (!isPlainObject(provenanceDocument) || provenanceDocument.package_name !== NPM_PACKAGE_NAME || provenanceDocument.package_version !== version || provenanceDocument.release_tag !== tag || provenanceDocument.source_commit !== sourceCommit) fail("npm provenance record identity is invalid");
+  if (!isPlainObject(provenanceDocument) || provenanceDocument.schema_version !== 1 || provenanceDocument.artifact_kind !== "npm-provenance" || provenanceDocument.package_name !== NPM_PACKAGE_NAME || provenanceDocument.package_version !== version || provenanceDocument.release_tag !== tag || provenanceDocument.source_commit !== sourceCommit || provenanceDocument.environment !== "release" || provenanceDocument.verification?.status !== "PASS") fail("npm provenance record identity is invalid");
   return [operation, provenance];
 }
 
