@@ -4,7 +4,7 @@
 
 本書は、Wallet Core v1 における秘密情報の所有、trust boundary、認証・認可、署名権限、状態 lifecycle、失敗時責任および security invariant を定める基本設計である。確定済み Architecture の security responsibility を、Security Design として一意に下流へ引き継ぐ。
 
-対象は、Desktop / Mobile / Web / Node.js の Symbol / NEM ウォレットから利用する Rust Core、Native C ABI、Node-API、Web / WASM Binding およびそれらを取り巻く秘密情報の境界である。Web には Web Application と Browser Extension を含める。
+対象は、Desktop / React Native Android / React Native iOS / Web / Node.js の Symbol / NEM ウォレットから利用する Rust Core、Native C ABI、Node-API、Web / WASM / React Native Binding およびそれらを取り巻く秘密情報の境界である。Web には Web Application と Browser Extension を含める。React Native の JS/native boundary、native artifact、runtime resolution および platform failure も対象とする。
 
 本書の対象外は、Wallet UI の具体的な表示、Transaction の構築・シリアライズ・意味解釈、REST / WebSocket / announce、Hardware Wallet、External Signer、OS-backed Key、Profile データの保存先選択および端末間 transfer の具体方式である。v1 は Store / Profile version migration を提供しないが、将来 version の migration 方式は本書で定めない。
 
@@ -55,7 +55,7 @@ Implementation
 ## 3. システムコンテキストと trust boundary
 
 ~~~text
-利用者 ──確認・承認──> Application / UI ──> Native C ABI、Node-API または Web / WASM Binding ──> Rust Core
+利用者 ──確認・承認──> Application / UI ──> Native C ABI、Node-API、Web / WASM または React Native Binding ──> Rust Core
    │                              │                                      │
    │                              ├── opaque Store ──> persistent storage
    │                              └── Transaction layer ──> Network layer
@@ -68,15 +68,17 @@ Implementation
 | Actor / boundary | Security responsibility | Core との関係 |
 | --- | --- | --- |
 | 利用者 | 初回 Mnemonic handoff の受領確認、署名承認、明示的 export の要求、および Core 外へ受け取った秘密情報 copy の保管 | Core は利用者の UI 操作、紙・外部媒体への保存または将来の紛失を独立検証しない |
-| Desktop Application / Mobile Application / Node.js Application | UI、利用者への表示、Account 選択、handoff、export、signing の確認・承認取得、opaque Store の current-state selection、保存・置換および stale / historical Store の再適用防止 | Core 管理下 secret の継続 owner、Core authorization または signing authority にはならない。assertion freshness と current Store authority は Application / persistence layer の責任である。Node.js Application は Rust Wallet Core と独立した Wallet Core を実装しない |
+| Desktop Application / React Native Application / Node.js Application | UI、利用者への表示、Account 選択、handoff、export、signing の確認・承認取得、opaque Store の current-state selection、保存・置換および stale / historical Store の再適用防止 | Core 管理下 secret の継続 owner、Core authorization または signing authority にはならない。assertion freshness と current Store authority は Application / persistence layer の責任である。Node.js / React Native Application は Rust Wallet Core と独立した Wallet Core を実装しない |
 | Web Application / Browser Extension | Web 固有の UI / state、利用者確認、opaque Store の current-state selection、保存・置換および Web 実行環境との連携 | Browser / host の安全性は別責任であり、Core の通常非開示 invariant を弱めない。assertion freshness と historical Store rollback prevention は Application / persistence layer の責任である |
 | Native C ABI | Application と Core の間の値・ownership・lifecycle の橋渡し | Core の security decision、認証、暗号、導出、署名意味、Store 意味を代替しない |
 | Node-API Binding | Node.js Application と Core の間の値・ownership・lifecycle の橋渡し | Core の security decision、認証、暗号、導出、署名意味、Store 意味を代替しない。C ABI を JavaScript FFI から呼び出す authority ではない |
 | Web / WASM Binding | Web Application / Browser Extension と Core の間の値・ownership・lifecycle の橋渡し | JavaScript / Browser と同じ実行 context でも、Native と異なる secret policy を持たない |
+| React Native Binding | TypeScript facade と Android / iOS native layer の間の runtime resolution、JS/native buffer・error・lifecycle mediation | JSI / TurboModule、platform loader および C ABI の接続を含むが、暗号、認証、Store processing、secret owner にはならない。Node addon / WASM へ fallback しない |
+| Android / iOS native layer | package 内 native artifact の load、platform registration および RN adapter への接続 | artifact、ABI、device / simulator の不一致を fail-closed に伝える。Core の意味を変更せず、秘密情報を継続保持しない |
 | Rust Core | secret ownership、processing-unit authentication、入力 Store の validity、Chain / Network compatibility、signing primitive、成功状態の確定および失敗時保護 | 秘密情報とその security meaning の継続 owner。UI、Transaction 意味、Application assertion freshness、Store currentness または host security を担わない。過去に返した Store を永続記憶しない stateless processor である |
 | Browser | Web の実行環境およびその安全性 | Core の秘密情報隔離境界または host compromise 防止保証ではない |
 | Node.js host process | Node.js Application と Node-API が動作する実行環境およびその安全性 | Core の秘密情報隔離境界または host compromise 防止保証ではない |
-| OS | Desktop / Mobile の実行環境およびその安全性 | Core の host compromise 防止保証ではない |
+| OS | Desktop / React Native の実行環境およびその安全性 | Core の host compromise 防止保証ではない |
 | host process | Application と Binding の実行・保持環境 | 侵害防止は Core の保証外。ただし Core / Binding の非開示責任は維持する |
 | persistent storage | Application が選択する opaque Store の保存先および current Store の保持先 | Store の内部を解釈せず、Core の validity 判断を代替しない。Application / persistence layer は current Store の選択、replacement の適用、stale / historical Store の再適用防止を担う。読み込み値は attacker-controlled input になり得る |
 | Transaction layer | Transaction の構築、内容の提示に必要な情報およびシリアライズ | Core の署名 authority、意味判断または利用者承認を代替しない |
@@ -84,7 +86,7 @@ Implementation
 
 ### 3.2 全環境共通 security invariant
 
-Desktop、Mobile、Web、Node.js、Native C ABI、Node-API および Web / WASM のすべてで、次を共通に維持する。
+Desktop、React Native Android / iOS、Web、Node.js、Native C ABI、Node-API、Web / WASM および React Native のすべてで、次を共通に維持する。
 
 - Mnemonic および Software Key 原本の継続的な secret owner は Core である。
 - Application / Binding は input、初回 handoff または明示的 export の受渡しを一時的に mediation できるが、Core とは別の継続的な secret authority にならない。
@@ -131,7 +133,7 @@ Application / UI は Core 管理下の secret、signing authority、Profile pass
 Binding は入力・出力の型変換、raw / opaque data の受渡し、ownership の橋渡しおよび error / warning の境界変換を担う。依存方向は次のとおりである。
 
 ~~~text
-Application / UI → Native C ABI、Node-API または Web / WASM Binding → Rust Core
+Application / UI → Native C ABI、Node-API、Web / WASM または React Native Binding → Rust Core
 ~~~
 
 Binding は暗号、認証、Mnemonic validation、導出、署名、Store / pending の意味、Chain / Network policy、Transaction の意味または Wallet 固有の security policy を複製・補正しない。Native C ABI、Node-API と Web / WASM の経路差は境界の transport / conversion に限定し、Core の ownership、authorization、公開範囲および failure policy を変更しない。Node.js host process の compromise に対する native-isolation guarantee は追加しない。
@@ -390,6 +392,7 @@ API / ABI、DTO、request field、callback / ACK、wire / schema、version ident
 | Pending / failure / retry / restart | Requirements SEC-003、SEC-005、SEC-017〜SEC-019、AC-037〜AC-039、AC-046 | Architecture §5.3、§6.1〜§6.2、§6.5、§9.4 | §5.1、§5.2、§6.6 |
 | Chain / Network separation | Requirements FR-013、FR-024、DR-005、AC-013、AC-047 | Architecture §5.1、§6.2、§7 | §6.4、§7 |
 | Binding non-authority と全環境境界 | Requirements §2.2〜§2.4、NFR-001〜NFR-004、SEC-011〜SEC-012、AC-015、AC-024、AC-040、AC-043 | Architecture §3〜§4、§8、§9.1 | §3、§4、§8 |
+| React Native JS/native boundary、artifact、secret flow、failure および host limitation | Requirements NFR-006〜NFR-014、SEC-011〜SEC-012、SEC-015、SEC-017、AC-051〜AC-060 | Architecture §12.1〜§12.7 | Security §12.1〜§12.6 |
 | Side-channel / memory guarantee boundary | Requirements SEC-003、SEC-012、SEC-015、SEC-017、SEC-023、AC-028、AC-032、AC-037、AC-049、§12.2〜§12.3 | Architecture §4.2、§8、§10 | §8.1〜§8.3、§9.4、§10 |
 
 ### 11.2 参照資料の役割
@@ -403,3 +406,145 @@ API / ABI、DTO、request field、callback / ACK、wire / schema、version ident
 | 履歴資料 | docs/reviews/ | 判断履歴。現行 Security Design の normative source ではない |
 
 本書は Architecture の security responsibility を詳細化する Design 正本であり、上流を追加せず、Architecture を変更せず、Specification / Implementation の具体方式を先取りしない。
+
+## 12. React Native security boundary
+
+### 12.1 JS / native / Core の trust boundary
+
+React Native は JavaScript engine、JSI / TurboModule adapter、Android / iOS native layer、internal Native C ABI および Rust Core の複数境界を持つ。境界が増えても、Core の secret ownership、processing-unit authentication、Store の opaque 性、explicit export、signing approval および failure safety の invariant は一つである。
+
+```text
+Application / UI
+  ↓ public TypeScript facade（既存 16 operation）
+private RN entry / resolver
+  ↓
+JSI-backed TurboModule adapter
+  ↓
+Android / iOS native loader・registration
+  ↓
+internal Native C ABI
+  ↓
+Rust Wallet Core（secret / authorization authority）
+```
+
+JSI、TurboModule、Codegen、JNI、Swift / Objective-C++ および C ABI は trust authority ではなく、transport / registration / ownership / error の境界である。Application / UI は Core 外へ明示的に渡された handoff / export copy の保護を担うが、Core 管理下 secret の継続 owner、password authorization、signing authority または Store semantics にはならない。
+
+### 12.2 React Native secret flow と guarantee boundary
+
+既存の public API は password、Mnemonic import、private key import、opaque Store 等の入力を必要とするため、「secret が JS memory に一切存在しない」とは保証しない。保証する設計は、不要な copy、保持期間、文字列化、cache、log および authority の増加を防ぐことである。
+
+| Secret / operation | JS / Application | RN native boundary | Core / security outcome |
+| --- | --- | --- | --- |
+| Profile password | 現行 operation の input として一時的に存在し得る。通常 object、global state、log、error へ複製しない | validated bytes を operation-local temporary / view として mediation し、success / failure / exception / cancellation の全経路で lifetime を終了する | Core が当該 operation の authorization にのみ使う。password cache、unlock session、previous authorization を持たない |
+| Mnemonic handoff | 新規生成の初回 handoff の明示例外として、意図された利用者へ提示する copy が存在し得る | Core output を一時的に transport し、確認前に committed success へ昇格させない | Core 内原本は Core が継続所有。handoff 後の外部 copy は Application / user が保護する |
+| Mnemonic import | 明示 import input として一時的に存在し得る。通常結果へ再出力しない | buffer view / temporary から Core へ渡し、binding が保持しない | restore / import / validation / persistence は Core が所有する |
+| private key import | 明示 import input として一時的に存在し得る | bounded temporary で Core へ渡し、native cache を残さない | Software Key private key は Core が継続管理し、通常結果で返さない |
+| private key export | explicit target、user request、confirmation および password が成立した成功時だけ output copy が存在し得る | Core output を新しい JS binary output へ移し、native temporary を release する | fail / target mismatch 時は secret を返さず、Core 外 copy の保護は Application / user の責任 |
+| signing | payload と password が一時的に存在し得る。private key を JS output にしない | approved request の transport に限定し、private key / decrypted material の継続 copy を作らない | authorization、Chain / Network compatibility、private key use および signature は Core が所有する |
+| Wallet Store blob | Application / persistence が current opaque bytes を所有する | bytes を opaque に渡し、Store history、Profile state、decrypted state を cache しない | Core が validity / integrity / replacement を判定し、Application が成功 replacement を current として保存する |
+
+immutable DTO、unexpected object / proxy、detached / altered `Uint8Array` または exception によって secret copy が増えないよう、binding は validated snapshot / view を境界の単位とする。exact copy count、zero-copy、allocator、pointer、free、zeroization および JS engine の object lifetime は下流へ委譲する。JS GC、crash dump、OS swap、debugger、runtime、third-party dependency または compromised host の全 memory を消去する保証はしないが、その保証外を不要 retention の理由にしない。
+
+### 12.3 Buffer、error および fail-closed invariant
+
+canonical binary model は JS `Uint8Array` とし、hex / Base64 / UTF-8 string への暗黙変換を設けない。input は caller-owned として扱い、native は call 中のみ有効な validated view または bounded owned temporary を用いる。Rust byte slice / owned buffer の lifetime は operation に限定し、output は native alias ではない新しい JS `Uint8Array` とする。入力 mutation、output alias、global native buffer、profile singleton および Store cache は禁止する。
+
+Security-relevant error は次の原因領域を区別できなければならない。
+
+- Core error: password authorization、Store validity、Chain / Network mismatch、Core operation reject
+- binding conversion error: invalid DTO / bytes、detached / altered buffer、invalid output、ownership conversion failure
+- native initialization / load error: registration、artifact、integrity、ABI / slice、required native state の failure
+- unsupported runtime / platform: RN entry でない host、unsupported device / architecture、unsupported API / OS
+- internal binding failure: invocation exception、unexpected result、allocation / release failure、reentrancy violation
+
+これらの区別は Application が failure の原因領域を判断できるためのものであり、Core error の意味を RN error へ書き換えるためのものではない。exact error class、code、message、cause chain および secret-safe redaction は Specification へ委譲する。error / warning / diagnostic / log に password、Mnemonic、private key、Store plaintext または secret-derived representation を含めない。
+
+次のどの failure も、RN native path を明示的に失敗させる。
+
+| Failure | Security behavior |
+| --- | --- |
+| resolver mis-detection / RN module 未登録 | unsupported runtime / initialization failure。別 backend を選ばない |
+| artifact missing / substitution / integrity failure | native library load failure。remote download、Node addon、WASM へ fallback しない |
+| ABI / slice / device / architecture mismatch | unsupported platform / load failure。誤った binary の実行を試みない |
+| initialization / invocation / reentrancy failure | internal binding / native failure。partial result、secret output、replacement を commit しない |
+| invalid output / release failure / exception | binding failure。既存 committed state を成功として変更しない |
+| cancellation / interruption | operation を未確定として終了し、authorization、secret、pending を次 operation へ持ち越さない |
+
+RN が利用不能でも Browser / WASM や Node addon を成功 fallback にする設計は、runtime mis-detection、異なる security / performance boundary および unintended artifact の使用を隠すため採用しない。
+
+### 12.4 Native artifact と追加 threat surface
+
+RN 追加で明示的に threat model へ加える対象は次のとおりである。
+
+| Threat surface | Design response |
+| --- | --- |
+| malformed、truncated、invalid-length、detached / altered typed array | Core invocation / state commit 前に binding validation。失敗を Core success に変換しない |
+| unexpected object / proxy / getter side effect | accepted byte / DTO boundary を明確にし、意図しない object evaluation / conversion を成功条件にしない |
+| JSI / TurboModule reentrancy と JS thread race | Core call 中の callback / public-facade re-entry を許さず、initialization / invocation state を operation 外へ漏らさない |
+| C ABI pointer、length、alias、free および native lifetime | internal boundary で ownership / lifetime を検証し、exact mechanics は下流で検証する |
+| native library substitution、artifact missing、ABI / slice mismatch | package-local artifact、allowlist / integrity / provenance、native load check および fail-closed を既存 native Node の lessons と整合させる |
+| package resolver の RN / Node / Browser 競合 | dedicated private RN entry と unambiguous resolution。resolver failure は明示 error |
+| error object、log、warning、crash-facing diagnostic | secret-safe error boundary。secret、plaintext Store および password を含めない |
+| secret copy、immutable object、GC、crash dump、debugger | operation-local ownership、不要 copy / cache 禁止、ただし host-wide erasure は guarantee 外と明示 |
+| native initialization race、concurrent invocation、same-Store mutation | initialization を成功条件へ含め、Core / adapter の reentrancy / thread-safety または明示的 serialization を検証。current Store ordering は Application に残す |
+
+Android の per-ABI artifact、iOS の device / simulator slice、static linkage first の推奨、および package-local distribution は `docs/design/bindings.md` と整合させる。既存 Node の package-local artifact verification と Browser の package-local WASM / no-remote-code policy を RN に再利用するが、release workflow や supply-chain model 自体は変更しない。
+
+### 12.5 Statelessness、threading および side-channel boundary
+
+RN Binding は Profile state、password authorization、decrypted secret、unlocked session、current Store、Store history または mutable Wallet Core singleton を保持しない。Core は既存の stateless opaque Store processor のまま、各 operation の input Store と operation-local secret を処理する。Application が current Store authority と mutation ordering を持ち、Binding は Store を merge、deduplicate、reorder、auto-retry または stale state として判定しない。
+
+同期 call の通常実行 thread は JS runtime thread と native adapter の境界で定めるが、Core operation 中の JS callback、UI re-entry、binding re-entry を禁止する。Core / C ABI が concurrent invocation を安全に処理できない場合、adapter が同時 mutation を明示的に直列化する。locking primitive、executor、queue、thread affinity および memory ordering は Specification / Implementation へ委譲する。
+
+Requirements `SEC-023` の side-channel invariant は Core が所有する。RN binding は secret-dependent policy、authorization shortcut、別の timing-sensitive fallback または secret-derived branching を追加しない。JSI、native runtime、OS、compiler、third-party library、hardware、crash dump および host process 全体の完全な side-channel absence / memory erasure は保証外である。一方、binding が作る不要な secret-dependent conversion、copy、cache、log、fallback および継続 retention は設計上許可しない。
+
+### 12.6 Security Design Decision Records
+
+#### DDR-SEC-RN-001: JS/native boundary は Core authority にならない
+
+- **Decision**: TurboModule / JSI、Android / iOS native layer および internal C ABI は transport / lifecycle / conversion boundary に限定し、Core の security meaning を複製しない。
+- **Alternatives considered**: RN adapter に password cache / authorization、Store processor、signing approval または key management を持たせる方式。
+- **Rationale**: Core の単一 authority、全環境共通 policy および duplicate business logic 禁止を維持する。
+- **Security implications**: boundary が増えても Core ownership、per-operation authorization、non-disclosure、failure safety が分岐しない。
+- **Compatibility implications**: RN は既存 16 operation と DTO / error / binary semantics を再利用する。
+- **Deferred details**: TurboModule / JSI / C ABI の exact contract、generated code、method、threading。
+
+#### DDR-SEC-RN-002: secret は operation-local mediation に限定する
+
+- **Decision**: `Uint8Array` input / output の必要な handoff、import、export、password および Store の mediation は許可するが、binding の継続 owner、cache、singleton または persistent secret state は作らない。
+- **Alternatives considered**: secret を完全に JS 外へ隠す主張、shared mutable alias、global native cache、string / Base64 transport。
+- **Rationale**: existing public API と host reality を満たしながら不要 copy / lifetime を減らす。
+- **Security implications**: private key は通常 Core 内に留まり、explicit handoff / export だけが output 例外となる。host-wide erase は保証しない。
+- **Compatibility implications**: existing binary model と sync operation semantics を維持する。
+- **Deferred details**: copy count、zero-copy、allocator、zeroization、pointer / free、GC / crash behavior。
+
+#### DDR-SEC-RN-003: infrastructure failure は別 backend に隠さない
+
+- **Decision**: RN resolution、artifact、ABI、load、initialization、invocation、output および unsupported platform の failure を明示的に fail closed する。
+- **Alternatives considered**: WASM / Node fallback、last-known backend、best-effort ABI selection。
+- **Rationale**: NFR-010、NFR-014、artifact substitution 防止および security semantics の一貫性。
+- **Security implications**: 意図しない backend、未検証 artifact、invalid output、partial state を成功として扱わない。
+- **Compatibility implications**: RN consumer は supported native artifact と native project を正しく含める必要があり、Expo Go 等の固定 runtime は別途 support policy が必要。
+- **Deferred details**: error mapping、manifest / digest、retry、loader、packaging。
+
+#### DDR-SEC-RN-004: host compromise limitation を正しく引き継ぐ
+
+- **Decision**: JS engine、OS、crash dump、debugger、GC、Application または host process の完全な compromise 防止・秘密消去は保証しない。ただし通常処理の non-disclosure、no unnecessary retention、authorization、fail-closed は維持する。
+- **Alternatives considered**: RN native boundary を強い秘密隔離境界と主張する方式、または host compromise を理由に binding invariant を緩める方式。
+- **Rationale**: Requirements と既存 Node / Browser guarantee boundary の整合。
+- **Security implications**: guarantee 外を明示しつつ、不要な secret disclosure / cache / diagnostic を許さない。
+- **Compatibility implications**: RN だけ異なる security promise や public API を追加しない。
+- **Deferred details**: platform-specific secure memory capability、crash reporting、debug build policy、release verification。
+
+## 13. RN security verification handoff
+
+将来の検証は exact command を本書で固定せず、次の security property を実行可能な形で検証できるようにする。
+
+- Android / iOS の実 consumer で 16 operation、DTO、binary、Core error と infrastructure failure の parity を確認する。
+- malformed / truncated / invalid-length / detached / altered buffer、unexpected object / proxy、wrong Chain / Network、wrong password、invalid Store を secret operation / commit 前に reject することを確認する。
+- missing / substituted artifact、integrity failure、ABI / slice mismatch、unsupported device / architecture、module unregistered、initialization / invocation / reentrancy failure が no-fallback で失敗することを確認する。
+- password、Mnemonic、private key、decrypted material、Store plaintext が log、error、warning、diagnostic、cache、singleton、partial result に現れないことを確認する。
+- failure、exception、cancellation、retry、restart および repeated / concurrent invocation で operation-local lifetime、authorization non-carry-over、stateless Store processing、same-Store ordering の責任分界を確認する。
+- Node / Browser / Browser Extension の既存 routing、artifact verification、WASM non-regression、Node 22.x / 24.x support および release / supply-chain evidence が RN 追加で変わらないことを確認する。
+
+exact test、fuzz、fixture、sanitizer、artifact filename、CI / release job および platform-specific inspection は下流へ委譲する。
