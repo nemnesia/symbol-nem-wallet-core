@@ -2,9 +2,11 @@
 
 ## 1. 概要
 
-symbol-nem-wallet-core v1 は、Symbol / NEM ウォレットで使う秘密情報を管理し、Software Key（Core が管理し、署名に利用する秘密鍵）を扱う、共通の Rust 製 Core を作るプロジェクトである。Symbol / NEM は、取引や Account を扱う仕組みである。対象は Desktop / Mobile / Web / Node.js のウォレットで、Web には Web Application と Browser Extension を含む。
+symbol-nem-wallet-core v1 は、Symbol / NEM ウォレットで使う秘密情報を管理し、Software Key（Core が管理し、署名に利用する秘密鍵）を扱う、共通の Rust 製 Core を作るプロジェクトである。Symbol / NEM は、取引や Account を扱う仕組みである。対象は Desktop / Mobile / Web / Node.js のウォレットである。Mobile は React Native Android / iOS、Web は Browser / Browser Extension を含む。
 
 Core は Mnemonic と Software Key を管理し、Software Key を署名に利用する。UI / Application は、ユーザー操作、表示、ウォレット固有の設定を担当する。どの実行環境から利用しても、Core が担う秘密情報の管理責任と公開範囲は共通に保つ。
+
+リポジトリは `nemnesia/symbol-nem-wallet-core` を単一リポジトリとして維持し、npm package も `@nemnesia/symbol-nem-wallet-core` に統一する。React Native 専用 npm package は作らない。Node.js、Browser、Browser Extension、React Native Android / iOS から同一の Rust Core を利用し、runtime / platform 固有の差異は可能な限り package 内部に隠蔽する。platform 固有に分ける必然性がない公開 API は、一貫した利用モデルを目指す。React Native Android / iOS から利用する場合も、暗号処理や秘密情報管理の責任を React Native 側へ移さず、既存の Rust Core の責任境界を維持する。
 
 ウォレットでは、Mnemonic、秘密鍵、HD Wallet、暗号化保存、ロック、署名などの高リスクな処理を扱う。これらが UI / Application や実行環境ごとに分散すると、秘密情報の露出箇所、実装差異、レビューと保守の対象範囲が増える可能性がある。本プロジェクトは、v1 の製品像をソフトウェアウォレットの秘密鍵ライフサイクルを担う鍵管理 Core に絞る。External Signer（Core 外部で署名を担う仕組み）や OS-backed Key（OS 固有の鍵保管機能）は同じ製品責任に含めない。
 
@@ -71,7 +73,8 @@ Symbol / NEM ウォレット開発者。Desktop / Mobile / Web / Node.js ウォ�
 - **Account**: Chain 上で資産や取引の主体として扱う利用単位。Software Key を利用する対象。
 - **Core 管理下の秘密情報**: この Concept で対象とする Mnemonic および Software Key に属する秘密情報。これらは Core が継続的な管理主体となる。
 - **Watch-only**: 署名能力を持たない Account の利用形態。Signer および Signer 実装候補とは別の概念として扱う。
-- **Web**: Web Application および Browser Extension を含む実行環境。Web 固有の実装方式やブラウザ API はコンセプトシートでは定義しない。
+- **Web**: Browser（Web Application）および Browser Extension を含む実行環境。Web 固有の実装方式やブラウザ API はコンセプトシートでは定義しない。
+- **Mobile**: React Native Android / iOS のアプリケーション実行環境。React Native 固有の実装方式はコンセプトシートでは定義しない。
 
 関係を簡単に言うと、Mnemonic が HD Wallet の元になり、HD Wallet から Software Key が導出される。Core はその Mnemonic と Software Key を管理し、Software Key を Account で利用できるようにする。どの Account を利用するかは UI / Application が選択するが、秘密情報の管理責任を持つことを意味しない。
 
@@ -87,7 +90,7 @@ Symbol / NEM ウォレット開発者。Desktop / Mobile / Web / Node.js ウォ�
 
 ### v1 で扱う範囲
 
-v1 は、Desktop / Mobile / Web / Node.js の Symbol / NEM ウォレット向け Software Key 管理 Core として、次の能力と責任を担う。
+v1 は、Desktop、Node.js、Browser / Browser Extension、React Native Android / iOS の Symbol / NEM ウォレット向け Software Key 管理 Core として、次の能力と責任を担う。
 
 - Mnemonic を生成・復元・取込みした後も、Mnemonic を Core 管理下の秘密情報として継続的に扱う。Mnemonic は HD Wallet の基礎であり、導出された Software Key とは別の管理対象とする。
 - Mnemonic を基礎とする HD Wallet を生成・復元し、Account を導出する。
@@ -99,6 +102,7 @@ v1 は、Desktop / Mobile / Web / Node.js の Symbol / NEM ウォレット向け
 - 取込み時のユーザー入力を UI / Application が一時的に仲介する場合を含め、取込み後の秘密情報の管理責任を Core に集約する。
 - Core 管理下の秘密情報を、通常の処理結果として Core 外へ返却・共有しない。
 - Desktop / Mobile / Web / Node.js のいずれから利用する場合も、Core の秘密情報管理責任と秘密情報の公開範囲を共通に保つ。
+- 各対象利用環境向けに Wallet Core を個別実装せず、単一の Rust Core を共通利用する。
 
 具体的な導出パスの値、秘密鍵の入力形式・検証方法、暗号方式、保存形式、API、データ形式、Binding 方式、受渡し方法、メモリ上の保持方法、破棄の安全性保証・消去方式は後続工程で決定する。
 
@@ -109,7 +113,7 @@ v1 は、Desktop / Mobile / Web / Node.js の Symbol / NEM ウォレット向け
 - Mnemonic および Software Key に属する秘密情報は、生成・復元・取込み後も Core が継続的な管理主体となる。
 - UI / Application が取込み時などに秘密情報を一時的に仲介しても、それは継続的な管理責任が UI / Application へ移転することを意味しない。
 - Core 管理下の秘密情報は、通常の処理結果として Core 外へ返却・共有しない。
-- Desktop / Mobile / Web / Node.js の違いによって、この管理責任と通常処理での非開示原則を変えない。
+- Desktop、Node.js、Browser / Browser Extension、React Native Android / iOS の違いによって、この管理責任と通常処理での非開示原則を変えない。
 - UI / Application、Browser、OS などのホスト環境そのものの侵害を Core が防止できるという保証は、この原則とは別であり、Core の保証範囲に含めない。
 
 ユーザーが明示的に求める Mnemonic や Software Key の回復、表示、export などは、通常の処理とは異なる「意図的な秘密情報アクセス」として扱う。その可否、認可条件、UX、受渡し方式は、この Concept では決定せず、Requirements / Design で決定する。
@@ -144,12 +148,12 @@ Hardware Wallet、External Signer、OS Keychain・Secure Enclave・TPM などの
 
 v1 は、少なくとも次の状態を満たしたときに、コンセプト上の目的を達成したとみなす。
 
-1. Desktop / Mobile / Web / Node.js の Symbol / NEM ウォレットから、同じ Rust 製 Core へ鍵管理と署名の責任を集約できる。
+1. Desktop、Node.js、Browser / Browser Extension、React Native Android / iOS の Symbol / NEM ウォレットから、同じ Rust 製 Core へ鍵管理と署名の責任を集約できる。
 2. HD Wallet 由来、直接取込み、Core 独立生成の秘密鍵を、共通の Software Key として扱える。
 3. UI / Application が取込み時などに秘密情報を一時的に仲介しても、取込み後の Mnemonic および Software Key の継続的な秘密情報管理主体にならない。
 4. Core 管理下の秘密情報が、通常の処理結果として Core 外へ返却・共有されない。
 5. Symbol / NEM と Mainnet / Testnet の区別を保った鍵管理ができる。
-6. Desktop / Mobile / Web / Node.js の実行環境の違いによって、Core の秘密情報管理責任や秘密情報公開方針が変化しない。
+6. Desktop、Node.js、Browser / Browser Extension、React Native Android / iOS の実行環境の違いによって、Core の秘密情報管理責任や秘密情報公開方針が変化しない。
 
 具体的な暗号方式、API、Binding 方式、保存形式、対象 OS・Browser、配布方式、メモリ消去方式は、上記の成功条件を満たすための後続設計事項とする。
 
@@ -164,7 +168,7 @@ v1 は、少なくとも次の状態を満たしたときに、コンセプト�
 
 ## 10. リスクと注意点
 
-- Web を v1 対象に含めることで、Desktop / Mobile に加えて Browser 環境の実装・レビュー対象が増える。ただし、Web 固有の秘密情報管理ロジックを別実装せず、Core へ責任を集約する方針は維持する。
+- Browser / Browser Extension および React Native Android / iOS を v1 対象に含めることで、実行環境・platform 差異の実装・レビュー対象が増える。ただし、runtime / platform ごとに秘密情報管理ロジックを別実装せず、共通の Rust Core へ責任を集約する方針は維持する。
 - UI / Application や Binding の境界を越える秘密情報の扱いは、実行環境によってコピーや保持の性質が異なる可能性があるため、具体的な保護方式は後続工程で検証する必要がある。
 - Core へ秘密情報管理を集約しても、UI / Application、Browser、OS などのホスト環境そのものの侵害を防止できることを意味しない。これは Core の秘密情報管理に関する Security Invariant とは別の責任範囲である。
 - 対象 Chain / Network との互換性、秘密情報の保護強度、状態変更時の整合性などは、要件定義および仕様設計で受入基準を具体化する必要がある。
@@ -190,7 +194,7 @@ Watch-only は署名能力を持たない別の Account 利用形態であり、
 - Profile、Mnemonic、Software Key などの具体的な管理単位、保存・保護・消去などの詳細なライフサイクル。Mnemonic を Core 管理下の秘密情報とする責任境界はコンセプトで定める。
 - 秘密情報保護に必要なパスワード安全性や認可条件。
 - ユーザーが明示的に求める Mnemonic や Software Key の回復、表示、export などを v1 で許可するか、その認可条件、UX、受渡し方式。
-- Native / Node.js / Web を含む具体的な Binding 方式とパッケージ構成。
+- 単一 npm package から各実行環境で共通利用するための具体的な Binding 方式、runtime / platform 固有の差異を package 内部に隠蔽する具体的方法、および公開 API の共通化範囲。
 - 対象 OS・Browser・バージョン、ビルド・配布方式。
 - Web 環境における秘密情報の具体的な受渡し、コピー、保持、消去方式。
 
@@ -201,7 +205,7 @@ Watch-only は署名能力を持たない別の Account 利用形態であり、
 - Desktop / Mobile / Web / Node.js から利用する Core と Application の責任境界、通常処理と意図的な秘密情報アクセスの区別、および通常処理で Core 管理下の秘密情報を Core 外へ返却・共有しない境界。
 - Profile、Mnemonic、Software Key の具体的な管理単位と詳細なライフサイクル。
 - Symbol / NEM と Mainnet / Testnet の区別、および v1 の互換性基準。
-- Desktop / Mobile / Node.js / Web の各実行環境から利用する v1 機能の範囲。
+- Desktop、Node.js、Browser / Browser Extension、React Native Android / iOS の各実行環境から利用する v1 機能の範囲、および単一 npm package での共通利用に関する要件。
 - Web 環境を秘密情報の恒久的な保護境界とみなさない前提。
 
 具体的な API、データ形式、暗号方式、保存形式、Binding 実装方式、メモリ消去方式は要件定義を超えるため、必要な受入条件を要件で定めたうえで仕様設計へ引き継ぐ。
