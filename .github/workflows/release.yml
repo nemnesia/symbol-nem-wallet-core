@@ -246,6 +246,7 @@ jobs:
             not-found)
               npm publish --provenance --access public "$tarball"
               echo "SNWC_PUBLICATION_MODE=published" >> "$GITHUB_ENV"
+              echo "SNWC_NPM_EVIDENCE_DIR=release-output" >> "$GITHUB_ENV"
               ;;
             exists)
               echo "SNWC_PUBLICATION_MODE=recovered-existing" >> "$GITHUB_ENV"
@@ -273,14 +274,27 @@ jobs:
             --workflow-run-id "$GITHUB_RUN_ID" \
             --output "$RUNNER_TEMP/npm-provenance.json" \
             --tarball-output "$RUNNER_TEMP/registry-release.tgz"
-          node scripts/release-recovery.mjs canonicalize \
+          node scripts/release-recovery.mjs validate-provenance-invocation \
+            --provenance "$RUNNER_TEMP/npm-provenance.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --output "$RUNNER_TEMP/original-publish-invocation.json"
+          original_publish_run_id="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).run_id' "$RUNNER_TEMP/original-publish-invocation.json")"
+          original_publish_run_attempt="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).run_attempt' "$RUNNER_TEMP/original-publish-invocation.json")"
+          test "$original_publish_run_id" = "$GITHUB_RUN_ID"
+          export SNWC_ORIGINAL_PUBLISH_RUN_ID="$original_publish_run_id"
+          export SNWC_ORIGINAL_PUBLISH_RUN_ATTEMPT="$original_publish_run_attempt"
+          echo "SNWC_ORIGINAL_PUBLISH_RUN_ID=$original_publish_run_id" >> "$GITHUB_ENV"
+          echo "SNWC_ORIGINAL_PUBLISH_RUN_ATTEMPT=$original_publish_run_attempt" >> "$GITHUB_ENV"
+          node scripts/release-recovery.mjs reconstruct \
             --source-dir release-output \
             --registry-tarball "$RUNNER_TEMP/registry-release.tgz" \
             --output release-output-recovered \
             --tag "$GITHUB_REF_NAME" \
             --source-commit "$GITHUB_SHA"
-          cp -a release-output-recovered/. release-output/
-          cp "$RUNNER_TEMP/npm-provenance.json" release-output/npm-provenance.json
+          cp "$RUNNER_TEMP/npm-provenance.json" release-output-recovered/npm-provenance.json
+          node --input-type=module -e 'const fs = await import("node:fs"); const originalRunId = process.env.SNWC_ORIGINAL_PUBLISH_RUN_ID; const originalAttempt = Number(process.env.SNWC_ORIGINAL_PUBLISH_RUN_ATTEMPT); const sourceRunId = process.env.GITHUB_RUN_ID; const sourceAttempt = Number(process.env.GITHUB_RUN_ATTEMPT); const suffix = `-${sourceRunId}-${sourceAttempt}-${process.env.GITHUB_SHA}`; const evidence = {schema_version: 1, artifact_kind: "release-recovery-artifact-source", original_publish: {run_id: originalRunId, run_attempt: originalAttempt, workflow_repository: process.env.GITHUB_REPOSITORY, workflow_path: ".github/workflows/release.yml", workflow_ref: `${process.env.GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${process.env.GITHUB_REF_NAME}`, release_tag: process.env.GITHUB_REF_NAME, source_commit: process.env.GITHUB_SHA}, artifact_source: {run_id: sourceRunId, run_attempt: sourceAttempt, artifact_suffix: suffix, legacy_unscoped_names: false, attempt_binding: "attempt-scoped-name", artifacts: ["release-identity", "release-npm-package", "release-c-abi"].map(name => ({name: `${name}${suffix}`}))}}; fs.writeFileSync("release-output-recovered/recovery-artifact-source.json", `${JSON.stringify(evidence, null, 2)}\n`);'
+          echo "SNWC_NPM_EVIDENCE_DIR=release-output-recovered" >> "$GITHUB_ENV"
 
       - name: Re-verify canonical existing-version recovery bundle
         if: env.SNWC_PUBLICATION_MODE == 'recovered-existing'
@@ -291,12 +305,12 @@ jobs:
           set -euo pipefail
           node scripts/release-operation.mjs verify \
             --recovery \
-            --release-dir release-output \
+            --release-dir "$SNWC_NPM_EVIDENCE_DIR" \
             --identity release-identity-input/release-identity.json \
             --tag "$GITHUB_REF_NAME" \
             --source-commit "$GITHUB_SHA" \
             --environment "$SNWC_RELEASE_ENVIRONMENT" \
-            --output release-output/release-operation.json
+            --output "$SNWC_NPM_EVIDENCE_DIR/release-operation.json"
 
       - name: Capture and verify actual npm provenance for fresh publication
         if: env.SNWC_PUBLICATION_MODE == 'published'
@@ -311,7 +325,7 @@ jobs:
             --source-commit "$GITHUB_SHA" \
             --environment "$SNWC_RELEASE_ENVIRONMENT" \
             --repository "$GITHUB_REPOSITORY" \
-            --output release-output/npm-provenance.json
+            --output "$SNWC_NPM_EVIDENCE_DIR/npm-provenance.json"
 
       - name: Finalize published release operation evidence
         shell: bash
@@ -319,31 +333,40 @@ jobs:
           SNWC_RELEASE_ENVIRONMENT: release
         run: |
           set -euo pipefail
+          operation_run_id="$GITHUB_RUN_ID"
+          operation_run_attempt="$GITHUB_RUN_ATTEMPT"
+          if [[ "$SNWC_PUBLICATION_MODE" == recovered-existing ]]; then
+            operation_run_id="$SNWC_ORIGINAL_PUBLISH_RUN_ID"
+            operation_run_attempt="$SNWC_ORIGINAL_PUBLISH_RUN_ATTEMPT"
+          fi
           node scripts/release-operation.mjs finalize \
-            --pre-operation release-output/release-operation.json \
-            --provenance release-output/npm-provenance.json \
-            --manifest release-output/release-manifest.json \
+            --pre-operation "$SNWC_NPM_EVIDENCE_DIR/release-operation.json" \
+            --provenance "$SNWC_NPM_EVIDENCE_DIR/npm-provenance.json" \
+            --manifest "$SNWC_NPM_EVIDENCE_DIR/$([[ "$SNWC_PUBLICATION_MODE" == recovered-existing ]] && echo published-recovery-manifest.json || echo release-manifest.json)" \
             --publication-mode "$SNWC_PUBLICATION_MODE" \
             --tag "$GITHUB_REF_NAME" \
             --source-commit "$GITHUB_SHA" \
             --environment "$SNWC_RELEASE_ENVIRONMENT" \
             --repository "$GITHUB_REPOSITORY" \
             --workflow-ref "$GITHUB_WORKFLOW_REF" \
-            --run-id "$GITHUB_RUN_ID" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --output release-output/release-operation-final.json
-          mv release-output/release-operation-final.json release-output/release-operation.json
+            --run-id "$operation_run_id" \
+            --run-attempt "$operation_run_attempt" \
+            --output "$SNWC_NPM_EVIDENCE_DIR/release-operation-final.json"
+          mv "$SNWC_NPM_EVIDENCE_DIR/release-operation-final.json" "$SNWC_NPM_EVIDENCE_DIR/release-operation.json"
 
       - name: Generate and validate published-mode unified release record
         shell: bash
         run: |
           set -euo pipefail
+          record_args=()
+          if [[ "$SNWC_PUBLICATION_MODE" == recovered-existing ]]; then record_args+=(--recovery); fi
           node scripts/release-record.mjs generate \
             --mode release \
             --tag "$GITHUB_REF_NAME" \
             --source-commit "$GITHUB_SHA" \
             --provenance-status published \
-            --npm-dir release-output \
+            "${record_args[@]}" \
+            --npm-dir "$SNWC_NPM_EVIDENCE_DIR" \
             --c-abi-dir release-c-abi-input \
             --output release-record-published
           node scripts/release-record.mjs validate \
@@ -351,16 +374,24 @@ jobs:
             --tag "$GITHUB_REF_NAME" \
             --source-commit "$GITHUB_SHA" \
             --provenance-status published \
-            --npm-dir release-output \
+            "${record_args[@]}" \
+            --npm-dir "$SNWC_NPM_EVIDENCE_DIR" \
             --c-abi-dir release-c-abi-input \
             --output release-record-published
+
+      - name: Stage the immutable published npm evidence handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-published-npm
+          cp -a "$SNWC_NPM_EVIDENCE_DIR"/. release-published-npm/
 
       - name: Upload published npm release evidence
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-published-npm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
-          path: release-output/
+          path: release-published-npm/
 
       - name: Upload published unified release record
         if: success()
@@ -374,7 +405,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-operation-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
-          path: release-output/release-operation.json
+          path: release-published-npm/release-operation.json
 
   publication:
     name: Publish durable GitHub Release evidence
@@ -418,8 +449,11 @@ jobs:
 
       - name: Assemble exact durable GitHub Release asset set
         run: |
+          publication_args=()
+          if [[ -f release-published-npm/published-recovery-manifest.json ]]; then publication_args+=(--recovery); fi
           mkdir -p release-github-assets
           node scripts/release-publication.mjs assemble \
+            "${publication_args[@]}" \
             --npm-dir release-published-npm \
             --c-abi-dir release-c-abi-input \
             --record-dir release-record-published \

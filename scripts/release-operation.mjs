@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { isValidSemVer, parseSemVer } from "./release-identity.mjs";
 import { validateNpmRepositoryMetadata } from "./npm-repository.mjs";
 import { REPOSITORY, validateNpmProvenanceEvidence } from "./npm-provenance.mjs";
+import { validatePublishedRecoveryEvidence } from "./release-recovery.mjs";
 import { validateNativeManifest } from "../packages/wallet-core/src/manifest.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -111,7 +112,7 @@ function safeRelativePath(value, label) {
 
 function readTarEntry(tarballPath, entryPath) {
   try {
-    return execFileSync("tar", ["-xOf", tarballPath, entryPath], { cwd: repositoryRoot });
+    return execFileSync("tar", ["-xOf", tarballPath, entryPath], { cwd: repositoryRoot, maxBuffer: 64 * 1024 * 1024 });
   } catch {
     fail(`npm tarball entry is missing or unreadable: ${entryPath}`);
   }
@@ -551,9 +552,55 @@ export function validateReleaseBundle({ releaseDir, identityPath, tag, sourceCom
   validateSourceEvidence(json(requiredFile(releaseDir, "release-source.json", "source evidence"), "source evidence"), manifest);
   validateNativeEvidence(releaseDir, manifest, sourceCommit);
   validateWasmEvidence(releaseDir, manifest, sourceCommit);
-  const tarball = validateTarball(releaseDir, manifest, recovery);
-  validateReleaseDigests(releaseDir, manifest, tarball, recovery);
+  const tarball = validateTarball(releaseDir, manifest, false);
+  validateReleaseDigests(releaseDir, manifest, tarball, false);
   const evidence = validatePhaseEvidence(releaseDir, manifest);
+  if (recovery) {
+    const published = validatePublishedRecoveryEvidence({ releaseDir, tag, sourceCommit });
+    const publishedManifestPath = requiredFile(releaseDir, "published-recovery-manifest.json", "published recovery manifest");
+    return {
+      schema_version: 1,
+      kind: "npm-release-operation",
+      package_name: PACKAGE_NAME,
+      package_version: manifest.package_version,
+      release_tag: tag,
+      source_commit: sourceCommit,
+      environment: operationIdentity.environment,
+      release_manifest: {
+        filename: "published-recovery-manifest.json",
+        sha256: sha256File(publishedManifestPath, "published recovery manifest"),
+      },
+      candidate_release_manifest: {
+        filename: "release-manifest.json",
+        sha256: sha256File(manifestPath, "historical candidate release manifest"),
+      },
+      npm_tarball: {
+        filename: "published-registry.tgz",
+        sha256: published.published.tarball.sha256,
+      },
+      candidate_artifact: {
+        tarball_filename: published.candidate.tarball.filename,
+        tarball_sha256: published.candidate.tarball.sha256,
+        tarball_size: published.candidate.tarball.size,
+      },
+      published_artifact: {
+        source: "npm-registry-tarball",
+        tarball_filename: published.published.tarball.filename,
+        tarball_sha256: published.published.tarball.sha256,
+        tarball_size: published.published.tarball.size,
+        native: published.published.native,
+        wasm: published.published.wasm,
+        byte_reproducible: published.manifest.byte_reproducible,
+      },
+      evidence,
+      provenance: {
+        mechanism: "npm-trusted-publishing-oidc",
+        command: PROVENANCE_PUBLISH_COMMAND,
+        required: true,
+        status: "required-at-publish",
+      },
+    };
+  }
   return {
     schema_version: 1,
     kind: "npm-release-operation",
@@ -599,16 +646,34 @@ export function finalizeReleaseOperation({
   const provenance = json(provenancePath, "npm provenance evidence");
   const manifest = json(manifestPath, "release manifest");
   validCommit(sourceCommit, "release source commit");
+  const recoveryManifest = manifest.artifact_kind === "published-npm-recovery-manifest";
+  if (recoveryManifest && (
+    manifest.schema_version !== 1 ||
+    manifest.mode !== "release-recovery" ||
+    manifest.package_name !== PACKAGE_NAME ||
+    manifest.release_tag !== tag ||
+    manifest.source_commit !== sourceCommit ||
+    manifest.published_artifact?.source !== "npm-registry-tarball" ||
+    typeof manifest.published_artifact?.tarball_sha512 !== "string" ||
+    !/^[0-9a-f]{128}$/.test(manifest.published_artifact.tarball_sha512)
+  )) {
+    fail("published recovery manifest identity is invalid");
+  }
   if (!isValidSemVer(manifest.package_version) || tag !== `v${manifest.package_version}`) fail("release tag/version identity is invalid");
   if (!isPlainObject(operation) || operation.package_name !== PACKAGE_NAME || operation.package_version !== manifest.package_version || operation.release_tag !== tag || operation.source_commit !== sourceCommit || operation.provenance?.status !== "required-at-publish") {
     fail("pre-publish release operation identity is invalid");
   }
-  if (operation.npm_tarball?.sha256 !== manifest.npm_tarball.sha256) fail("pre-publish release operation tarball differs from the release manifest");
+  const manifestTarball = recoveryManifest ? manifest.published_artifact : manifest.npm_tarball;
+  const manifestTarballSha256 = manifestTarball?.tarball_sha256 ?? manifestTarball?.sha256;
+  if (!isPlainObject(manifestTarball) || operation.npm_tarball?.sha256 !== manifestTarballSha256) fail("pre-publish release operation tarball differs from the release manifest");
   if (repository !== REPOSITORY) fail("GitHub repository is not the approved release repository");
   if (workflowRef !== `${repository}/.github/workflows/release.yml@refs/tags/${tag}`) fail("GitHub workflow identity differs from the release tag");
   if (typeof runId !== "string" || !/^\d+$/.test(runId)) fail("GitHub workflow run identity is invalid");
   if (!Number.isInteger(runAttempt) || runAttempt < 1) fail("GitHub workflow run attempt is invalid");
-  if (!isPlainObject(manifest.npm_tarball) || typeof manifest.npm_tarball.sha256 !== "string" || !Number.isInteger(manifest.npm_tarball.size)) fail("release manifest npm tarball identity is invalid");
+  if (!isPlainObject(manifestTarball) || typeof (manifestTarball.tarball_sha256 ?? manifestTarball.sha256) !== "string" || !Number.isInteger(manifestTarball.tarball_size ?? manifestTarball.size)) fail("release manifest npm tarball identity is invalid");
+  const expectedTarballSha256 = manifestTarballSha256;
+  const expectedTarballSize = manifestTarball.tarball_size ?? manifestTarball.size;
+  const expectedTarballSha512 = recoveryManifest ? manifestTarball.tarball_sha512 : provenance.registry?.tarball_sha512;
   validateNpmProvenanceEvidence(provenance, {
     packageName: PACKAGE_NAME,
     version: manifest.package_version,
@@ -616,11 +681,11 @@ export function finalizeReleaseOperation({
     sourceCommit,
     environment,
     repository,
-    tarballSha256: manifest.npm_tarball.sha256,
-    tarballSize: manifest.npm_tarball.size,
-    tarballSha512: provenance.registry?.tarball_sha512,
+    tarballSha256: expectedTarballSha256,
+    tarballSize: expectedTarballSize,
+    tarballSha512: expectedTarballSha512,
     workflowRunId: runId,
-    workflowRunAttempt: publicationMode === "published" ? runAttempt : undefined,
+    workflowRunAttempt: runAttempt,
   });
   const expectedPublicationMode = publicationMode === "recovered-existing" ? "post-publish-recovery" : "fresh-publish";
   if (provenance.publication_mode !== expectedPublicationMode) fail("npm provenance publication mode does not match the publication operation");
@@ -715,16 +780,21 @@ export function validateRecoveryWorkflowBoundary(recoveryWorkflow) {
   requireWorkflowText(recoveryWorkflow, /^  workflow_dispatch:$/m, "recovery workflow is not manually triggered");
   if (/^  (push|pull_request|schedule):$/m.test(recoveryWorkflow)) fail("recovery workflow has an automatic trigger");
   requireWorkflowText(recoveryWorkflow, /ref: \$\{\{ github\.sha \}\}/, "recovery workflow does not run the reviewed recovery tooling commit");
+  requireWorkflowText(recoveryWorkflow, /test "\$GITHUB_REF" = "refs\/heads\/main"/, "recovery workflow does not require a main dispatch ref");
+  requireWorkflowText(recoveryWorkflow, /scripts\/release-recovery\.mjs validate-dispatch/, "recovery workflow does not bind tooling to the current origin/main SHA");
+  requireWorkflowText(recoveryWorkflow, /--main-ref "\$\(git rev-parse refs\/remotes\/origin\/main\)"/, "recovery workflow does not compare the dispatch SHA with origin/main");
   requireWorkflowText(recoveryWorkflow, /refs\/tags\/\$RELEASE_TAG:refs\/tags\/\$RELEASE_TAG/, "recovery workflow does not fetch and bind the immutable release tag");
-  for (const input of ["release_tag", "package_version", "expected_source_commit", "original_release_run_id", "original_release_run_attempt"]) {
+  for (const input of ["release_tag", "package_version", "expected_source_commit", "original_publish_run_id", "original_publish_run_attempt", "artifact_source_run_id", "artifact_source_run_attempt", "artifact_suffix"]) {
     requireWorkflowText(recoveryWorkflow, new RegExp(`^      ${input}:$`, "m"), `recovery workflow input is missing: ${input}`);
   }
   if (/\bnpm\s+(publish|dist-tag|unpublish)\b/.test(recoveryWorkflow)) fail("recovery workflow contains npm publication capability");
   if (/id-token:\s*write|packages:\s*write|actions:\s*write|NPM_TOKEN|NODE_AUTH_TOKEN|_authToken/.test(recoveryWorkflow)) fail("recovery workflow contains an unnecessary publication credential or permission");
   requireWorkflowText(recoveryWorkflow, /actions:\s*read/, "recovery workflow cannot read the original Actions run artifacts");
-  requireWorkflowText(recoveryWorkflow, /actions\/download-artifact@[0-9a-f]{40}[\s\S]*run-id:/, "recovery workflow does not bind artifact downloads to the original run");
+  requireWorkflowText(recoveryWorkflow, /actions\/runs\/\$ORIGINAL_PUBLISH_RUN_ID\/attempts\/\$ORIGINAL_PUBLISH_RUN_ATTEMPT/, "recovery workflow does not use the attempt-specific original publish endpoint");
+  requireWorkflowText(recoveryWorkflow, /actions\/runs\/\$ARTIFACT_SOURCE_RUN_ID\/attempts\/\$ARTIFACT_SOURCE_RUN_ATTEMPT/, "recovery workflow does not use an attempt-specific artifact source endpoint");
+  requireWorkflowText(recoveryWorkflow, /actions\/download-artifact@[0-9a-f]{40}[\s\S]*run-id: \$\{\{ inputs\.artifact_source_run_id \}\}/, "recovery workflow does not bind artifact downloads to the separate artifact source run");
   requireWorkflowText(recoveryWorkflow, /scripts\/npm-provenance\.mjs capture[\s\S]*--recovery/, "recovery workflow does not capture recovery provenance");
-  requireWorkflowText(recoveryWorkflow, /scripts\/release-recovery\.mjs canonicalize/, "recovery workflow does not canonicalize the registry artifact");
+  requireWorkflowText(recoveryWorkflow, /scripts\/release-recovery\.mjs reconstruct/, "recovery workflow does not reconstruct published evidence from the registry artifact");
   requireWorkflowText(recoveryWorkflow, /scripts\/release-operation\.mjs finalize/, "recovery workflow does not finalize the release operation");
   requireWorkflowText(recoveryWorkflow, /scripts\/release-record\.mjs (generate|validate)/, "recovery workflow does not validate a reconstructed release record");
   requireWorkflowText(recoveryWorkflow, /scripts\/release-publication\.mjs assemble/, "recovery workflow does not reuse the exact publication asset contract");

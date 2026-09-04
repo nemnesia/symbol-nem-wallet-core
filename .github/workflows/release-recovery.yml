@@ -18,18 +18,28 @@ on:
         required: true
         default: "4957a692779a63d7d768d57ce2c39f83494c0e5c"
         type: string
-      original_release_run_id:
-        description: "The original tag-triggered release workflow run id"
+      original_publish_run_id:
+        description: "The original tag-triggered release workflow run id used by npm provenance"
         required: true
         default: "33816373291"
         type: string
-      original_release_run_attempt:
-        description: "The original release workflow attempt"
+      original_publish_run_attempt:
+        description: "The original release workflow attempt used by npm provenance"
         required: true
         default: "1"
         type: string
-      original_artifact_suffix:
-        description: "Immutable artifact suffix from the original release run; empty for legacy artifacts"
+      artifact_source_run_id:
+        description: "Run id containing the downloadable candidate and C ABI artifacts"
+        required: true
+        default: "33816373291"
+        type: string
+      artifact_source_run_attempt:
+        description: "Attempt identity for the downloadable artifact source run"
+        required: true
+        default: "4"
+        type: string
+      artifact_suffix:
+        description: "Attempt-scoped artifact suffix; empty for legacy artifacts"
         required: false
         default: ""
         type: string
@@ -68,15 +78,18 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           PACKAGE_VERSION: ${{ inputs.package_version }}
           EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
-          ORIGINAL_ARTIFACT_SUFFIX: ${{ inputs.original_artifact_suffix }}
         run: |
           set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$PACKAGE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$EXPECTED_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$ORIGINAL_ARTIFACT_SUFFIX" =~ ^(-[0-9]+-[1-9][0-9]*-[0-9a-f]{40})?$ ]]
-          git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          node scripts/release-recovery.mjs validate-dispatch \
+            --ref "$GITHUB_REF" \
+            --sha "$GITHUB_SHA" \
+            --main-ref "$(git rev-parse refs/remotes/origin/main)"
+          git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$EXPECTED_SOURCE_COMMIT"
           git merge-base --is-ancestor "$EXPECTED_SOURCE_COMMIT" refs/remotes/origin/main
           tag_package_version="$(git show "refs/tags/$RELEASE_TAG:packages/wallet-core/package.json" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).version)')"
@@ -87,23 +100,55 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          ORIGINAL_RELEASE_RUN_ID: ${{ inputs.original_release_run_id }}
-          ORIGINAL_RELEASE_RUN_ATTEMPT: ${{ inputs.original_release_run_attempt }}
+          ORIGINAL_PUBLISH_RUN_ID: ${{ inputs.original_publish_run_id }}
+          ORIGINAL_PUBLISH_RUN_ATTEMPT: ${{ inputs.original_publish_run_attempt }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
         run: |
           set -euo pipefail
-          [[ "$ORIGINAL_RELEASE_RUN_ID" =~ ^[0-9]+$ ]]
-          [[ "$ORIGINAL_RELEASE_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_RELEASE_RUN_ID" > "$RUNNER_TEMP/original-release-run.json"
+          [[ "$ORIGINAL_PUBLISH_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$ORIGINAL_PUBLISH_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_PUBLISH_RUN_ID/attempts/$ORIGINAL_PUBLISH_RUN_ATTEMPT" > "$RUNNER_TEMP/original-release-run.json"
           node scripts/release-recovery.mjs validate-run \
             --run-json "$RUNNER_TEMP/original-release-run.json" \
             --repository "$GITHUB_REPOSITORY" \
             --release-tag "$RELEASE_TAG" \
             --source-commit "$EXPECTED_SOURCE_COMMIT" \
-            --run-id "$ORIGINAL_RELEASE_RUN_ID" \
-            --run-attempt "$ORIGINAL_RELEASE_RUN_ATTEMPT" \
+            --run-id "$ORIGINAL_PUBLISH_RUN_ID" \
+            --run-attempt "$ORIGINAL_PUBLISH_RUN_ATTEMPT" \
             > "$RUNNER_TEMP/original-release-run-identity.json"
+
+      - name: Read and bind the separate artifact source attempt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_SOURCE_RUN_ID: ${{ inputs.artifact_source_run_id }}
+          ARTIFACT_SOURCE_RUN_ATTEMPT: ${{ inputs.artifact_source_run_attempt }}
+          ARTIFACT_SUFFIX: ${{ inputs.artifact_suffix }}
+          ORIGINAL_PUBLISH_RUN_ID: ${{ inputs.original_publish_run_id }}
+          ORIGINAL_PUBLISH_RUN_ATTEMPT: ${{ inputs.original_publish_run_attempt }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$ARTIFACT_SOURCE_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ARTIFACT_SUFFIX" =~ ^(-[0-9]+-[1-9][0-9]*-[0-9a-f]{40})?$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_SOURCE_RUN_ID/attempts/$ARTIFACT_SOURCE_RUN_ATTEMPT" > "$RUNNER_TEMP/artifact-source-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_SOURCE_RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/artifact-source-artifacts.json"
+          node scripts/release-recovery.mjs validate-artifact-source \
+            --run-json "$RUNNER_TEMP/artifact-source-run.json" \
+            --original-run-json "$RUNNER_TEMP/original-release-run.json" \
+            --artifacts-json "$RUNNER_TEMP/artifact-source-artifacts.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --release-tag "$RELEASE_TAG" \
+            --source-commit "$EXPECTED_SOURCE_COMMIT" \
+            --run-id "$ARTIFACT_SOURCE_RUN_ID" \
+            --run-attempt "$ARTIFACT_SOURCE_RUN_ATTEMPT" \
+            --original-run-id "$ORIGINAL_PUBLISH_RUN_ID" \
+            --original-run-attempt "$ORIGINAL_PUBLISH_RUN_ATTEMPT" \
+            --artifact-suffix "$ARTIFACT_SUFFIX" \
+            --output "$RUNNER_TEMP/recovery-artifact-source.json"
 
       - name: Confirm the formal GitHub Release is absent
         shell: bash
@@ -124,37 +169,37 @@ jobs:
       - name: Download original immutable release evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-identity${{ inputs.original_artifact_suffix }}
+          name: release-identity${{ inputs.artifact_suffix }}
           path: original-release-identity
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ inputs.original_release_run_id }}
+          run-id: ${{ inputs.artifact_source_run_id }}
 
       - name: Download original npm release candidate evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-npm-package${{ inputs.original_artifact_suffix }}
+          name: release-npm-package${{ inputs.artifact_suffix }}
           path: original-npm-release
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ inputs.original_release_run_id }}
+          run-id: ${{ inputs.artifact_source_run_id }}
 
       - name: Download original C ABI release evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-c-abi${{ inputs.original_artifact_suffix }}
+          name: release-c-abi${{ inputs.artifact_suffix }}
           path: original-c-abi-release
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ inputs.original_release_run_id }}
+          run-id: ${{ inputs.artifact_source_run_id }}
 
       - name: Capture and verify the published registry artifact
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
           EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
-          ORIGINAL_RELEASE_RUN_ID: ${{ inputs.original_release_run_id }}
-          ORIGINAL_RELEASE_RUN_ATTEMPT: ${{ inputs.original_release_run_attempt }}
+          ORIGINAL_PUBLISH_RUN_ID: ${{ inputs.original_publish_run_id }}
+          ORIGINAL_PUBLISH_RUN_ATTEMPT: ${{ inputs.original_publish_run_attempt }}
         run: |
           set -euo pipefail
           node scripts/npm-provenance.mjs capture \
@@ -164,8 +209,8 @@ jobs:
             --source-commit "$EXPECTED_SOURCE_COMMIT" \
             --environment release \
             --repository "$GITHUB_REPOSITORY" \
-            --workflow-run-id "$ORIGINAL_RELEASE_RUN_ID" \
-            --workflow-run-attempt "$ORIGINAL_RELEASE_RUN_ATTEMPT" \
+            --workflow-run-id "$ORIGINAL_PUBLISH_RUN_ID" \
+            --workflow-run-attempt "$ORIGINAL_PUBLISH_RUN_ATTEMPT" \
             --output "$RUNNER_TEMP/npm-provenance.json" \
             --tarball-output "$RUNNER_TEMP/published-registry.tgz"
 
@@ -176,13 +221,14 @@ jobs:
           EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
         run: |
           set -euo pipefail
-          node scripts/release-recovery.mjs canonicalize \
+          node scripts/release-recovery.mjs reconstruct \
             --source-dir original-npm-release \
             --registry-tarball "$RUNNER_TEMP/published-registry.tgz" \
             --output recovered-npm-release \
             --tag "$RELEASE_TAG" \
             --source-commit "$EXPECTED_SOURCE_COMMIT"
           cp "$RUNNER_TEMP/npm-provenance.json" recovered-npm-release/npm-provenance.json
+          cp "$RUNNER_TEMP/recovery-artifact-source.json" recovered-npm-release/recovery-artifact-source.json
 
       - name: Re-validate the canonical recovery bundle
         shell: bash
@@ -205,22 +251,22 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
           EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
-          ORIGINAL_RELEASE_RUN_ID: ${{ inputs.original_release_run_id }}
-          ORIGINAL_RELEASE_RUN_ATTEMPT: ${{ inputs.original_release_run_attempt }}
+          ORIGINAL_PUBLISH_RUN_ID: ${{ inputs.original_publish_run_id }}
+          ORIGINAL_PUBLISH_RUN_ATTEMPT: ${{ inputs.original_publish_run_attempt }}
         run: |
           set -euo pipefail
           node scripts/release-operation.mjs finalize \
             --pre-operation recovered-npm-release/release-operation.json \
             --provenance recovered-npm-release/npm-provenance.json \
-            --manifest recovered-npm-release/release-manifest.json \
+            --manifest recovered-npm-release/published-recovery-manifest.json \
             --publication-mode recovered-existing \
             --tag "$RELEASE_TAG" \
             --source-commit "$EXPECTED_SOURCE_COMMIT" \
             --environment release \
             --repository "$GITHUB_REPOSITORY" \
             --workflow-ref "$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$RELEASE_TAG" \
-            --run-id "$ORIGINAL_RELEASE_RUN_ID" \
-            --run-attempt "$ORIGINAL_RELEASE_RUN_ATTEMPT" \
+            --run-id "$ORIGINAL_PUBLISH_RUN_ID" \
+            --run-attempt "$ORIGINAL_PUBLISH_RUN_ATTEMPT" \
             --output "$RUNNER_TEMP/release-operation-final.json"
           mv "$RUNNER_TEMP/release-operation-final.json" recovered-npm-release/release-operation.json
 
@@ -236,6 +282,7 @@ jobs:
             --tag "$RELEASE_TAG" \
             --source-commit "$EXPECTED_SOURCE_COMMIT" \
             --provenance-status published \
+            --recovery \
             --npm-dir recovered-npm-release \
             --c-abi-dir original-c-abi-release \
             --output recovered-release-record
@@ -244,6 +291,7 @@ jobs:
             --tag "$RELEASE_TAG" \
             --source-commit "$EXPECTED_SOURCE_COMMIT" \
             --provenance-status published \
+            --recovery \
             --npm-dir recovered-npm-release \
             --c-abi-dir original-c-abi-release \
             --output recovered-release-record
@@ -263,6 +311,7 @@ jobs:
             --output recovery-github-assets \
             --tag "$RELEASE_TAG" \
             --source-commit "$EXPECTED_SOURCE_COMMIT" \
+            --recovery \
             --asset-list "$RUNNER_TEMP/recovery-release-assets.txt"
 
       - name: Upload immutable recovery handoff evidence
@@ -274,6 +323,7 @@ jobs:
             recovered-release-record/
             recovery-github-assets/
             ${{ runner.temp }}/original-release-run-identity.json
+            ${{ runner.temp }}/recovery-artifact-source.json
             ${{ runner.temp }}/recovery-release-assets.txt
           retention-days: 90
 

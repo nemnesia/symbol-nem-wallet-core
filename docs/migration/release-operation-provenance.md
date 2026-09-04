@@ -113,11 +113,25 @@ registry tarball が byte-for-byte 一致することを要求する。既存 ve
 
 Post-publish recovery は `.github/workflows/release-recovery.yml` の明示的な `workflow_dispatch` だけを
 入口とする。この path は npm の publication credential / permission を持たず、registry が返す実 tarball
-を canonical published artifact として保存する。後続の rebuild candidate は比較・監査用にだけ残し、
-canonical artifact や release manifest の根拠に置き換えない。tag target、main ancestry、元の release run、
+を canonical published artifact として保存する。registry tarball から package metadata、native runtime
+manifest、各 `.node` bytes、canonical WASM bytes、generated JS の digest を直接抽出し、
+`published-recovery-manifest.json` 以下の専用 published evidence を生成する。後続の rebuild candidate は
+`release-manifest.json` を含む historical candidate evidence として immutable に残し、canonical artifact や
+published evidence に置き換えない。tag target、main ancestry、元の release run、
 package/version、registry integrity、provenance subject、tag/source/workflow identity、npm audit signatures
 が全て PASS し、GitHub Release がまだ存在しない場合だけ、protected `release` Environment の publication
 job が exact asset set を作成する。
+
+Recovery の run identity は二つに分離する。`original_publish_run_id` / `original_publish_run_attempt` は
+npm provenance invocation と元 publish attempt に bind し、`artifact_source_run_id` /
+`artifact_source_run_attempt` はダウンロードした candidate / C ABI evidence の出所だけを記録する。
+元 publish attempt は `/actions/runs/<run_id>/attempts/<attempt>` で検証する。legacy unscoped artifact は
+artifact bytes の attempt を名前から推測せず、`recovery-artifact-source.json` に未検証であることを記録する。
+
+Recovery の最終 record は candidate build evidence、published registry artifact evidence、provenance evidence、
+C ABI evidence を別フィールドとして保持する。candidate と published の tarball が異なる場合も、
+`candidate_tarball_sha256`、`published_tarball_sha256`、`byte_reproducible: false` を記録し、candidate の
+native / WASM hash を published artifact の hash として再利用しない。
 
 ### Partial failure and retry
 
@@ -137,6 +151,9 @@ malformed response、redirect、identity mismatch、invalid signature は retry 
 Actions artifact 名には run id、run attempt、source SHA を含め、`overwrite` は使用しない。元の attempt
 の evidence は後続 attempt から破壊されず、legacy の unscoped artifact は dedicated recovery の入力で
 空 suffix として明示的に指定できる。
+
+Dedicated recovery の tooling は reviewed `main` の current SHA からだけ実行できる。dispatch ref、
+checkout SHA、`origin/main` SHA が一致しなければ read-only verification も開始しない。
 
 ### Phase 4A / 4B final boundary
 

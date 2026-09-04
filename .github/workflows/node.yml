@@ -25,6 +25,7 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/node.yml"
+      - ".github/workflows/release-recovery.yml"
   pull_request:
     paths:
       - "Cargo.toml"
@@ -36,6 +37,7 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/node.yml"
+      - ".github/workflows/release-recovery.yml"
   workflow_dispatch:
 
 concurrency:

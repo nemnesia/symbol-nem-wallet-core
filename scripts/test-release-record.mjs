@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+  execFileSync,
+} from "node:child_process";
+import {
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -18,6 +21,8 @@ import {
   NPM_REQUIRED_FILES,
   validateReleaseRecord,
 } from "./release-record.mjs";
+import { provenanceIdentities } from "./npm-provenance.mjs";
+import { reconstructPublishedNpmBundle } from "./release-recovery.mjs";
 import { assemblePublicationAssets } from "./release-publication.mjs";
 import {
   loadThirdPartyLicenseEvidence,
@@ -34,6 +39,11 @@ const root = resolve(tmpdir(), `snwc-release-record-${process.pid}`);
 const npmDir = resolve(root, "npm");
 const cAbiDir = resolve(root, "c-abi");
 const outputDir = resolve(root, "record");
+const recoveryCandidateDir = resolve(root, "recovery-candidate");
+const recoveryNpmDir = resolve(root, "recovery-npm");
+const recoveryRecordDir = resolve(root, "recovery-record");
+const recoveryArchiveRoot = resolve(root, "recovery-archive");
+const recoveryRegistryPath = resolve(root, "recovery-registry.tgz");
 
 function hash(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -272,6 +282,126 @@ try {
   assert.equal(publication.shared_asset_count, 2);
   assert.equal(publication.asset_count, 42);
   assert.equal(readdirSync(publicationDir).length, publication.asset_count);
+
+  const recoveryManifest = JSON.parse(readFileSync(resolve(npmDir, "release-manifest.json"), "utf8"));
+  for (const filename of [...NPM_REQUIRED_FILES, recoveryManifest.npm_tarball.filename]) {
+    write(resolve(recoveryCandidateDir, filename), readFileSync(resolve(npmDir, filename)));
+  }
+  const recoveryPackageMetadata = JSON.parse(readFileSync(resolve("packages/wallet-core", "package.json"), "utf8"));
+  writeJson(resolve(recoveryArchiveRoot, "package/package.json"), recoveryPackageMetadata);
+  const nativeTargets = [
+    ["win32-x64-msvc", "windows", "x64", "msvc", "x86_64-pc-windows-msvc"],
+    ["darwin-x64", "macos", "x64", "darwin", "x86_64-apple-darwin"],
+    ["darwin-arm64", "macos", "arm64", "darwin", "aarch64-apple-darwin"],
+    ["linux-x64-gnu", "linux", "x64", "gnu", "x86_64-unknown-linux-gnu"],
+  ];
+  const recoveryNativeManifest = {
+    schema_version: 1,
+    package_name: recoveryPackageMetadata.name,
+    package_version: recoveryPackageMetadata.version,
+    source_commit: COMMIT,
+    node_api_version: 8,
+    artifacts: nativeTargets.map(([targetId, os, cpu, abi, rustTarget]) => {
+      const content = Buffer.from(`recovery-${targetId}\n`);
+      write(resolve(recoveryArchiveRoot, `package/dist/native/${targetId}/${targetId}.node`), content);
+      return {
+        target_id: targetId,
+        os,
+        cpu,
+        abi,
+        rust_target: rustTarget,
+        ...(targetId === "linux-x64-gnu" ? { libc: "glibc" } : {}),
+        relative_path: `dist/native/${targetId}/${targetId}.node`,
+        artifact_filename: `${targetId}.node`,
+        sha256: hash(content),
+        toolchain_identifier: "rustc recovery fixture",
+      };
+    }),
+  };
+  writeJson(resolve(recoveryArchiveRoot, "package/dist/native/artifact-manifest.json"), recoveryNativeManifest);
+  write(resolve(recoveryArchiveRoot, "package/dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm"), Buffer.from("recovery wasm\n"));
+  write(resolve(recoveryArchiveRoot, "package/dist/wasm/generated.mjs"), "export const recovery = true;\n");
+  execFileSync("tar", ["-czf", recoveryRegistryPath, "-C", recoveryArchiveRoot, "package"]);
+  const publishedTarball = readFileSync(recoveryRegistryPath);
+  const publishedTarballSha512 = createHash("sha512").update(publishedTarball).digest("hex");
+  const recoveryTarballUrl = "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/-/symbol-nem-wallet-core-0.1.0.tgz";
+  const recoveryMetadataUrl = "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/0.1.0";
+  const recoveryAttestationsUrl = "https://registry.npmjs.org/-/npm/v1/attestations/%40nemnesia%2Fsymbol-nem-wallet-core@0.1.0";
+  const recoveryStatement = {
+    predicateType: "https://slsa.dev/provenance/v1",
+    subject: [{ name: "pkg:npm/%40nemnesia/symbol-nem-wallet-core@0.1.0", digest: { sha512: publishedTarballSha512 } }],
+    predicate: {
+      buildDefinition: {
+        externalParameters: { workflow: { repository: "https://github.com/nemnesia/symbol-nem-wallet-core", path: ".github/workflows/release.yml", ref: `refs/tags/v${VERSION}` } },
+        resolvedDependencies: [{ uri: `git+https://github.com/nemnesia/symbol-nem-wallet-core@refs/tags/v${VERSION}`, digest: { gitCommit: COMMIT } }],
+      },
+      runDetails: { metadata: { invocationId: "https://github.com/nemnesia/symbol-nem-wallet-core/actions/runs/123/attempts/1" } },
+    },
+  };
+  const recoveryAttestation = { predicateType: recoveryStatement.predicateType, bundle: { dsseEnvelope: { payload: Buffer.from(JSON.stringify(recoveryStatement), "utf8").toString("base64") } } };
+  const recoveryIdentities = provenanceIdentities([recoveryAttestation], {
+    packageName: "@nemnesia/symbol-nem-wallet-core",
+    version: VERSION,
+    tag: `v${VERSION}`,
+    sourceCommit: COMMIT,
+    repository: "nemnesia/symbol-nem-wallet-core",
+    tarballSha512: publishedTarballSha512,
+    workflowRunId: "123",
+    workflowRunAttempt: 1,
+  });
+  const recoveryRegistryMetadata = {
+    name: recoveryPackageMetadata.name,
+    version: recoveryPackageMetadata.version,
+    repository: recoveryPackageMetadata.repository,
+    dist: { tarball: recoveryTarballUrl, integrity: `sha512-${Buffer.from(publishedTarballSha512, "hex").toString("base64")}`, attestations: { url: recoveryAttestationsUrl } },
+  };
+  const recoveryProvenanceDocument = {
+    schema_version: 1,
+    artifact_kind: "npm-provenance",
+    package_name: recoveryPackageMetadata.name,
+    package_version: VERSION,
+    release_tag: `v${VERSION}`,
+    source_commit: COMMIT,
+    environment: "release",
+    publication_mode: "post-publish-recovery",
+    candidate_artifact: { sha256: recoveryManifest.npm_tarball.sha256, size: recoveryManifest.npm_tarball.size },
+    canonical_artifact: { source: "registry", sha256: hash(publishedTarball), sha512: publishedTarballSha512, size: publishedTarball.length, integrity: recoveryRegistryMetadata.dist.integrity, tarball_url: recoveryTarballUrl },
+    registry_metadata: recoveryRegistryMetadata,
+    registry: { package_name: recoveryPackageMetadata.name, package_version: VERSION, metadata_url: recoveryMetadataUrl, tarball_url: recoveryTarballUrl, tarball_sha256: hash(publishedTarball), tarball_sha512: publishedTarballSha512, tarball_size: publishedTarball.length, dist_integrity: recoveryRegistryMetadata.dist.integrity, attestations_url: recoveryAttestationsUrl },
+    registry_attestations: { attestations: [recoveryAttestation] },
+    provenance: { predicate_types: recoveryIdentities.map((identity) => identity.predicate_type), identities: recoveryIdentities },
+    verification: { status: "PASS", command: "npm audit signatures --json --include-attestations", npm_version: "11.0.0", target: { package_name: recoveryPackageMetadata.name, package_version: VERSION, invalid_count: 0, missing_count: 0, verified_attestation: true } },
+    audit_signatures: { invalid: [], missing: [], verified: [{ name: recoveryPackageMetadata.name, version: VERSION, attestationBundles: [{ predicateType: recoveryStatement.predicateType }] }] },
+  };
+  reconstructPublishedNpmBundle({ sourceDir: recoveryCandidateDir, registryTarballPath: recoveryRegistryPath, outputDir: recoveryNpmDir, tag: `v${VERSION}`, sourceCommit: COMMIT });
+  const recoveryProvenancePath = resolve(recoveryNpmDir, "npm-provenance.json");
+  writeJson(recoveryProvenancePath, recoveryProvenanceDocument);
+  const recoveryProvenance = JSON.parse(readFileSync(recoveryProvenancePath, "utf8"));
+  writeJson(resolve(recoveryNpmDir, "release-operation.json"), {
+    package_name: recoveryPackageMetadata.name,
+    package_version: VERSION,
+    release_tag: `v${VERSION}`,
+    source_commit: COMMIT,
+    environment: "release",
+    provenance: { required: true, status: "published", evidence: { filename: "npm-provenance.json", sha256: hash(readFileSync(recoveryProvenancePath)) } },
+    publication: { mode: "recovered-existing", registry_tarball_sha256: hash(publishedTarball) },
+    published_artifact: { tarball_sha256: hash(publishedTarball) },
+  });
+  writeJson(resolve(recoveryNpmDir, "recovery-artifact-source.json"), {
+    schema_version: 1,
+    artifact_kind: "release-recovery-artifact-source",
+    original_publish: { run_id: "123", run_attempt: 1, metadata_endpoint: "/repos/nemnesia/symbol-nem-wallet-core/actions/runs/123/attempts/1", workflow_repository: "nemnesia/symbol-nem-wallet-core", workflow_path: ".github/workflows/release.yml", workflow_ref: `nemnesia/symbol-nem-wallet-core/.github/workflows/release.yml@refs/tags/v${VERSION}`, release_tag: `v${VERSION}`, source_commit: COMMIT },
+    artifact_source: { run_id: "456", run_attempt: 1, metadata_endpoint: "/repos/nemnesia/symbol-nem-wallet-core/actions/runs/456/attempts/1", artifact_suffix: "-456-1-" + "a".repeat(40), legacy_unscoped_names: false, attempt_binding: "attempt-scoped-name", artifacts: ["release-identity", "release-npm-package", "release-c-abi"].map((name) => ({ name: `${name}-456-1-${"a".repeat(40)}` })) },
+  });
+  const recoveryRecord = createReleaseRecord({ npmDir: recoveryNpmDir, cAbiDir, outputDir: recoveryRecordDir, mode: "release", tag: `v${VERSION}`, sourceCommit: COMMIT, provenanceStatus: "published", recovery: true });
+  assert.equal(recoveryRecord.record.npm.published_artifact.source, "npm-registry-tarball");
+  assert.equal(recoveryRecord.record.npm.published_artifact.tarball.sha256, hash(publishedTarball));
+  validateReleaseRecord({ npmDir: recoveryNpmDir, cAbiDir, outputDir: recoveryRecordDir, mode: "release", tag: `v${VERSION}`, sourceCommit: COMMIT, provenanceStatus: "published", recovery: true });
+  const recoveryPublicationDir = resolve(root, "recovery-github-release-assets");
+  const recoveryPublication = assemblePublicationAssets({ npmDir: recoveryNpmDir, cAbiDir, recordDir: recoveryRecordDir, outputDir: recoveryPublicationDir, tag: `v${VERSION}`, sourceCommit: COMMIT, recovery: true });
+  assert.equal(recoveryPublication.npm_asset_count, recoveryRecord.record.durable_asset_list.npm.length);
+  assert.equal(recoveryPublication.c_abi_asset_count, recoveryRecord.record.durable_asset_list.c_abi.length);
+  assert.equal(readdirSync(recoveryPublicationDir).length, recoveryPublication.asset_count);
 
   process.stdout.write("release record deterministic and negative tests passed\n");
 } finally {

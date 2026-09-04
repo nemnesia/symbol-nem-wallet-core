@@ -253,11 +253,12 @@ function provenanceIdentity(attestation, expected) {
   }
   if (expected.workflowRunId !== undefined) {
     const expectedInvocationPrefix = `https://github.com/${expected.repository}/actions/runs/${expected.workflowRunId}`;
-    if (invocationId !== expectedInvocationPrefix && !invocationId.startsWith(`${expectedInvocationPrefix}/attempts/`)) {
+    if (expected.workflowRunAttempt !== undefined) {
+      if (!Number.isInteger(expected.workflowRunAttempt) || expected.workflowRunAttempt < 1 || invocationId !== `${expectedInvocationPrefix}/attempts/${expected.workflowRunAttempt}`) {
+        fail("npm provenance invocation attempt does not match the original release run");
+      }
+    } else if (invocationId !== expectedInvocationPrefix && !invocationId.startsWith(`${expectedInvocationPrefix}/attempts/`)) {
       fail("npm provenance invocation identity does not match the original release run");
-    }
-    if (expected.workflowRunAttempt !== undefined && invocationId.includes("/attempts/") && !invocationId.endsWith(`/attempts/${expected.workflowRunAttempt}`)) {
-      fail("npm provenance invocation attempt does not match the original release run");
     }
   }
   return {
@@ -303,6 +304,7 @@ function tarEntry(tarball, entryPath, label) {
     return execFileSync("tar", ["-xOf", "-", entryPath], {
       cwd: repositoryRoot,
       input: tarball,
+      maxBuffer: 64 * 1024 * 1024,
     });
   } catch {
     fail(`${label} is missing or unreadable in the registry tarball`);
@@ -317,7 +319,10 @@ function validateRegistryTarballContent(tarball, expected, manifest, recovery) {
     fail("registry tarball is corrupt or unreadable");
   }
   const entries = listing.split(/\r?\n/).filter(Boolean);
-  if (entries.some((entry) => entry.startsWith("/") || entry.includes("\\") || entry.split("/").some((part) => part === ".."))) {
+  if (entries.some((entry) => {
+    const path = entry.endsWith("/") ? entry.slice(0, -1) : entry;
+    return path.length === 0 || path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => part === "" || part === "." || part === "..");
+  })) {
     fail("registry tarball contains an unsafe path");
   }
   if (entries.filter((entry) => entry === "package/package.json").length !== 1) fail("registry tarball package metadata is missing or duplicated");

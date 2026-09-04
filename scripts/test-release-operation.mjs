@@ -205,11 +205,15 @@ assert.equal(workflow.durable_release_record, "GitHub Release assets");
 assert.equal(workflow.retry_recovery, "existing-version provenance verification without republish");
 assert.equal(workflow.artifact_preservation.suffix, "${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}");
 assert.equal(validateReleaseArtifactPreservation({ releaseWorkflow, candidateWorkflow, cAbiWorkflow }).suffix, "${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}");
+assert.match(releaseWorkflow, /scripts\/release-recovery\.mjs reconstruct/);
+assert.match(releaseWorkflow, /release-published-npm\//);
+assert.doesNotMatch(releaseWorkflow, /cp -a release-output-recovered\/. release-output\//);
 const recoveryBoundary = validateRecoveryWorkflowBoundary(recoveryWorkflow);
 assert.equal(recoveryBoundary.trigger, "workflow_dispatch");
 assert.equal(recoveryBoundary.publish_capability, false);
 assert.match(recoveryWorkflow, /ref: \$\{\{ github\.sha \}\}/);
 assert.match(recoveryWorkflow, /refs\/tags\/\$RELEASE_TAG:refs\/tags\/\$RELEASE_TAG/);
+assert.doesNotMatch(recoveryWorkflow, /actions\/runs\/\$ORIGINAL_PUBLISH_RUN_ID(?!\/attempts)/);
 expectFailure(() => validateRecoveryWorkflowBoundary(recoveryWorkflow.replace("actions: read", "actions: write")), /publication credential or permission/);
 expectFailure(() => validateRecoveryWorkflowBoundary(`${recoveryWorkflow}\nrun: npm publish`), /publication capability/);
 expectFailure(() => validateReleaseArtifactPreservation({ releaseWorkflow: `${releaseWorkflow}\n      overwrite: true`, candidateWorkflow, cAbiWorkflow }), /destructive artifact overwrite/);
@@ -441,7 +445,7 @@ try {
         externalParameters: { workflow: { repository: `https://github.com/${repository}`, path: WORKFLOW_PATH, ref: `refs/tags/v${VERSION}` } },
         resolvedDependencies: [{ uri: `git+https://github.com/${repository}@refs/tags/v${VERSION}`, digest: { gitCommit: COMMIT } }],
       },
-      runDetails: { metadata: { invocationId: `https://github.com/${repository}/actions/runs/123` } },
+      runDetails: { metadata: { invocationId: `https://github.com/${repository}/actions/runs/123/attempts/1` } },
     },
   };
   const attestation = {
@@ -538,6 +542,25 @@ try {
   const recoveryProvenance = JSON.parse(readFileSync(provenancePath, "utf8"));
   recoveryProvenance.publication_mode = "post-publish-recovery";
   recoveryProvenance.candidate_artifact = { sha256: "d".repeat(64), size: 456 };
+  const recoveryStatement = structuredClone(statement);
+  recoveryStatement.predicate.runDetails.metadata.invocationId = `https://github.com/${repository}/actions/runs/123/attempts/2`;
+  recoveryProvenance.registry_attestations = {
+    attestations: [{
+      predicateType,
+      bundle: { dsseEnvelope: { payload: Buffer.from(JSON.stringify(recoveryStatement), "utf8").toString("base64") } },
+    }],
+  };
+  const recoveryIdentities = provenanceIdentities(recoveryProvenance.registry_attestations.attestations, {
+    packageName: "@nemnesia/symbol-nem-wallet-core",
+    version: VERSION,
+    tag: `v${VERSION}`,
+    sourceCommit: COMMIT,
+    repository,
+    tarballSha512: tarSha512,
+    workflowRunId: "123",
+    workflowRunAttempt: 2,
+  });
+  recoveryProvenance.provenance = { predicate_types: recoveryIdentities.map((identity) => identity.predicate_type), identities: recoveryIdentities };
   writeJson(provenancePath, recoveryProvenance);
   const recovered = finalizeReleaseOperation({
     preOperationPath: operationPath,

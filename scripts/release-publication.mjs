@@ -43,7 +43,7 @@ function copyAssets(sourceRoot, filenames, outputRoot) {
   }
 }
 
-export function assemblePublicationAssets({ npmDir, cAbiDir, recordDir, outputDir, tag, sourceCommit, assetListPath }) {
+export function assemblePublicationAssets({ npmDir, cAbiDir, recordDir, outputDir, tag, sourceCommit, assetListPath, recovery = false }) {
   const npmRoot = resolve(repositoryRoot, npmDir);
   const cAbiRoot = resolve(repositoryRoot, cAbiDir);
   const recordRoot = resolve(repositoryRoot, recordDir);
@@ -56,6 +56,7 @@ export function assemblePublicationAssets({ npmDir, cAbiDir, recordDir, outputDi
     tag,
     sourceCommit,
     provenanceStatus: "published",
+    recovery,
   });
   const record = JSON.parse(readFileSync(resolve(recordRoot, "release-record.json"), "utf8"));
   if (!isPlainObject(record) || record.mode !== "release" || record.package_name !== "@nemnesia/symbol-nem-wallet-core" || record.version !== "0.1.0" || record.tag !== tag || record.source_commit !== sourceCommit || record.npm?.provenance?.status !== "published") fail("published release record identity is invalid");
@@ -110,6 +111,7 @@ function run() {
     tag: argument(argv, "--tag"),
     sourceCommit: argument(argv, "--source-commit"),
     assetListPath: argv.includes("--asset-list") ? argument(argv, "--asset-list") : undefined,
+    recovery: argv.includes("--recovery"),
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

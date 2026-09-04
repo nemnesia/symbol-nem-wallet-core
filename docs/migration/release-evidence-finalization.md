@@ -147,9 +147,49 @@ and uploading the durable asset set. `packages: write`, `actions: write`, and
 long-lived npm tokens are not used.
 
 For a failed post-publish run, `release-recovery.yml` is manually dispatched with the immutable tag, expected source
-commit, package version, original release run id / attempt, and (for new runs) its attempt-scoped artifact suffix.
-Verification is read-only and runs before a separate protected publication job. That job refuses an existing GitHub
-Release, creates the same manifest-backed asset set, and verifies every uploaded asset after creation.
+commit, package version, `original_publish_run_id` / `original_publish_run_attempt`, and the separate
+`artifact_source_run_id` / `artifact_source_run_attempt` plus artifact suffix. The original publish invocation is
+verified through the attempt-specific Actions API endpoint; downloadable legacy artifacts are never assumed to come
+from that attempt.
+
+Verification is read-only and runs before a separate protected publication job. Recovery keeps the original
+`release-manifest.json` and candidate build evidence as historical candidate evidence. It downloads the npm registry
+tarball as the canonical published artifact, validates its package metadata, `dist/native/artifact-manifest.json`,
+native bytes, canonical WASM, generated-file digests, `dist.integrity`, provenance subject, and npm audit signatures,
+then writes a separate `published-recovery-manifest.json`. Thus recovery does not reconstruct a published manifest by
+rewriting the historical candidate manifest, and a candidate/published byte mismatch is recorded rather than hidden.
+
+The protected publication job refuses an existing GitHub Release, creates the same manifest-backed asset set, and
+verifies every uploaded asset after creation. The recovery workflow itself has no npm publication capability and is
+restricted to a dispatch from the current reviewed `main` SHA.
+
+## v0.1.0 reproducibility investigation
+
+The available production evidence was inspected read-only. The attempt-1 build artifacts are no longer downloadable;
+the registry tarball and the later legacy `release-npm-package` artifact were therefore compared directly, with
+attempt-1 hashes taken from the retained workflow log. The published tarball is
+`4ac659fe1f4bb8e469cc3eb4036fb67d269a9e4205edd3c87499f22605ef58db`; the later rebuild candidate is
+`7eed87f9767aae73030988e6931bd9b1b214698f89c8665e186e6fcdce5527ca`.
+
+| constituent | classification | finding |
+| --- | --- | --- |
+| source WASM | REPRODUCIBLE | retained attempt-1/source and later source evidence both report `9b72d60744c5b90d76b7907acfe2d296f9109c0170e47bc54c12de322100c469` |
+| generated WASM | REPRODUCIBLE | registry and later candidate both hash to `09b65c0d997ac2b07eb6e90a69201e0c0966390b9ea75b617154a0bdf35ffc62` |
+| linux native | REPRODUCIBLE | registry and later candidate both hash to `b47f3f1e4e87c08b854865d24ae9997b9817c8fe40fcff8fedd350bb6eaa7008` |
+| macOS x64 native | REPRODUCIBLE | registry and later candidate both hash to `1b677dbb09abd1f710e12fbc2906e576b7e71d91694657270cce6ac1b4b1d95a` |
+| macOS arm64 native | REPRODUCIBLE | registry and later candidate both hash to `c58f7efbeccaa4e590dc60ecc0925b5a54b98034dec97f73a0cd6f70acb1f9c9` |
+| Windows native | NON-DETERMINISTIC BUT EXPLAINED | attempt-1/registry is `49a93f3f0c23efe2cda4d1cd0f063b0ef05d4154858d126a432b47b28addf37b`; later candidate is `bf1c9e5a3286e93096c03548bc86800c44f63f108740ad1bab94b842e0592e6e`; the 28 differing bytes are the PE COFF link timestamp and CodeView PDB signature bytes, while section layout, linker version, and PDB name remain equal |
+| generated JS / loaders | REPRODUCIBLE | all selected generated JS, CJS, MJS, declaration, and snippet entries compared equal |
+| package.json | REPRODUCIBLE | registry and later candidate hash to the same `c5b2d718c0159bd4f5f5adca076614525acc0c49ff2c3cc21881c855612a5319` |
+| npm tar / gzip metadata | REPRODUCIBLE | both archives use the same npm fixed timestamp (`1985-10-26 17:15`), order, ownership, and member sizes; local repeated `npm pack` was stable |
+| npm tarball | NON-DETERMINISTIC BUT EXPLAINED | payload differs because the Windows native member and runtime manifest differ; the archive container is not the source of the mismatch |
+
+`SOURCE_DATE_EPOCH` is set from the source commit timestamp in the final npm assembly job and is consumed by the SPDX
+generator for `creationInfo.created`. It does not rewrite native binaries, wasm-bindgen output, or npm's fixed archive
+timestamp. No unsafe ELF, Mach-O, PE, or WASM post-processing was applied. The safe determinism controls retained in
+the tooling are source-derived SBOM timestamps, fixed npm archive metadata, explicit target ordering, and canonical
+JSON generation. The Windows linker timestamp / CodeView signature remains an explicit explained nondeterminism;
+post-publish recovery uses the registry bytes and therefore does not depend on reproducing it.
 
 The v1 signing policy is npm provenance only. No cosign, Sigstore, GPG, custom
 PKI, private signing key, custom attestation protocol, or C ABI artifact

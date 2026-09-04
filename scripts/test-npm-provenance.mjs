@@ -64,6 +64,25 @@ const expected = {
   tarballSize: TAR_SIZE,
 };
 const identities = provenanceIdentities(registryAttestations.attestations, expected);
+const attemptExpected = { ...expected, workflowRunId: "123", workflowRunAttempt: 1 };
+const attemptStatement = structuredClone(statement);
+attemptStatement.predicate.runDetails.metadata.invocationId = `https://github.com/${REPOSITORY}/actions/runs/123/attempts/1`;
+const attemptAttestation = {
+  predicateType: PREDICATE,
+  bundle: { dsseEnvelope: { payload: Buffer.from(JSON.stringify(attemptStatement), "utf8").toString("base64") } },
+};
+assert.equal(provenanceIdentities([attemptAttestation], attemptExpected).length, 1);
+for (const invocationId of [
+  `https://github.com/${REPOSITORY}/actions/runs/123`,
+  `https://github.com/${REPOSITORY}/actions/runs/123/attempts/2`,
+]) {
+  const wrongAttemptStatement = structuredClone(attemptStatement);
+  wrongAttemptStatement.predicate.runDetails.metadata.invocationId = invocationId;
+  assert.throws(
+    () => provenanceIdentities([{ ...attemptAttestation, bundle: { dsseEnvelope: { payload: Buffer.from(JSON.stringify(wrongAttemptStatement), "utf8").toString("base64") } } }], attemptExpected),
+    /invocation attempt/,
+  );
+}
 const evidence = {
   schema_version: 1,
   artifact_kind: "npm-provenance",

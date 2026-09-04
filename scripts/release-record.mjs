@@ -12,6 +12,13 @@ import { fileURLToPath } from "node:url";
 
 import { C_ABI_TARGET_ORDER } from "./c-abi-targets.mjs";
 import { isValidCommit, isValidSemVer, parseSemVer } from "./release-identity.mjs";
+import { validateNpmProvenanceEvidence } from "./npm-provenance.mjs";
+import { validatePublishedRecoveryEvidence } from "./release-recovery.mjs";
+import {
+  NPM_REQUIRED_FILES,
+  PUBLISHED_RECOVERY_FILES,
+  RECOVERY_ARTIFACT_SOURCE,
+} from "./recovery-evidence.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const RECORD_SCHEMA_VERSION = 1;
@@ -23,29 +30,6 @@ const C_ABI_PACKAGE_NAME = "symbol-nem-wallet-core-native";
 const NPM_WORKFLOW = ".github/workflows/node.yml";
 const C_ABI_WORKFLOW = ".github/workflows/c-abi-release.yml";
 const PUBLISHED_NPM_EVIDENCE_FILES = ["release-operation.json", "npm-provenance.json"];
-const NPM_REQUIRED_FILES = [
-  "release-manifest.json",
-  "SHA256SUMS",
-  "release-source.json",
-  "native-summary.json",
-  "win32-x64-msvc.node",
-  "darwin-x64.node",
-  "darwin-arm64.node",
-  "linux-x64-gnu.node",
-  "win32-x64-msvc.json",
-  "darwin-x64.json",
-  "darwin-arm64.json",
-  "linux-x64-gnu.json",
-  "wasm-summary.json",
-  "wasm-evidence.json",
-  "wasm-bindgen-version.json",
-  "sbom.spdx.json",
-  "license-inventory.json",
-  "SBOM-SHA256SUMS",
-  "license-policy.json",
-  "THIRD_PARTY_LICENSES.json",
-  "LICENSE-POLICY-SHA256SUMS",
-];
 const C_ABI_EVIDENCE_KEYS = ["sbom", "inventory", "sbom_sums", "policy", "third_party", "policy_sums"];
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
@@ -106,6 +90,10 @@ function hashFile(path, label = path) {
   return createHash("sha256").update(bytes(path, label)).digest("hex");
 }
 
+function sha512File(path, label = path) {
+  return createHash("sha512").update(bytes(path, label)).digest("hex");
+}
+
 function resolveUnder(root, path, label) {
   safeRelativePath(path, label);
   const absolute = resolve(root, path);
@@ -143,7 +131,7 @@ function assertDigestFile(root, filename, expected, label) {
   }
 }
 
-function validateNpmManifest(npmDir, mode, tag, sourceCommit, provenanceStatus) {
+function validateNpmManifest(npmDir, mode, tag, sourceCommit, provenanceStatus, extraAllowedFiles = []) {
   const manifestPath = resolveUnder(npmDir, "release-manifest.json", "npm release manifest");
   const manifest = json(manifestPath, "npm release manifest");
   if (!isPlainObject(manifest) || manifest.schema_version !== 1 || manifest.package_name !== NPM_PACKAGE_NAME || manifest.mode !== mode || manifest.source_commit !== sourceCommit) fail("npm release manifest identity is invalid");
@@ -174,7 +162,7 @@ function validateNpmManifest(npmDir, mode, tag, sourceCommit, provenanceStatus) 
   const digestRecord = assets.find((entry) => entry.filename === manifest.npm_tarball.filename);
   assertDigestFile(npmDir, "SHA256SUMS", [digestRecord, fileRecord(npmDir, "release-manifest.json", "npm release manifest")], "npm SHA256SUMS required entries");
   const publishedEvidence = provenanceStatus === "published" ? PUBLISHED_NPM_EVIDENCE_FILES : [];
-  assertExactFiles(npmDir, [...required, ...publishedEvidence], "npm durable evidence set");
+  assertExactFiles(npmDir, [...required, ...publishedEvidence, ...extraAllowedFiles], "npm durable evidence set");
   return { manifest, assets };
 }
 
@@ -246,12 +234,79 @@ function optionalPublishedEvidence(npmDir, provenanceStatus, sourceCommit, versi
   return { files: [operation, provenance], canonicalArtifact: provenanceDocument.canonical_artifact };
 }
 
-export function createReleaseRecord({ npmDir, cAbiDir, outputDir, mode = "candidate", tag = null, sourceCommit, provenanceStatus = mode === "candidate" ? "not-executed" : "required-at-publish", write = true }) {
+function validateRecoveryNpmEvidence(npmDir, tag, sourceCommit) {
+  const recovery = validatePublishedRecoveryEvidence({ releaseDir: npmDir, tag, sourceCommit });
+  const version = recovery.manifest.package_version;
+  const provenance = fileRecord(npmDir, "npm-provenance.json", "npm provenance record");
+  const operation = fileRecord(npmDir, "release-operation.json", "npm release operation evidence");
+  const artifactSourceFile = fileRecord(npmDir, RECOVERY_ARTIFACT_SOURCE, "recovery artifact source evidence");
+  const provenanceDocument = json(resolveUnder(npmDir, "npm-provenance.json", "npm provenance record"), "npm provenance record");
+  const operationDocument = json(resolveUnder(npmDir, "release-operation.json", "npm release operation evidence"), "npm release operation evidence");
+  const artifactSourceDocument = json(resolveUnder(npmDir, RECOVERY_ARTIFACT_SOURCE, "recovery artifact source evidence"), "recovery artifact source evidence");
+  const publishedTarball = recovery.published.tarball;
+  const publishedTarballSha512 = sha512File(resolve(npmDir, "published-registry.tgz"), "published registry tarball");
+  if (!isPlainObject(operationDocument) || operationDocument.package_name !== NPM_PACKAGE_NAME || operationDocument.package_version !== version || operationDocument.release_tag !== tag || operationDocument.source_commit !== sourceCommit || operationDocument.environment !== "release" || operationDocument.provenance?.status !== "published" || operationDocument.publication?.mode !== "recovered-existing" || operationDocument.publication?.registry_tarball_sha256 !== publishedTarball.sha256 || operationDocument.published_artifact?.tarball_sha256 !== publishedTarball.sha256) fail("recovery release operation evidence is not bound to the published registry artifact");
+  if (operationDocument.provenance.evidence?.filename !== "npm-provenance.json" || operationDocument.provenance.evidence.sha256 !== provenance.sha256) fail("recovery release operation provenance digest differs");
+  if (!isPlainObject(provenanceDocument) || provenanceDocument.package_name !== NPM_PACKAGE_NAME || provenanceDocument.package_version !== version || provenanceDocument.release_tag !== tag || provenanceDocument.source_commit !== sourceCommit || provenanceDocument.publication_mode !== "post-publish-recovery" || provenanceDocument.canonical_artifact?.sha256 !== publishedTarball.sha256 || provenanceDocument.canonical_artifact?.size !== publishedTarball.size) fail("recovery provenance evidence is not bound to the published registry artifact");
+  const originalPublish = isPlainObject(artifactSourceDocument) ? artifactSourceDocument.original_publish : undefined;
+  const artifactSource = isPlainObject(artifactSourceDocument) ? artifactSourceDocument.artifact_source : undefined;
+  if (!isPlainObject(artifactSourceDocument) || artifactSourceDocument.schema_version !== 1 || artifactSourceDocument.artifact_kind !== "release-recovery-artifact-source" || !isPlainObject(originalPublish) || !isPlainObject(artifactSource) || originalPublish.workflow_repository !== NPM_REPOSITORY || originalPublish.workflow_path !== NPM_WORKFLOW.replace("node.yml", "release.yml") || originalPublish.workflow_ref !== `${NPM_REPOSITORY}/.github/workflows/release.yml@refs/tags/${tag}` || originalPublish.release_tag !== tag || originalPublish.source_commit !== sourceCommit || !/^\d+$/.test(String(originalPublish.run_id)) || !Number.isInteger(originalPublish.run_attempt) || originalPublish.run_attempt < 1 || originalPublish.metadata_endpoint !== `/repos/${NPM_REPOSITORY}/actions/runs/${originalPublish.run_id}/attempts/${originalPublish.run_attempt}` || !/^\d+$/.test(String(artifactSource.run_id)) || !Number.isInteger(artifactSource.run_attempt) || artifactSource.run_attempt < 1 || artifactSource.metadata_endpoint !== `/repos/${NPM_REPOSITORY}/actions/runs/${artifactSource.run_id}/attempts/${artifactSource.run_attempt}` || typeof artifactSource.artifact_suffix !== "string" || !/^(?:-[0-9]+-[1-9][0-9]*-[0-9a-f]{40})?$/.test(artifactSource.artifact_suffix) || artifactSource.legacy_unscoped_names !== (artifactSource.artifact_suffix === "") || artifactSource.attempt_binding !== (artifactSource.artifact_suffix === "" ? "run-metadata-bound-name-not-attempt-verifiable" : "attempt-scoped-name") || !Array.isArray(artifactSource.artifacts) || artifactSource.artifacts.length !== 3) fail("recovery artifact source identity is incomplete");
+  const expectedArtifactNames = ["release-identity", "release-npm-package", "release-c-abi"].map((name) => `${name}${artifactSource.artifact_suffix}`);
+  if (JSON.stringify(artifactSource.artifacts.map((artifact) => artifact?.name)) !== JSON.stringify(expectedArtifactNames)) fail("recovery artifact source names are not bound to the selected source attempt");
+  try {
+    validateNpmProvenanceEvidence(provenanceDocument, {
+      packageName: NPM_PACKAGE_NAME,
+      version,
+      tag,
+      sourceCommit,
+      environment: "release",
+      repository: NPM_REPOSITORY,
+      tarballSha256: publishedTarball.sha256,
+      tarballSize: publishedTarball.size,
+      tarballSha512: publishedTarballSha512,
+      workflowRunId: String(artifactSourceDocument.original_publish.run_id),
+      workflowRunAttempt: artifactSourceDocument.original_publish.run_attempt,
+    });
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  const publishedFiles = [
+    fileRecord(npmDir, PUBLISHED_RECOVERY_FILES[0], "published recovery manifest"),
+    fileRecord(npmDir, PUBLISHED_RECOVERY_FILES[1], "published registry tarball"),
+    fileRecord(npmDir, PUBLISHED_RECOVERY_FILES[2], "published package metadata"),
+    fileRecord(npmDir, PUBLISHED_RECOVERY_FILES[3], "published native runtime manifest"),
+    fileRecord(npmDir, PUBLISHED_RECOVERY_FILES[4], "published native evidence"),
+    ...PUBLISHED_RECOVERY_FILES.slice(8).map((filename) => fileRecord(npmDir, filename, `published native bytes ${filename}`)),
+    fileRecord(npmDir, PUBLISHED_RECOVERY_FILES[5], "published WASM"),
+    fileRecord(npmDir, PUBLISHED_RECOVERY_FILES[6], "published WASM evidence"),
+    fileRecord(npmDir, PUBLISHED_RECOVERY_FILES[7], "published generated evidence"),
+  ];
+  return {
+    recovery,
+    files: [operation, provenance, artifactSourceFile],
+    publishedFiles,
+    canonicalArtifact: provenanceDocument.canonical_artifact,
+    artifactSource: artifactSourceDocument,
+    publishedTarballSha512,
+  };
+}
+
+export function createReleaseRecord({ npmDir, cAbiDir, outputDir, mode = "candidate", tag = null, sourceCommit, provenanceStatus = mode === "candidate" ? "not-executed" : "required-at-publish", recovery = false, write = true }) {
   if (provenanceStatus === "published" && mode !== "release") fail("published npm provenance requires formal release mode");
-  const npm = validateNpmManifest(npmDir, mode, tag, sourceCommit, provenanceStatus);
+  const recoveryEvidence = recovery ? validateRecoveryNpmEvidence(npmDir, tag, sourceCommit) : null;
+  const npm = validateNpmManifest(
+    npmDir,
+    mode,
+    tag,
+    sourceCommit,
+    recovery ? "required-at-publish" : provenanceStatus,
+    recovery ? [...PUBLISHED_RECOVERY_FILES, "npm-provenance.json", "release-operation.json", RECOVERY_ARTIFACT_SOURCE] : [],
+  );
   const cAbi = validateCAbiManifest(cAbiDir, mode, tag, sourceCommit);
-  const publishedEvidence = optionalPublishedEvidence(npmDir, provenanceStatus, sourceCommit, npm.manifest.package_version, tag, npm.manifest.npm_tarball);
-  const publishedEvidenceFiles = publishedEvidence.files;
+  const publishedEvidence = recoveryEvidence ?? optionalPublishedEvidence(npmDir, provenanceStatus, sourceCommit, npm.manifest.package_version, tag, npm.manifest.npm_tarball);
+  const publishedEvidenceFiles = recovery
+    ? [...publishedEvidence.files, ...publishedEvidence.publishedFiles]
+    : publishedEvidence.files;
   const npmAssets = [...npm.assets, ...publishedEvidenceFiles];
   const allAssetNames = [...npmAssets, ...cAbi.assets].map((entry) => entry.filename);
   if (new Set(allAssetNames).size !== allAssetNames.length) fail("durable release asset filenames are duplicated");
@@ -276,6 +331,12 @@ export function createReleaseRecord({ npmDir, cAbiDir, outputDir, mode = "candid
       policy: "source / toolchain / evidence reproducible",
       bit_for_bit_required: false,
       validation: "source commit, lockfile identity, toolchain, workflow, artifact and evidence SHA-256 are identity-bound",
+      ...(recovery ? {
+        candidate_tarball_sha256: recoveryEvidence.recovery.candidate.tarball.sha256,
+        published_tarball_sha256: recoveryEvidence.recovery.published.tarball.sha256,
+        byte_reproducible: recoveryEvidence.recovery.manifest.byte_reproducible,
+        published_constituent_source: "npm-registry-tarball",
+      } : {}),
     },
     npm: {
       package_name: NPM_PACKAGE_NAME,
@@ -285,6 +346,32 @@ export function createReleaseRecord({ npmDir, cAbiDir, outputDir, mode = "candid
       release_manifest: npm.assets.find((entry) => entry.filename === "release-manifest.json"),
       tarball: npm.assets.find((entry) => entry.filename === npm.manifest.npm_tarball.filename),
       evidence: npm.assets.filter((entry) => entry.filename !== npm.manifest.npm_tarball.filename),
+      ...(recovery ? {
+        candidate_artifact: {
+          source: "historical-candidate-evidence",
+          release_manifest: npm.assets.find((entry) => entry.filename === "release-manifest.json"),
+          tarball: npm.assets.find((entry) => entry.filename === npm.manifest.npm_tarball.filename),
+          byte_reproducible: recoveryEvidence.recovery.manifest.byte_reproducible,
+        },
+        published_artifact: {
+          source: "npm-registry-tarball",
+          recovery_manifest: publishedEvidence.publishedFiles.find((entry) => entry.filename === "published-recovery-manifest.json"),
+          tarball: publishedEvidence.publishedFiles.find((entry) => entry.filename === "published-registry.tgz"),
+          package_metadata: publishedEvidence.publishedFiles.find((entry) => entry.filename === "published-package.json"),
+          native_manifest: publishedEvidence.publishedFiles.find((entry) => entry.filename === "published-native-artifact-manifest.json"),
+          native_evidence: publishedEvidence.publishedFiles.find((entry) => entry.filename === "published-native-evidence.json"),
+          native_artifacts: publishedEvidence.publishedFiles.filter((entry) => entry.filename.startsWith("published-") && entry.filename.endsWith(".node")),
+          wasm: publishedEvidence.publishedFiles.find((entry) => entry.filename === "published-wasm.wasm"),
+          wasm_evidence: publishedEvidence.publishedFiles.find((entry) => entry.filename === "published-wasm-evidence.json"),
+          generated_evidence: publishedEvidence.publishedFiles.find((entry) => entry.filename === "published-generated-evidence.json"),
+          byte_reproducible: recoveryEvidence.recovery.manifest.byte_reproducible,
+        },
+        recovery_artifact_source: {
+          source: "recovery-artifact-source.json",
+          original_publish: recoveryEvidence.artifactSource.original_publish,
+          artifact_source: recoveryEvidence.artifactSource.artifact_source,
+        },
+      } : {}),
       provenance: {
         mechanism: "npm-trusted-publishing-oidc",
         required: true,
@@ -300,6 +387,14 @@ export function createReleaseRecord({ npmDir, cAbiDir, outputDir, mode = "candid
       source_commit: sourceCommit,
       release_manifest: cAbi.assets.find((entry) => entry.filename === "c-abi-release-manifest.json"),
       evidence: cAbi.assets,
+      ...(recovery ? {
+        artifact_source: {
+          run_id: recoveryEvidence.artifactSource.artifact_source.run_id,
+          run_attempt: recoveryEvidence.artifactSource.artifact_source.run_attempt,
+          artifact_suffix: recoveryEvidence.artifactSource.artifact_source.artifact_suffix,
+          artifacts: recoveryEvidence.artifactSource.artifact_source.artifacts,
+        },
+      } : {}),
     },
     signing: {
       policy: "npm provenance only",
@@ -321,8 +416,8 @@ export function createReleaseRecord({ npmDir, cAbiDir, outputDir, mode = "candid
   return { record, recordPath, sumsPath };
 }
 
-export function validateReleaseRecord({ npmDir, cAbiDir, outputDir, mode = "candidate", tag = null, sourceCommit, provenanceStatus = mode === "candidate" ? "not-executed" : "required-at-publish" }) {
-  const expected = createReleaseRecord({ npmDir, cAbiDir, outputDir, mode, tag, sourceCommit, provenanceStatus, write: false });
+export function validateReleaseRecord({ npmDir, cAbiDir, outputDir, mode = "candidate", tag = null, sourceCommit, provenanceStatus = mode === "candidate" ? "not-executed" : "required-at-publish", recovery = false }) {
+  const expected = createReleaseRecord({ npmDir, cAbiDir, outputDir, mode, tag, sourceCommit, provenanceStatus, recovery, write: false });
   const actual = json(resolve(outputDir, RECORD_FILENAME), RECORD_FILENAME);
   if (JSON.stringify(actual) !== JSON.stringify(expected.record)) fail(`${RECORD_FILENAME} differs from deterministic output`);
   const sums = bytes(resolve(outputDir, RECORD_SUMS_FILENAME), RECORD_SUMS_FILENAME).toString("utf8");
@@ -349,6 +444,7 @@ function run() {
   const tag = argument(argv, "--tag", null);
   const sourceCommitValue = argument(argv, "--source-commit");
   const provenanceStatus = argument(argv, "--provenance-status", mode === "candidate" ? "not-executed" : "required-at-publish");
+  const recovery = argv.includes("--recovery");
   const input = {
     npmDir: resolve(repositoryRoot, argument(argv, "--npm-dir")),
     cAbiDir: resolve(repositoryRoot, argument(argv, "--c-abi-dir")),
@@ -357,6 +453,7 @@ function run() {
     tag,
     sourceCommit: sourceCommitValue,
     provenanceStatus,
+    recovery,
   };
   const result = command === "generate" ? createReleaseRecord(input) : validateReleaseRecord(input);
   process.stdout.write(`${JSON.stringify({ record: result.recordPath, sums: result.sumsPath, asset_count: result.record.durable_asset_list.npm.length + result.record.durable_asset_list.c_abi.length, provenance_status: result.record.npm.provenance.status })}\n`);
