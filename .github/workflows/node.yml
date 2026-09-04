@@ -338,7 +338,13 @@ jobs:
 
       - name: Set source-derived reproducibility epoch
         shell: bash
-        run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct \"$GITHUB_SHA\")" >> "$GITHUB_ENV"
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
+          [[ "$epoch" =~ ^[0-9]+$ ]]
+          test -n "$epoch"
+          echo "SOURCE_DATE_EPOCH=$epoch" >> "$GITHUB_ENV"
 
       - name: Install pnpm workspace dependencies
         run: corepack pnpm install --frozen-lockfile --ignore-scripts

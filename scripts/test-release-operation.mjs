@@ -181,6 +181,16 @@ const releaseWorkflow = readFileSync(resolve(repositoryRoot, ".github/workflows/
 const candidateWorkflow = readFileSync(resolve(repositoryRoot, ".github/workflows/node.yml"), "utf8");
 const cAbiWorkflow = readFileSync(resolve(repositoryRoot, ".github/workflows/c-abi-release.yml"), "utf8");
 const recoveryWorkflow = readFileSync(resolve(repositoryRoot, ".github/workflows/release-recovery.yml"), "utf8");
+const epochStepStart = candidateWorkflow.indexOf("      - name: Set source-derived reproducibility epoch");
+const epochStepEnd = candidateWorkflow.indexOf("\n      - name:", epochStepStart + 1);
+const epochStep = candidateWorkflow.slice(epochStepStart, epochStepEnd);
+assert.ok(epochStepStart >= 0 && epochStepEnd > epochStepStart);
+assert.ok(epochStep.includes('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"'));
+assert.ok(epochStep.includes('epoch="$(git show -s --format=%ct "$GITHUB_SHA")"'));
+assert.ok(epochStep.includes('[[ "$epoch" =~ ^[0-9]+$ ]]'));
+assert.ok(epochStep.includes('test -n "$epoch"'));
+assert.ok(epochStep.includes('echo "SOURCE_DATE_EPOCH=$epoch" >> "$GITHUB_ENV"'));
+assert.equal(epochStep.includes('\\"$GITHUB_SHA\\"'), false);
 const migrationDocumentation = readFileSync(resolve(repositoryRoot, "docs/migration/release-operation-provenance.md"), "utf8");
 const trustedPublisherSectionStart = migrationDocumentation.indexOf("4. npm package");
 const trustedPublisherSectionEnd = migrationDocumentation.indexOf("\n5.", trustedPublisherSectionStart);
