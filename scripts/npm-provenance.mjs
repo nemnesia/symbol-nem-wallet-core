@@ -301,7 +301,7 @@ function validateAuditSignatures(audit, expected) {
 
 function tarEntry(tarball, entryPath, label) {
   try {
-    return execFileSync("tar", ["-xOf", "-", entryPath], {
+    return execFileSync("tar", ["-xOzf", "-", entryPath], {
       cwd: repositoryRoot,
       input: tarball,
       maxBuffer: 64 * 1024 * 1024,
@@ -622,6 +622,7 @@ export {
   WORKFLOW_PATH,
   packagePurl,
   provenanceIdentities,
+  validateRegistryTarballContent,
 };
 
 if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {

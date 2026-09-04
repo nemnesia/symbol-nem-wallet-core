@@ -1,4 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import { NPM_REPOSITORY_METADATA } from "./npm-repository.mjs";
 import {
@@ -9,6 +14,7 @@ import {
   packagePurl,
   provenanceIdentities,
   validateNpmProvenanceEvidence,
+  validateRegistryTarballContent,
 } from "./npm-provenance.mjs";
 
 // This is a structural test fixture. It is never presented as registry evidence.
@@ -258,5 +264,104 @@ await assert.rejects(
   /HTTP 400/,
 );
 assert.equal(unexpectedStatusCalls, 1);
+
+const tarFixtureRoot = mkdtempSync(join(tmpdir(), "snwc-npm-provenance-"));
+try {
+  const packageRoot = join(tarFixtureRoot, "package");
+  const nativeFixtureTargets = [
+    ["win32-x64-msvc", "windows", "x64", "msvc", "x86_64-pc-windows-msvc"],
+    ["darwin-x64", "macos", "x64", "darwin", "x86_64-apple-darwin"],
+    ["darwin-arm64", "macos", "arm64", "darwin", "aarch64-apple-darwin"],
+    ["linux-x64-gnu", "linux", "x64", "gnu", "x86_64-unknown-linux-gnu", "glibc"],
+  ];
+  const nativeArtifacts = nativeFixtureTargets.map(([targetId, os, cpu, abi, rustTarget, libc]) => {
+    const artifactFilename = `${targetId}.node`;
+    const relativePath = `dist/native/${targetId}/${artifactFilename}`;
+    const content = Buffer.from(`deterministic native fixture: ${targetId}\n`, "utf8");
+    mkdirSync(join(packageRoot, relativePath, ".."), { recursive: true });
+    writeFileSync(join(packageRoot, relativePath), content);
+    return {
+      target_id: targetId,
+      os,
+      cpu,
+      abi,
+      rust_target: rustTarget,
+      ...(libc === undefined ? {} : { libc }),
+      relative_path: relativePath,
+      artifact_filename: artifactFilename,
+      sha256: createHash("sha256").update(content).digest("hex"),
+      toolchain_identifier: "deterministic-fixture-toolchain",
+    };
+  });
+  const wasmRelativePath = "dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm";
+  const wasmContent = Buffer.from("deterministic wasm fixture\n", "utf8");
+  mkdirSync(join(packageRoot, wasmRelativePath, ".."), { recursive: true });
+  writeFileSync(join(packageRoot, wasmRelativePath), wasmContent);
+
+  const packageMetadata = {
+    name: PACKAGE_NAME,
+    version: VERSION,
+    repository: NPM_REPOSITORY_METADATA,
+  };
+  writeFileSync(join(packageRoot, "package.json"), `${JSON.stringify(packageMetadata)}\n`);
+  const runtimeManifest = {
+    schema_version: 1,
+    package_name: PACKAGE_NAME,
+    package_version: VERSION,
+    source_commit: COMMIT,
+    node_api_version: 8,
+    artifacts: nativeArtifacts,
+  };
+  writeFileSync(join(packageRoot, "dist/native/artifact-manifest.json"), `${JSON.stringify(runtimeManifest)}\n`);
+
+  const tarball = execFileSync("tar", [
+    "--sort=name",
+    "--mtime=@0",
+    "--owner=0",
+    "--group=0",
+    "--numeric-owner",
+    "-czf",
+    "-",
+    "-C",
+    tarFixtureRoot,
+    "package",
+  ]);
+  assert.deepEqual(tarball.subarray(0, 2), Buffer.from([0x1f, 0x8b]), "fixture must be gzip-compressed");
+
+  // This is the exact pre-fix extraction command. It must reject a gzip .tgz.
+  assert.throws(() => execFileSync("tar", ["-xOf", "-", "package/package.json"], { input: tarball }));
+
+  const candidateManifest = {
+    wasm: {
+      canonical_artifact: {
+        relative_path: wasmRelativePath,
+        sha256: createHash("sha256").update(wasmContent).digest("hex"),
+        size: wasmContent.length,
+      },
+    },
+    native_artifacts: nativeArtifacts.map((artifact) => ({
+      target_id: artifact.target_id,
+      relative_path: artifact.relative_path,
+      sha256: artifact.sha256,
+      size: readFileSync(join(packageRoot, artifact.relative_path)).length,
+    })),
+  };
+  const validated = validateRegistryTarballContent(
+    tarball,
+    { version: VERSION, sourceCommit: COMMIT },
+    candidateManifest,
+    true,
+  );
+  assert.deepEqual(validated.metadata, packageMetadata, "package/package.json must be extracted from the gzip registry tarball");
+  assert.deepEqual(validated.runtimeManifest, runtimeManifest, "native artifact manifest must be extracted from the gzip registry tarball");
+
+  const corruptTarball = tarball.subarray(0, tarball.length - 1);
+  assert.throws(
+    () => validateRegistryTarballContent(corruptTarball, { version: VERSION, sourceCommit: COMMIT }, candidateManifest, true),
+    /registry tarball is corrupt or unreadable/,
+  );
+} finally {
+  rmSync(tarFixtureRoot, { recursive: true, force: true });
+}
 
 process.stdout.write("npm provenance deterministic tests passed (fixture only)\n");
