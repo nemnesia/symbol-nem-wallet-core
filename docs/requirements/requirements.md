@@ -4,19 +4,20 @@
 
 ### 1.1 目的
 
-symbol-nem-wallet-core v1 は、Desktop / Mobile / Web / Node.js の Symbol / NEM ウォレット向けに、Mainnet または Testnet に所属する Profile を秘密情報管理の基本単位とし、Mnemonic と Software Key の生成・復元・導出・取込み・暗号化保存・処理単位の認証・署名・個別エクスポート・削除を Rust Wallet Core へ集約する。
+symbol-nem-wallet-core v1 は、Desktop、Node.js、Browser、Browser Extension、React Native Android および React Native iOS の Symbol / NEM ウォレット向けに、Mainnet または Testnet に所属する Profile を秘密情報管理の基本単位とし、Mnemonic と Software Key の生成・復元・導出・取込み・暗号化保存・処理単位の認証・署名・個別エクスポート・削除を Rust Wallet Core へ集約する。
 
-Web には Web Application および Browser Extension を含む。Desktop / Mobile は Native C ABI、Node.js は Node-API Binding、Web は WASM Binding を介して同一 Rust Wallet Core を利用する。Node.js の v1 support は、Rust Wallet Core と独立した Node.js / TypeScript 等による Wallet Core の別実装を意味しない。
+Browser Extension は Browser runtime の利用形態として扱う。Desktop / Mobile は Native C ABI、Node.js は Node-API Binding、Browser は WASM Binding を介して同一 Rust Wallet Core を利用し、React Native Android / iOS は具体方式を固定しない platform-specific binding boundary を介して同一 Rust Wallet Core を利用する。Node.js の v1 support は、Rust Wallet Core と独立した Node.js / TypeScript 等による Wallet Core の別実装を意味しない。
 
 ### 1.2 上位根拠
 
 上位コンセプトは `docs/consept/concept-sheet.md` である。
 
 - コンセプトとの追跡: 背景・課題は `docs/consept/concept-sheet.md` §1〜§2、目的は§3、対象利用者・主要利用場面は§4、責任境界は§7〜§8に対応する。
+- React Native 対応方針との追跡: 対象 runtime / platform、単一 repository / npm package、共通 Rust Core および環境共通の責任境界は `docs/consept/concept-sheet.md` §1、§7〜§10、§13 に対応する。
 
 ### 1.3 本書で決定しない事項
 
-API、型、保存レコード構造、暗号方式、KDF、salt / nonce、具体的な HD 導出パス値、Binding 実装、メモリ配置、zeroize 方法、署名内容の提示・承認に関する具体的な UI、対象 OS / Browser バージョン等は本要件書では詳細を定めず、仕様設計またはリリース要件で決定する。秘密情報処理における side-channel の具体方式および検証方法も、SEC-023 の保証範囲を保ったまま下流へ委譲する。
+API、型、保存レコード構造、暗号方式、KDF、salt / nonce、具体的な HD 導出パス値、Binding 実装、メモリ配置、zeroize 方法、署名内容の提示・承認に関する具体的な UI、対象 OS / Browser バージョン、CPU architecture matrix 等は本要件書では詳細を定めず、仕様設計またはリリース要件で決定する。対象 runtime / platform、サポート対象 version および architecture matrix の明示・検証は NFR-006、NFR-012 および NFR-013 に従う。秘密情報処理における side-channel の具体方式および検証方法も、SEC-023 の保証範囲を保ったまま下流へ委譲する。
 
 ---
 
@@ -48,14 +49,15 @@ Profile
 ### 2.2 Binding と Core
 
 ```text
-Desktop / Mobile Application ──> Native C ABI ─────┐
-Node.js Application ──────────> Node-API Binding ──┼──> Rust Wallet Core
-Web / Browser Extension ──────> WASM Binding ──────┘
+Desktop / Mobile Application ──> Native C ABI ───────────────┐
+Node.js Application ──────────> Node-API Binding ────────────┤
+Web / Browser Extension ──────> WASM Binding ────────────────┤──> Rust Wallet Core
+React Native Android / iOS ──> platform-specific binding ───┘
 ```
 
-Native C ABI / Node-API Binding / WASM Binding は Core を利用する境界とし、Core と別系統の秘密情報管理、暗号化、署名、導出、Profile パスワード認可を実装しない。
+Native C ABI / Node-API Binding / WASM Binding および React Native Android / iOS の platform-specific binding boundary は Core を利用する境界とし、Core と別系統の秘密情報管理、暗号化、署名、導出、Profile パスワード認可を実装しない。
 
-Binding 方式によって Core の秘密情報管理方針、認可責務、秘密情報公開範囲を変更しない。Desktop / Mobile / Web / Node.js のどの環境でも、Core が保持する責任と通常処理での秘密情報非開示の原則を共通に適用する。
+Binding 方式によって Core の秘密情報管理方針、認可責務、秘密情報公開範囲を変更しない。Desktop / Mobile / Web / Node.js / React Native Android / React Native iOS のどの環境でも、Core が保持する責任と通常処理での秘密情報非開示の原則を共通に適用する。Binding は platform integration、データ受渡し、Core invocation の境界を担い、Core と Application の入力・出力検証を迂回せず、所有権・lifetime・error propagation を要件どおりに扱う。
 
 Node.js Application / Node-API Binding は、Node.js 専用の暗号、Store、authorization、secret management または signing implementation を持たず、同じ Rust Wallet Core の処理を利用する。
 
@@ -82,7 +84,7 @@ Node.js Application / Node-API Binding は、Node.js 専用の暗号、Store、a
 - UI / Application: ユーザー操作、公開情報表示、利用する Account の選択、署名対象内容の提示、利用者が署名内容を確認できる状態の提供、利用者からの明示的な署名承認、ウォレット固有設定を担う。承認された署名要求だけを Core へ送る。新規 Mnemonic 生成では、Core から受け取った完全な Mnemonic を意図した利用者へ提示し、利用者の明示的な受領確認が成立した場合だけ、その事実を Core へ伝える。利用者確認前に Profile 作成を成功扱いしない。署名 approval、export confirmation および handoff confirmation の freshness は Application / UI が管理し、過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用しない。
 - 上位 Application / Package: Profile パスワード品質ポリシー。利便性のためパスワードを一時保持する場合の管理。
 - Web Application / Browser Extension: Web 固有の状態、Browser 固有 Storage、ページ / Extension 実行環境のセキュリティ。
-- Desktop / Mobile Application、Web Application、Browser、OS、host process: それぞれの実行環境の安全性。Application、Browser、OS または host process の侵害を Core が防止する保証はしない。ただし、Core / Binding が不要に秘密情報を公開しない責任は維持する。
+- Desktop / Mobile Application、React Native Application、Web Application、Browser、OS、host process: それぞれの実行環境の安全性。Application、Browser、OS または host process の侵害を Core が防止する保証はしない。ただし、Core / Binding が不要に秘密情報を公開しない責任は維持する。
 - Network 層: REST、WebSocket、announce 等。
 - Transaction 構築層: Transaction の生成・シリアライズ。
 - Application / 上流側: Application が current Store を選択・保存し、Core が返した replacement Store を正しく適用する責任。stale / historical Store の再適用防止、backup / snapshot の最新版管理、端末間移行および消失・破損からの復旧を提供する場合の責任。Core は Store の過去 snapshot を永続記憶せず、valid historical Store の freshness または rollback を単独では判定しない。
@@ -180,7 +182,7 @@ UI / Application が利用する Account と署名対象内容を選択・提示
 
 ### UC-010 Binding 経由で Core を利用する
 
-Desktop / Mobile は Native C ABI、Node.js は Node-API Binding、Web は WASM Binding から v1 Core 主要機能を利用できる。Binding により Core の責任・認可・秘密情報公開方針は変化しない。Desktop / Mobile / Node.js / Web のホスト環境の侵害を Core が防止する保証はしないが、Core / Binding が不要に秘密情報を公開しない責任は共通に適用する。
+Desktop / Mobile は Native C ABI、Node.js は Node-API Binding、Web は WASM Binding、React Native Android / iOS は具体方式を固定しない platform-specific binding boundary から v1 Core 主要機能を利用できる。Binding により Core の責任・認可・秘密情報公開方針は変化しない。Desktop / Mobile / Node.js / Web / React Native のホスト環境の侵害を Core が防止する保証はしないが、Core / Binding が不要に秘密情報を公開しない責任は共通に適用する。
 
 ### UC-011 Mnemonic / Software Key を個別エクスポートする
 
@@ -212,7 +214,7 @@ Desktop / Mobile は Native C ABI、Node.js は Node-API Binding、Web は WASM 
 | FR-016 | MUST | Profile の Network を作成後変更できないこと。 |
 | FR-017 | MUST | Core が生成・維持する、本要件・仕様に適合した整合した Store を対象として、同一 Mnemonic + 同一 Network の Profile 重複登録を拒否し、異なる Network なら別 Profile を許可すること。Core は入力された Store の validity、authentication / integrity および consistency を処理するが、過去に返した Store snapshot を記憶して currentness や historical rollback を判定しない。 |
 | FR-018 | MUST | 同一 Profile 内かつ同一 Chain で同一秘密鍵に対応する Software Key の重複登録を由来をまたいで拒否すること。異なる Chain では同一秘密鍵に対応する Software Key を別 Software Key として許可すること。 |
-| FR-019 | MUST | Native C ABI / Node-API / WASM Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除、Mnemonic の個別エクスポート、Software Key 秘密鍵の個別エクスポートを利用できること。新規 Profile 作成は FR-001 の生成時 handoff 成立条件を満たすことを条件とし、restore は生成時 handoff confirmation の対象外とし、Profile 全体の一括バックアップ・復旧は含めないこと。 |
+| FR-019 | MUST | Native C ABI / Node-API / WASM Binding から Profile 作成・復元、初回 Mnemonic バックアップ受渡し、Profile / 公開情報取得、追加導出、秘密鍵インポート、Software Key 生成、署名、パスワード変更、Software Key 削除、Profile 削除、Mnemonic の個別エクスポート、Software Key 秘密鍵の個別エクスポートを利用できること。React Native Android / iOS からも、具体方式を固定しない platform-specific binding boundary を介して同等の v1 Core 主要機能を利用できること。新規 Profile 作成は FR-001 の生成時 handoff 成立条件を満たすことを条件とし、restore は生成時 handoff confirmation の対象外とし、Profile 全体の一括バックアップ・復旧は含めないこと。 |
 | FR-020 | MUST | Profile 作成・パスワード変更で未指定・空・Core 内部既定値の Profile パスワードを拒否すること。パスワード品質条件は上位 Application / Package の責任とし、Core は独自に要求しないこと。 |
 | FR-021 | MUST | Mnemonic は生成、復元および取込みのすべてで §3.2 の BIP-0039（英語 24 語）基準を満たした値だけを登録・利用すること。Software Key は生成、取込みおよび HD Wallet からの導出のすべてで §3.3 の妥当性基準を満たした値だけを登録・利用すること。各経路の失敗時に不完全状態を登録せず、既存 Profile と既存 Software Key を変更しないこと。 |
 | FR-022 | MUST | Core は、対象 Profile の指定、処理単位の正しい Profile パスワード、利用者の秘密情報取得に関する明示的要求、および Application / UI による意思確認を伴う要求に対して、保存済み Mnemonic を個別にエクスポートできること。単なる API 呼出しやパスワード所有だけでは明示的要求とみなさないこと。誤認証、意思確認のない要求、対象不存在または処理失敗時は Mnemonic を返さず、Profile 状態を変更しないこと。成功後も Core 内の Mnemonic 原本は Core が継続管理し、Core 外へ渡されたコピーの保護・保存・利用責任は受領側へ移ること。 |
@@ -228,8 +230,17 @@ Desktop / Mobile は Native C ABI、Node.js は Node-API Binding、Web は WASM 
 | NFR-001 | MUST | Desktop / Mobile / Web / Node.js が対応 Binding 経由で共通 Core を利用し、秘密鍵処理を各 Application で再実装しないこと。 |
 | NFR-002 | MUST | Core、Binding、Application の実装・レビュー・保守責任を区別でき、Binding が Core 責任や外部責任を重複実装しないこと。 |
 | NFR-003 | MUST | Core、Binding、UI / Application、上位 Application / Package の責任境界を第三者が説明できること。 |
-| NFR-004 | MUST | Desktop / Mobile / Node.js / Native / Web Application / Browser Extension の違いによって、秘密情報管理方針、認可責務、責任境界および Core の通常処理での非開示原則が変わらないこと。 |
+| NFR-004 | MUST | Desktop / Mobile / Node.js / Native / Web Application / Browser Extension / React Native Android / React Native iOS の違いによって、秘密情報管理方針、認可責務、責任境界および Core の通常処理での非開示原則が変わらないこと。 |
 | NFR-005 | SHOULD | Core の自動検証では、行・関数カバレッジ90%以上、分岐カバレッジ85%以上を目標とし、未達時は未カバー範囲、理由および影響を確認可能にすること。カバレッジ率だけで仕様適合性、セキュリティまたは相互運用性を合格判定しないこと。 |
+| NFR-006 | MUST | Wallet Core は Desktop、Node.js、Browser、Browser Extension、React Native Android および React Native iOS を v1 の対象 runtime / platform として、同一 Rust Wallet Core の対象機能を利用可能にすること。Browser Extension は Browser runtime の利用形態として扱い、Browser と同じ Core の責任境界を適用すること。 |
+| NFR-007 | MUST | React Native 対応を理由に repository を分割せず、`nemnesia/symbol-nem-wallet-core` を単一 repository として維持すること。npm consumer 向け公開 package は `@nemnesia/symbol-nem-wallet-core` に統一し、React Native 専用 npm package を新設せず、platform-specific implementation を単一 package 内の責任として扱うこと。内部ディレクトリ構造、build artifact および package exports の具体形式は本要件で固定しないこと。 |
+| NFR-008 | MUST | 機能的に同一の operation は各対象 runtime / platform で一貫した公開 API 契約により利用できること。Android / iOS の差異だけを理由に application-facing API を分岐させず、共通契約では満たせない明示的な platform / runtime 要求がある場合に限り runtime-specific API を設け、その必要性を正当化すること。React Native 対応だけを理由に既存の公開 API surface を拡張しないこと。 |
+| NFR-009 | MUST | cryptographic operation、key derivation、signing、Wallet Store processing、private key handling、Mnemonic handling および secret zeroization 等の security-sensitive processing は既存 Rust Core の責任境界に維持すること。React Native binding は platform integration、データ受渡しおよび invocation boundary を担うが、同等の暗号ロジックまたは security-sensitive business logic の authoritative implementation を新たに持たず、入力・出力検証を bypass しないこと。 |
+| NFR-010 | MUST | unsupported platform / runtime、native binding の初期化・load・invocation failure および security-sensitive operation の failure を fail-closed に扱い、silent fallback、未定義動作または成功として扱わないこと。failure は application が成功と区別して識別でき、platform 差異によって error semantics を不必要に変えないこと。exact error code、error class および mapping は仕様へ委譲すること。 |
+| NFR-011 | MUST | React Native 対応の追加により、既存の Node.js runtime、Browser runtime、Browser Extension use case、WASM behavior、native Node behavior、public API compatibility、security boundary および既存 release / supply-chain guarantees を退行させないこと。既存 runtime の routing または fallback の変更が必要となる場合は、採用前に明示的な互換性影響評価を行うこと。 |
+| NFR-012 | MUST | 各対象 runtime / platform のサポート対象 version を support matrix として明示し、CI または release gate でその matrix の適合性を検証可能にすること。minimum React Native version、minimum Android API level、minimum iOS version、supported Node.js versions および supported browser baseline の具体値は、本要件の更新時点では固定しないこと。 |
+| NFR-013 | MUST | React Native Android / iOS の supported CPU architecture、device / simulator を含む対象 architecture matrix を明示し、CI または release gate で検証可能にすること。arm64、x86_64、legacy ARM その他の具体 target の採否は、本要件の更新時点では固定しないこと。 |
+| NFR-014 | MUST | Node.js、Browser および Browser Extension の consumer に React Native 固有設定を文書化された通常利用経路の前提として要求せず、React Native consumer に Node.js native addon または Browser / WASM runtime を文書化された通常利用経路として要求しないこと。各 consumer が同一 package から対象 runtime / platform に対応した Core 利用経路を選択できること。 |
 
 ---
 
@@ -247,15 +258,15 @@ Desktop / Mobile は Native C ABI、Node.js は Node-API Binding、Web は WASM 
 | SEC-008 | MUST | Profile 削除は正しい Profile パスワードを Core が認可し、認可失敗時は状態を変更しないこと。 |
 | SEC-009 | MUST | 個別 Software Key 削除は正しい Profile パスワードを Core が認可し、認可失敗時は状態を変更しないこと。 |
 | SEC-010 | MUST | 保存済み Mnemonic / 秘密鍵を通常結果として Application へ返さないこと。新規 Mnemonic 生成直後の FR-001 に定める初回バックアップ受渡し、および対象指定、処理単位の正しい Profile パスワード、利用者の明示的要求、Application / UI の意思確認を伴う個別エクスポートだけを例外とする。初回受渡しまたはエクスポートの失敗・中断時は秘密情報を返却せず、Core / Binding が外部受渡しのための一時的な複製を継続保持しないこと。成功したエクスポート後も Core 内原本の継続管理責任は Core に残り、Core 外のコピーの保護・保存・利用責任は受領側へ移ること。 |
-| SEC-011 | MUST | Binding は Mnemonic、秘密鍵、Profile パスワードを永続保存・継続キャッシュせず、別の秘密情報管理主体にならないこと。 |
-| SEC-012 | MUST | Binding 境界を通過する秘密情報について、不必要な複製・長期保持を前提としないこと。具体方式は仕様設計で決定すること。 |
+| SEC-011 | MUST | Native C ABI / Node-API / WASM Binding および React Native binding は Mnemonic、秘密鍵、Profile パスワードを永続保存・継続キャッシュせず、別の秘密情報管理主体にならないこと。 |
+| SEC-012 | MUST | Native C ABI / Node-API / WASM Binding および React Native binding の境界を通過する秘密情報について、不必要な複製・長期保持を前提とせず、処理終了・失敗・中断時に lifetime を不必要に延長しないこと。具体的な buffer implementation、memory layout、zeroization 方法は仕様設計で決定すること。 |
 | SEC-013 | MUST | Profile パスワード紛失時に v1 は復旧・リセットを提供せず、正しいパスワードを必要とする処理を成功させないこと。 |
 | SEC-014 | MUST | Profile パスワードを必要とする処理の認可は Core が行い、Binding / Application は認可を代替・回避できないこと。 |
 | SEC-015 | MUST | 通常結果、失敗結果、入力エラー、認証失敗、破損データ処理、診断・補助出力へ Mnemonic、秘密鍵、Profile パスワードまたは復元可能表現を含めないこと。SEC-010 の FR-001 に定める初回 Mnemonic 受渡しおよび利用者の明示的要求に基づく個別エクスポートの成功結果だけを例外とし、エラー・診断・補助出力には含めないこと。Core は UI を表示せず、利用者意思を推測せず、通常処理から秘密情報アクセスへ暗黙に遷移しないこと。 |
-| SEC-017 | MUST | UI / Application / Binding / 上位側で秘密情報を一時的に扱う場合、取込み・初回バックアップ・利用者が明示的に要求した個別エクスポート等の必要な処理範囲に限定し、外部受渡し・処理のための一時的な複製を成功・失敗・中断後に Core または Binding が継続利用可能な状態や診断出力として残さないこと。一時的な仲介は Core 管理下の原本の継続管理責任が Application / UI へ移転したことを意味しない。初回バックアップおよび個別エクスポート後に Core 外へ渡されたコピーの保管・紛失防止・利用は利用者および上位 Application / Package の責任とし、Core は失われた Mnemonic または秘密鍵を復旧しない。 |
-| SEC-018 | MUST | Profile 作成（新規 Mnemonic の初回受渡しを含む）、Derived / Imported / Generated Software Key 登録、Profile パスワード変更、Software Key 削除、Profile 削除を外部観測上 atomic / fail-closed に扱い、導出、生成、検証、認証、保存、受渡しまたは削除の失敗・中断時に不完全な秘密情報、部分適用または部分 Profile を成功状態として残さないこと。既存 Profile と既存 Software Key を壊さず、失敗時に秘密情報を返さないこと。 |
+| SEC-017 | MUST | UI / Application / Native C ABI / Node-API / WASM / React Native binding / 上位側で秘密情報を一時的に扱う場合、取込み・初回バックアップ・利用者が明示的に要求した個別エクスポート等の必要な処理範囲に限定し、外部受渡し・処理のための一時的な複製を成功・失敗・中断後に Core または binding が継続利用可能な状態や診断出力として残さないこと。一時的な仲介は Core 管理下の原本の継続管理責任が Application / UI へ移転したことを意味しない。初回バックアップおよび個別エクスポート後に Core 外へ渡されたコピーの保管・紛失防止・利用は利用者および上位 Application / Package の責任とし、Core は失われた Mnemonic または秘密鍵を復旧しない。 |
+| SEC-018 | MUST | Profile 作成（新規 Mnemonic の初回受渡しを含む）、Derived / Imported / Generated Software Key 登録、Profile パスワード変更、Software Key 削除、Profile 削除を、Native C ABI / Node-API / WASM / React Native binding のいずれの境界から呼び出しても外部観測上 atomic / fail-closed に扱い、導出、生成、検証、認証、保存、受渡しまたは削除の失敗・中断時に不完全な秘密情報、部分適用または部分 Profile を成功状態として残さないこと。既存 Profile と既存 Software Key を壊さず、失敗時に秘密情報を返さないこと。 |
 | SEC-019 | MUST | 認証、署名、導出、Software Key 登録・削除、パスワード変更、Profile 削除は要求対象 Profile のみに作用し、他 Profile へ越境しないこと。 |
-| SEC-020 | MUST | Desktop、Mobile、Native、Web Application、Browser Extension、Browser、OS および host process のいずれの境界も、秘密情報の恒久的な保護境界や host compromise 防止の保証とはみなさないこと。Application、Browser、OS または host process の侵害を Core が防止する保証はしない。一方、Core / Binding は環境の違いにかかわらず、通常処理で保存済み Mnemonic / 秘密鍵を外部へ公開せず、不要な秘密情報の返却・共有・保持・ログ出力を行わない責任を負うこと。利用者が明示的に要求した個別エクスポートの成功結果は例外とする。 |
+| SEC-020 | MUST | Desktop、Mobile、Native、Web Application、Browser Extension、Browser、React Native Android、React Native iOS、OS および host process のいずれの境界も、秘密情報の恒久的な保護境界や host compromise 防止の保証とはみなさないこと。Application、Browser、React Native host、OS または host process の侵害を Core が防止する保証はしない。一方、Core / Binding は環境の違いにかかわらず、通常処理で保存済み Mnemonic / 秘密鍵を外部へ公開せず、不要な秘密情報の返却・共有・保持・ログ出力を行わない責任を負うこと。利用者が明示的に要求した個別エクスポートの成功結果は例外とする。 |
 | SEC-021 | MUST | Mnemonic または Software Key 秘密鍵の個別エクスポートは、対象指定、現在の export 操作について利用者が明示的に要求したこと、Application / UI による意思確認、および要求ごとの正しい Profile パスワードを Core が認可した場合だけ成功させること。Application / UI は過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用せず、assertion の freshness を管理すること。Core は Application が本当に表示・確認を取得したこと、または assertion が fresh であることを独立には証明しない。単なる API 呼出しやパスワード所有だけでは利用者の明示的要求とみなさないこと。誤ったパスワード、意思確認のない要求、対象不存在または処理失敗では秘密情報を返さず、Profile 状態を変更しないこと。v1 Core に challenge、nonce、expiry または one-shot token による assertion freshness 機構を追加することは要求しない。 |
 | SEC-022 | MUST | Profile パスワードの正しさと、利用者が指定 Transaction への署名を明示的に承認したことを別の security property とすること。UI / Application は現在の署名操作について署名対象内容を利用者へ提示して明示的承認を得た要求だけを Core へ送る責任を負い、過去に保存した承認済み assertion を新しい利用者意思として再利用せず、assertion の freshness を管理すること。Core は Application が本当に表示・承認を取得したこと、または assertion が fresh であることを独立には証明しない。Core はその要求を受けて指定 Account / Software Key を利用し署名するが、Transaction の意味説明、利用者意思の推測または確認 UI を担わないこと。v1 Core に challenge、nonce、expiry または one-shot token による assertion freshness 機構を追加することは要求しない。 |
 | SEC-023 | MUST | Core 自身が実装・管理する秘密情報処理では、secret-dependent control flow、secret-dependent timing behavior または secret-dependent data access を不必要に導入しないこと。この要件は Core 自身の責任範囲に適用し、third-party cryptographic library の内部、compiler、runtime、OS、browser、hardware または CPU microarchitecture における完全な side-channel absence を保証対象に含めない。特定の constant-time library、assembly inspection、third-party library fork、zeroize technique、compiler option または side-channel test tool は本要件で固定せず、具体方式および検証は Specification / Implementation / Release verification へ委譲すること。 |
@@ -296,16 +307,16 @@ Desktop / Mobile は Native C ABI、Node.js は Node-API Binding、Web は WASM 
 | AC-012 | FR-012, SEC-005, SEC-008 | Application が current Store として正しく選択した状態の Profile 削除では、Core が Profile、Mnemonic、全 Software Key を破棄し、削除成功時の replacement Store に対象秘密情報を残さず、認可失敗時は変更しない。削除前から利用者が保持する Mnemonic を使って同一 Network の新しい Profile を作成することは許可され、削除済み Core データの復旧・再利用とは扱わない。 |
 | AC-013 | FR-013, DR-005, FR-024 | Derived / Imported / Generated すべてで指定 Chain / Profile Network の公開鍵・アドレス・署名結果を扱え、Profile Network と要求 Network または Software Key の固定 Chain と要求 Chain が不一致の要求を拒否する。 |
 | AC-014 | FR-014 | Symbol / NEM の Profile / Software Key について、Core による管理責任、認証、保存、削除およびライフサイクルを共通に扱える。ただし Chain 固有の鍵・アドレス・署名処理は各基準に従う。 |
-| AC-015 | NFR-001, NFR-002 | Desktop / Mobile / Web / Node.js から対応する Binding 経由で共通 Core を利用でき、Core と Application の責任を区別できる。Node.js は Node-API Binding を使用し、独立した Wallet Core 実装を使用しない。 |
+| AC-015 | NFR-001, NFR-002 | Desktop / Mobile / Web / Node.js から対応する Binding 経由で共通 Core を利用でき、Core と Application の責任を区別できる。Node.js は Node-API Binding を使用し、独立した Wallet Core 実装を使用しない。React Native Android / iOS は本書で方式を固定しない binding boundary から共通 Core を利用する。 |
 | AC-016 | NFR-003 | Core、Binding、Application、上位 Package の秘密情報・パスワード責任を第三者が説明できる。 |
 | AC-017 | SEC-004 | 破損・認証失敗データで秘密情報処理が成功しない。 |
 | AC-018 | FR-001, FR-017, DR-006, DR-009, SEC-004 | Core が生成・維持する、要件・仕様に適合した整合した Store では、同一 Mnemonic + 同一 Network の重複 Profile 作成を拒否し、異なる Network は別 Profile として作成できる。破損、unsupported version、認証失敗または整合しない Store は正常データとして扱わず、黙って解釈・無視・fallback せず、読込み失敗時に既存状態を変更しない。未知データの意味を推測して処理せず、対応 version の拡張を安全に保持できない変更は拒否する。Profile 削除後に利用者が保持する同一 Mnemonic + 同一 Network から新しい Profile を作成することは、削除済み Core データの再利用ではないため許可する。Core は、valid historical Store が過去 snapshot であることを理由に単独で拒否することを保証せず、その再適用防止と current Store の選択は Application / persistence layer が担う。 |
 | AC-019 | FR-016, DR-005 | Profile Network を作成後変更できない。 |
 | AC-020 | FR-018, DR-007 | 同一 Profile・同一 Chain では同一秘密鍵を別由来または再導出で重複登録しない。異なる Chain では同一秘密鍵を異なる Software Key として登録できる。 |
 | AC-021 | FR-019, NFR-001 | Desktop Native C ABI から v1 主要機能を利用できる。 |
-| AC-022 | FR-019, NFR-001 | Mobile Native C ABI から v1 主要機能を利用できる。 |
+| AC-022 | FR-019, NFR-001 | 既存 Mobile Native C ABI から v1 主要機能を利用できる。React Native Android / iOS の利用経路は AC-051、AC-052 により確認する。 |
 | AC-023 | NFR-002 | Binding が Core 責任、Wallet 固有ロジック、Network、Transaction 構築を独自実装しない。 |
-| AC-024 | NFR-004, SEC-020 | Desktop / Mobile / Node.js / Native / Web Application / Browser Extension で Core の秘密情報管理・認可・責任境界・通常処理での非開示原則が同じである。Application、Browser、OS、Node.js または host process の侵害を Core が防止する保証とは区別する。 |
+| AC-024 | NFR-004, SEC-020 | Desktop / Mobile / Node.js / Native / Web Application / Browser Extension / React Native Android / React Native iOS で Core の秘密情報管理・認可・責任境界・通常処理での非開示原則が同じである。Application、Browser、React Native host、OS、Node.js または host process の侵害を Core が防止する保証とは区別する。 |
 | AC-025 | SEC-010, SEC-021 | 通常処理結果として秘密鍵を Application へ返さない。対象指定、処理単位の正しいパスワード、利用者の明示的要求および Application / UI の意思確認を伴う個別エクスポートの成功結果だけを例外とし、成功後のコピーの保護・保存・利用は受領側責任、Core 内原本の継続管理は Core の責任とする。 |
 | AC-026 | SEC-010, SEC-021 | 保存済み Mnemonic を通常処理結果として Application へ返さない。対象指定、処理単位の正しいパスワード、利用者の明示的要求および Application / UI の意思確認を伴う個別エクスポートの成功結果だけを例外とし、成功後のコピーの保護・保存・利用は受領側責任、Core 内原本の継続管理は Core の責任とする。 |
 | AC-027 | SEC-011 | 処理後に Core / Binding が Profile パスワードを永続保存・継続キャッシュしない。 |
@@ -331,6 +342,16 @@ Desktop / Mobile は Native C ABI、Node.js は Node-API Binding、Web は WASM 
 | AC-048 | FR-012, FR-017, SEC-005, SEC-018 | Application / persistence layer が current Store を選択・保存し、Core が成功時に返した replacement Store を適用し、stale / historical Store の再適用を防止する。Core は過去に返した Store を記憶せず、valid historical Store の freshness または rollback を単独で検出・拒否しない。current Store として正しく選択された状態で削除が成功した場合、Core の committed state と成功 replacement Store から対象秘密情報を再利用できない。malformed、tampered、authentication failure または unsupported version の fail-closed は SEC-004、DR-009 および SEC-018 に従い維持する。 |
 | AC-049 | SEC-023 | Core 自身が実装・管理する秘密情報処理に、不要な secret-dependent control flow、timing behavior または data access が導入されていないことを確認できる。third-party cryptographic library、compiler、runtime、OS、browser、hardware または CPU microarchitecture 内部の完全な side-channel absence はこの受入条件の保証対象外であり、具体方式・検証方法は下流へ委譲する。 |
 | AC-050 | FR-009, SEC-021, SEC-022 | Application / UI が現在の handoff、export または signing operation に対する利用者の確認・承認を取得し、過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用しない。Core は operation ごとの password authorization、request target / payload / AccountContext と assertion の仕様どおりの検証、pending の未確認状態からの非昇格を行うが、Application が実際に表示・確認したことや assertion freshness を独立には証明しない。retry / restart で Core 内 authorization を暗黙継承せず、v1 Core は challenge、nonce、expiry または one-shot token を追加しない。 |
+| AC-051 | NFR-006, NFR-014, FR-019 | React Native Android application から、platform-specific binding boundary を介して Wallet Core の v1 対象 operation を利用できる。利用経路は同一 Rust Wallet Core の処理を使用し、Node.js native addon または Browser / WASM runtime を通常経路として要求しない。 |
+| AC-052 | NFR-006, NFR-014, FR-019 | React Native iOS application から、platform-specific binding boundary を介して Wallet Core の v1 対象 operation を利用できる。利用経路は同一 Rust Wallet Core の処理を使用し、Node.js native addon または Browser / WASM runtime を通常経路として要求しない。 |
+| AC-053 | NFR-007 | repository が `nemnesia/symbol-nem-wallet-core` の単一 repository として維持され、npm consumer 向け公開 package が `@nemnesia/symbol-nem-wallet-core` に統一されている。React Native 専用 npm package がなく、内部ディレクトリ構造・build artifact・package exports の具体形式をこの受入条件だけで固定しない。 |
+| AC-054 | NFR-008 | React Native Android / iOS の機能的に同一の operation が、既存 runtime と一貫した application-facing API 契約で利用できる。Android / iOS の差異だけによる不要な API 分岐または React Native 対応だけを理由とする不要な公開 API 拡張がなく、runtime-specific API の必要性を説明できる。 |
+| AC-055 | NFR-009, SEC-011, SEC-012, SEC-017 | React Native binding に cryptographic operation、key derivation、signing、Wallet Store processing、private key handling、Mnemonic handling または secret zeroization の authoritative implementation がなく、Core の validation を bypass しない。秘密情報を不要に複製・長期保持せず、成功・失敗・中断後に継続利用可能な状態または診断出力として残さない。 |
+| AC-056 | NFR-010 | unsupported platform / runtime、native binding の初期化・load・invocation failure および security-sensitive operation の failure が成功として観測されず、silent fallback または未定義動作にならない。application が failure を成功と区別して識別でき、exact error code / class / mapping は仕様で確認可能である。 |
+| AC-057 | NFR-011 | Node.js、Browser、Browser Extension、WASM、native Node および既存 public API / security boundary / release・supply-chain guarantee の React Native 対応前後の互換性を確認できる。既存 runtime の routing / fallback を変更する場合は、変更を適用する前に互換性影響評価が存在する。 |
+| AC-058 | NFR-012 | Node.js、Browser、Browser Extension、React Native Android / iOS および既存 Desktop / Mobile target ごとの supported version が support matrix に明示され、CI または release gate で適合性を判定できる。minimum React Native version、minimum Android API level、minimum iOS version、supported Node.js versions および browser baseline の具体値は、別途決定されるまで未確定として扱う。 |
+| AC-059 | NFR-013 | React Native Android / iOS の device / simulator を含む supported CPU architecture matrix が明示され、CI または release gate で適合性を判定できる。arm64、x86_64、legacy ARM その他の具体 target の採否は、別途決定されるまで未確定として扱う。 |
+| AC-060 | NFR-014 | Node.js、Browser および Browser Extension consumer が React Native 固有設定なしに同一 package の通常利用経路を使用でき、React Native Android / iOS consumer が Node.js native addon または Browser / WASM runtime を通常利用経路として要求されない。 |
 
 ---
 
@@ -357,7 +378,19 @@ Core は stateless な opaque Store processor として、現在の operation �
 
 ## 11. 未決定事項
 
-**要件レベルの未決定事項はない。**
+次の product support policy は `NEEDS USER DECISION` とする。具体値が決定されるまで、該当 target をサポート済みとして宣言する version / architecture claim は行わない。
+
+- minimum React Native version
+- minimum Android API level
+- minimum iOS version
+- supported Node.js versions
+- supported browser baseline
+- React Native Android の supported CPU architectures（device / simulator、arm64、x86_64、legacy ARM その他を含む対象範囲）
+- React Native iOS の supported device / simulator architectures
+- React Native New Architecture を必須とするか
+- Expo compatibility を保証対象とするか
+
+上記の具体値・採否は、NFR-012 / NFR-013 の support matrix と release gate で検証可能な形にしたうえで、ユーザー判断後に確定する。API、型、保存レコード構造、暗号方式、KDF、salt / nonce、具体的な HD 導出パス値、Binding 実装、メモリ配置、zeroize 方法、署名内容の提示・承認に関する具体的な UI、package exports の exact JSON、error code / error class / mapping および具体的な test command は本書の未決定事項ではなく、要件から仕様・設計・リリース検証へ引き継ぐ事項として扱う。
 
 仕様設計で決定する具体方式は未決定事項ではなく、要件から仕様へ引き継ぐ設計事項として管理する。
 
@@ -388,10 +421,12 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 
 ### 12.3 Binding
 
-- Native / Node-API / WASM Binding の外部契約、言語間の値変換およびエラー表現
-- Node-API / WASM Binding と JavaScript 境界の秘密情報受渡し・コピー・消去
+- Native / Node-API / WASM Binding および React Native Android / iOS binding boundary の外部契約、言語間の値変換、入力・出力検証およびエラー伝播
+- Node-API / WASM Binding と JavaScript 境界、React Native binding と application 境界の秘密情報受渡し・コピー・所有権・lifetime・消去
+- React Native binding における platform integration、Core invocation、初期化・load・invocation failure の具体的な扱い。JSI、TurboModule、Legacy Native Module、JNI、Swift、Objective-C++ その他の採用方式は本書で固定しない。
 - Browser 固有 Storage と Application の責任分界。current Store の選択、成功 replacement の適用、stale / historical Store の再適用防止および backup / snapshot の最新版管理は Application / persistence layer の責任とする。
-- 対象 OS / Browser / バージョン、ビルド・配布方式
+- 対象 OS / Browser / runtime の version、React Native Android / iOS の CPU architecture matrix、ビルド・配布方式。NFR-012 / NFR-013 の support matrix と release gate による検証を満たす具体値を定義する。
+- `@nemnesia/symbol-nem-wallet-core` の package exports、runtime / platform resolution、build artifact および package 内部の platform-specific implementation。NFR-007 の単一 repository / package 制約を満たす具体形式を定義する。
 
 ### 12.4 状態管理
 
