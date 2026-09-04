@@ -221,8 +221,34 @@ assert.doesNotMatch(releaseWorkflow, /cp -a release-output-recovered\/. release-
 const recoveryBoundary = validateRecoveryWorkflowBoundary(recoveryWorkflow);
 assert.equal(recoveryBoundary.trigger, "workflow_dispatch");
 assert.equal(recoveryBoundary.publish_capability, false);
+assert.deepEqual(recoveryBoundary.handoff, {
+  upload_root: "${{ runner.temp }}/recovery-handoff/",
+  download_root: "recovery-handoff",
+  directories: ["recovered-npm-release", "recovered-release-record", "recovery-github-assets"],
+  metadata: ["original-release-run-identity.json", "recovery-artifact-source.json", "recovery-release-assets.txt"],
+  asset_root: "recovery-handoff/recovery-github-assets",
+});
 assert.match(recoveryWorkflow, /ref: \$\{\{ github\.sha \}\}/);
 assert.match(recoveryWorkflow, /refs\/tags\/\$RELEASE_TAG:refs\/tags\/\$RELEASE_TAG/);
+assert.match(recoveryWorkflow, /handoff="\$RUNNER_TEMP\/recovery-handoff"/);
+assert.doesNotMatch(recoveryWorkflow, /path:\s*\|\s*\n\s+recovered-npm-release\/\s*\n\s+recovered-release-record\/\s*\n\s+recovery-github-assets\//);
+assert.match(recoveryWorkflow, /path: \$\{\{ runner\.temp \}\}\/recovery-handoff\//);
+assert.match(recoveryWorkflow, /path: recovery-handoff\n/);
+assert.match(recoveryWorkflow, /find recovery-handoff\/recovery-github-assets -maxdepth 1 -type f/);
+assert.match(recoveryWorkflow, /--asset-root recovery-handoff\/recovery-github-assets/);
+const legacyHandoffPaths = [
+  "          path: |",
+  "            recovered-npm-release/",
+  "            recovered-release-record/",
+  "            recovery-github-assets/",
+  "            ${{ runner.temp }}/original-release-run-identity.json",
+  "            ${{ runner.temp }}/recovery-artifact-source.json",
+  "            ${{ runner.temp }}/recovery-release-assets.txt",
+].join("\n");
+expectFailure(
+  () => validateRecoveryWorkflowBoundary(recoveryWorkflow.replace("          path: ${{ runner.temp }}/recovery-handoff/", legacyHandoffPaths)),
+  /single staging root/,
+);
 assert.doesNotMatch(recoveryWorkflow, /actions\/runs\/\$ORIGINAL_PUBLISH_RUN_ID(?!\/attempts)/);
 expectFailure(() => validateRecoveryWorkflowBoundary(recoveryWorkflow.replace("actions: read", "actions: write")), /publication credential or permission/);
 expectFailure(() => validateRecoveryWorkflowBoundary(`${recoveryWorkflow}\nrun: npm publish`), /publication capability/);

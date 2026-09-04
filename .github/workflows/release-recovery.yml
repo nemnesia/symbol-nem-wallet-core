@@ -314,17 +314,25 @@ jobs:
             --recovery \
             --asset-list "$RUNNER_TEMP/recovery-release-assets.txt"
 
+      - name: Stage the immutable recovery handoff evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          handoff="$RUNNER_TEMP/recovery-handoff"
+          rm -rf "$handoff"
+          mkdir -p "$handoff"
+          cp -a recovered-npm-release "$handoff/"
+          cp -a recovered-release-record "$handoff/"
+          cp -a recovery-github-assets "$handoff/"
+          cp "$RUNNER_TEMP/original-release-run-identity.json" "$handoff/"
+          cp "$RUNNER_TEMP/recovery-artifact-source.json" "$handoff/"
+          cp "$RUNNER_TEMP/recovery-release-assets.txt" "$handoff/"
+
       - name: Upload immutable recovery handoff evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-recovery-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
-          path: |
-            recovered-npm-release/
-            recovered-release-record/
-            recovery-github-assets/
-            ${{ runner.temp }}/original-release-run-identity.json
-            ${{ runner.temp }}/recovery-artifact-source.json
-            ${{ runner.temp }}/recovery-release-assets.txt
+          path: ${{ runner.temp }}/recovery-handoff/
           retention-days: 90
 
   publication:

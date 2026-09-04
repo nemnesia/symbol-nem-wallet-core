@@ -730,6 +730,15 @@ function requireWorkflowText(workflow, pattern, message) {
   if (!pattern.test(workflow)) fail(message);
 }
 
+function workflowStepBlock(workflow, stepName) {
+  const marker = `      - name: ${stepName}\n`;
+  const start = workflow.indexOf(marker);
+  if (start < 0) fail(`workflow step is missing: ${stepName}`);
+  const remainder = workflow.slice(start + marker.length);
+  const next = remainder.search(/\n      - name:/);
+  return workflow.slice(start, start + marker.length + (next < 0 ? remainder.length : next));
+}
+
 function workflowConcurrency(workflow, label) {
   if (typeof workflow !== "string") fail(`${label} is unavailable`);
   const match = workflow.match(/^concurrency:\n  group: (.+)\n  cancel-in-progress: (true|false)$/m);
@@ -805,12 +814,49 @@ export function validateRecoveryWorkflowBoundary(recoveryWorkflow) {
   if (!verify.includes("    permissions:\n      contents: read\n      actions: read") || verify.includes("contents: write")) fail("recovery verification permissions are not read-only");
   if (!publication.includes("    environment:\n      name: release") || !publication.includes("    permissions:\n      contents: write")) fail("recovery GitHub Release publication is not protected by the release Environment");
   if (verify.includes("    environment:")) fail("recovery verification job uses the release Environment");
+
+  const handoffStage = workflowStepBlock(verify, "Stage the immutable recovery handoff evidence");
+  const handoffUpload = workflowStepBlock(verify, "Upload immutable recovery handoff evidence");
+  const handoffDownload = workflowStepBlock(publication, "Download the verified recovery handoff");
+  const releaseCreate = workflowStepBlock(publication, "Create the verified GitHub Release");
+  const releaseAssetVerification = workflowStepBlock(publication, "Verify every published GitHub Release asset");
+  if (verify.indexOf("      - name: Stage the immutable recovery handoff evidence") > verify.indexOf("      - name: Upload immutable recovery handoff evidence")) {
+    fail("recovery handoff must be staged before upload");
+  }
+  requireWorkflowText(handoffStage, /set -euo pipefail/, "recovery handoff staging is not fail-closed");
+  requireWorkflowText(handoffStage, /handoff="\$RUNNER_TEMP\/recovery-handoff"/, "recovery handoff staging root is not deterministic");
+  requireWorkflowText(handoffStage, /rm -rf "\$handoff"/, "recovery handoff staging root is not reset");
+  requireWorkflowText(handoffStage, /mkdir -p "\$handoff"/, "recovery handoff staging root is not created");
+  for (const directory of ["recovered-npm-release", "recovered-release-record", "recovery-github-assets"]) {
+    requireWorkflowText(handoffStage, new RegExp(`cp -a ${directory} "\\$handoff/"`), `recovery handoff directory is missing: ${directory}`);
+  }
+  for (const metadata of ["original-release-run-identity.json", "recovery-artifact-source.json", "recovery-release-assets.txt"]) {
+    requireWorkflowText(handoffStage, new RegExp(`cp "\\$RUNNER_TEMP/${metadata}" "\\$handoff/"`), `recovery handoff metadata is missing: ${metadata}`);
+  }
+  requireWorkflowText(handoffUpload, /name: release-recovery-evidence-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-\$\{\{ github\.sha \}\}/, "recovery handoff upload name is not attempt- and SHA-bound");
+  const handoffUploadPaths = [...handoffUpload.matchAll(/^          path: (.+)$/gm)].map((match) => match[1]);
+  if (handoffUploadPaths.length !== 1 || handoffUploadPaths[0] !== "${{ runner.temp }}/recovery-handoff/") {
+    fail("recovery handoff upload does not use a single staging root");
+  }
+  requireWorkflowText(handoffUpload, /^          path: \$\{\{ runner\.temp \}\}\/recovery-handoff\/$/m, "recovery handoff upload path is not the staging root");
+  requireWorkflowText(handoffDownload, /name: release-recovery-evidence-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-\$\{\{ github\.sha \}\}/, "recovery handoff download name is not attempt- and SHA-bound");
+  requireWorkflowText(handoffDownload, /^          path: recovery-handoff$/m, "recovery handoff download path is not deterministic");
+  requireWorkflowText(releaseCreate, /find recovery-handoff\/recovery-github-assets -maxdepth 1 -type f/, "GitHub Release creation does not use the deterministic recovery asset root");
+  requireWorkflowText(releaseCreate, /recovery-handoff\/recovery-github-assets\/\$asset/, "GitHub Release creation asset paths do not use the deterministic recovery asset root");
+  requireWorkflowText(releaseAssetVerification, /--asset-root recovery-handoff\/recovery-github-assets/, "GitHub Release asset verification does not use the deterministic recovery asset root");
   return {
     trigger: "workflow_dispatch",
     publish_capability: false,
     verification_permissions: ["contents: read", "actions: read"],
     publication_job: "publication",
     publication_environment: RELEASE_ENVIRONMENT,
+    handoff: {
+      upload_root: "${{ runner.temp }}/recovery-handoff/",
+      download_root: "recovery-handoff",
+      directories: ["recovered-npm-release", "recovered-release-record", "recovery-github-assets"],
+      metadata: ["original-release-run-identity.json", "recovery-artifact-source.json", "recovery-release-assets.txt"],
+      asset_root: "recovery-handoff/recovery-github-assets",
+    },
   };
 }
 
