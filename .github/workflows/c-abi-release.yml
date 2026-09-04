@@ -213,9 +213,8 @@ jobs:
       - name: Upload validated target archive and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-c-abi-${{ matrix.target_id }}
+          name: release-c-abi-${{ matrix.target_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-target/${{ matrix.target_id }}/
-          overwrite: true
 
   aggregate:
     name: Aggregate C ABI release asset set
@@ -242,39 +241,39 @@ jobs:
       - name: Download target archives and evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-c-abi-win32-x64-msvc
+          name: release-c-abi-win32-x64-msvc-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-input/win32-x64-msvc
 
       - name: Download macOS x64 archive and evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-c-abi-darwin-x64
+          name: release-c-abi-darwin-x64-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-input/darwin-x64
 
       - name: Download macOS arm64 archive and evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-c-abi-darwin-arm64
+          name: release-c-abi-darwin-arm64-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-input/darwin-arm64
 
       - name: Download Linux archive and evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-c-abi-linux-x64-gnu
+          name: release-c-abi-linux-x64-gnu-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-input/linux-x64-gnu
 
       - name: Download formal release identity evidence
         if: inputs.release_mode == 'release'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-identity
+          name: release-identity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-identity-input
 
       - name: Download formal npm release manifest evidence
         if: inputs.release_mode == 'release'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-npm-package
+          name: release-npm-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-npm-input
 
       - name: Verify source checkout and Cargo metadata target closure inputs
@@ -359,6 +358,5 @@ jobs:
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-c-abi
+          name: release-c-abi-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-output/
-          overwrite: true

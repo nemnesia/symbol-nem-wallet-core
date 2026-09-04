@@ -8,6 +8,8 @@
     "test:npm:parity": "node scripts/test-npm-parity.mjs",
     "test:release-identity": "node scripts/test-release-identity.mjs",
     "test:release-operation": "node scripts/test-release-operation.mjs",
+    "test:release-recovery": "node scripts/test-release-recovery.mjs",
+    "test:browser-parity": "node scripts/test-browser-parity.mjs",
     "test:npm-provenance": "node scripts/test-npm-provenance.mjs",
     "test:github-release": "node scripts/test-github-release.mjs",
     "test:release-evidence": "node scripts/test-release-evidence.mjs",

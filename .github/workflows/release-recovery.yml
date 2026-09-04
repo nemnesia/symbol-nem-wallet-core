@@ -1,0 +1,361 @@
+name: Post-publish release recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing formal release tag to finalize"
+        required: true
+        default: "v0.1.0"
+        type: string
+      package_version:
+        description: "Existing npm package version to verify"
+        required: true
+        default: "0.1.0"
+        type: string
+      expected_source_commit:
+        description: "Expected immutable release source commit"
+        required: true
+        default: "4957a692779a63d7d768d57ce2c39f83494c0e5c"
+        type: string
+      original_release_run_id:
+        description: "The original tag-triggered release workflow run id"
+        required: true
+        default: "33816373291"
+        type: string
+      original_release_run_attempt:
+        description: "The original release workflow attempt"
+        required: true
+        default: "1"
+        type: string
+      original_artifact_suffix:
+        description: "Immutable artifact suffix from the original release run; empty for legacy artifacts"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: release-recovery-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    name: Verify published package and reconstruct release evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out the recovery tooling commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Verify tag, source, and package identity
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PACKAGE_VERSION: ${{ inputs.package_version }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+          ORIGINAL_ARTIFACT_SUFFIX: ${{ inputs.original_artifact_suffix }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$PACKAGE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$EXPECTED_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ORIGINAL_ARTIFACT_SUFFIX" =~ ^(-[0-9]+-[1-9][0-9]*-[0-9a-f]{40})?$ ]]
+          git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$EXPECTED_SOURCE_COMMIT"
+          git merge-base --is-ancestor "$EXPECTED_SOURCE_COMMIT" refs/remotes/origin/main
+          tag_package_version="$(git show "refs/tags/$RELEASE_TAG:packages/wallet-core/package.json" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).version)')"
+          test "$tag_package_version" = "$PACKAGE_VERSION"
+          test "$RELEASE_TAG" = "v$PACKAGE_VERSION"
+
+      - name: Read and bind the original release workflow run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGINAL_RELEASE_RUN_ID: ${{ inputs.original_release_run_id }}
+          ORIGINAL_RELEASE_RUN_ATTEMPT: ${{ inputs.original_release_run_attempt }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          set -euo pipefail
+          [[ "$ORIGINAL_RELEASE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$ORIGINAL_RELEASE_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_RELEASE_RUN_ID" > "$RUNNER_TEMP/original-release-run.json"
+          node scripts/release-recovery.mjs validate-run \
+            --run-json "$RUNNER_TEMP/original-release-run.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --release-tag "$RELEASE_TAG" \
+            --source-commit "$EXPECTED_SOURCE_COMMIT" \
+            --run-id "$ORIGINAL_RELEASE_RUN_ID" \
+            --run-attempt "$ORIGINAL_RELEASE_RUN_ATTEMPT" \
+            > "$RUNNER_TEMP/original-release-run-identity.json"
+
+      - name: Confirm the formal GitHub Release is absent
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output "$RUNNER_TEMP/release-before.json" \
+            --write-out '%{http_code}' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
+          test "$status" = 404
+
+      - name: Download original immutable release evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-identity${{ inputs.original_artifact_suffix }}
+          path: original-release-identity
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.original_release_run_id }}
+
+      - name: Download original npm release candidate evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-npm-package${{ inputs.original_artifact_suffix }}
+          path: original-npm-release
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.original_release_run_id }}
+
+      - name: Download original C ABI release evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-c-abi${{ inputs.original_artifact_suffix }}
+          path: original-c-abi-release
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.original_release_run_id }}
+
+      - name: Capture and verify the published registry artifact
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+          ORIGINAL_RELEASE_RUN_ID: ${{ inputs.original_release_run_id }}
+          ORIGINAL_RELEASE_RUN_ATTEMPT: ${{ inputs.original_release_run_attempt }}
+        run: |
+          set -euo pipefail
+          node scripts/npm-provenance.mjs capture \
+            --recovery \
+            --manifest original-npm-release/release-manifest.json \
+            --tag "$RELEASE_TAG" \
+            --source-commit "$EXPECTED_SOURCE_COMMIT" \
+            --environment release \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow-run-id "$ORIGINAL_RELEASE_RUN_ID" \
+            --workflow-run-attempt "$ORIGINAL_RELEASE_RUN_ATTEMPT" \
+            --output "$RUNNER_TEMP/npm-provenance.json" \
+            --tarball-output "$RUNNER_TEMP/published-registry.tgz"
+
+      - name: Build the recovery bundle from the registry tarball
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          set -euo pipefail
+          node scripts/release-recovery.mjs canonicalize \
+            --source-dir original-npm-release \
+            --registry-tarball "$RUNNER_TEMP/published-registry.tgz" \
+            --output recovered-npm-release \
+            --tag "$RELEASE_TAG" \
+            --source-commit "$EXPECTED_SOURCE_COMMIT"
+          cp "$RUNNER_TEMP/npm-provenance.json" recovered-npm-release/npm-provenance.json
+
+      - name: Re-validate the canonical recovery bundle
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          set -euo pipefail
+          env -u GITHUB_REF_TYPE -u GITHUB_REF node scripts/release-operation.mjs verify \
+            --recovery \
+            --release-dir recovered-npm-release \
+            --identity original-release-identity/release-identity.json \
+            --tag "$RELEASE_TAG" \
+            --source-commit "$EXPECTED_SOURCE_COMMIT" \
+            --environment release \
+            --output recovered-npm-release/release-operation.json
+
+      - name: Finalize recovered publication evidence
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+          ORIGINAL_RELEASE_RUN_ID: ${{ inputs.original_release_run_id }}
+          ORIGINAL_RELEASE_RUN_ATTEMPT: ${{ inputs.original_release_run_attempt }}
+        run: |
+          set -euo pipefail
+          node scripts/release-operation.mjs finalize \
+            --pre-operation recovered-npm-release/release-operation.json \
+            --provenance recovered-npm-release/npm-provenance.json \
+            --manifest recovered-npm-release/release-manifest.json \
+            --publication-mode recovered-existing \
+            --tag "$RELEASE_TAG" \
+            --source-commit "$EXPECTED_SOURCE_COMMIT" \
+            --environment release \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow-ref "$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$RELEASE_TAG" \
+            --run-id "$ORIGINAL_RELEASE_RUN_ID" \
+            --run-attempt "$ORIGINAL_RELEASE_RUN_ATTEMPT" \
+            --output "$RUNNER_TEMP/release-operation-final.json"
+          mv "$RUNNER_TEMP/release-operation-final.json" recovered-npm-release/release-operation.json
+
+      - name: Reconstruct and validate the published release record
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          set -euo pipefail
+          node scripts/release-record.mjs generate \
+            --mode release \
+            --tag "$RELEASE_TAG" \
+            --source-commit "$EXPECTED_SOURCE_COMMIT" \
+            --provenance-status published \
+            --npm-dir recovered-npm-release \
+            --c-abi-dir original-c-abi-release \
+            --output recovered-release-record
+          node scripts/release-record.mjs validate \
+            --mode release \
+            --tag "$RELEASE_TAG" \
+            --source-commit "$EXPECTED_SOURCE_COMMIT" \
+            --provenance-status published \
+            --npm-dir recovered-npm-release \
+            --c-abi-dir original-c-abi-release \
+            --output recovered-release-record
+
+      - name: Assemble the exact GitHub Release asset set
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          set -euo pipefail
+          mkdir -p recovery-github-assets
+          node scripts/release-publication.mjs assemble \
+            --npm-dir recovered-npm-release \
+            --c-abi-dir original-c-abi-release \
+            --record-dir recovered-release-record \
+            --output recovery-github-assets \
+            --tag "$RELEASE_TAG" \
+            --source-commit "$EXPECTED_SOURCE_COMMIT" \
+            --asset-list "$RUNNER_TEMP/recovery-release-assets.txt"
+
+      - name: Upload immutable recovery handoff evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-recovery-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: |
+            recovered-npm-release/
+            recovered-release-record/
+            recovery-github-assets/
+            ${{ runner.temp }}/original-release-run-identity.json
+            ${{ runner.temp }}/recovery-release-assets.txt
+          retention-days: 90
+
+  publication:
+    name: Publish the verified GitHub Release record
+    needs: verify
+    if: needs.verify.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: release
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out the recovery tooling commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Download the verified recovery handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-recovery-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: recovery-handoff
+
+      - name: Confirm the formal GitHub Release is still absent
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output "$RUNNER_TEMP/release-before-create.json" \
+            --write-out '%{http_code}' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
+          test "$status" = 404
+
+      - name: Create the verified GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          set -euo pipefail
+          mapfile -t release_assets < <(find recovery-handoff/recovery-github-assets -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#release_assets[@]}" -gt 0
+          release_paths=()
+          for asset in "${release_assets[@]}"; do
+            release_paths+=("recovery-handoff/recovery-github-assets/$asset")
+          done
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --target "$EXPECTED_SOURCE_COMMIT" \
+            --title "$RELEASE_TAG" \
+            --notes "Formal release $RELEASE_TAG for $GITHUB_REPOSITORY at source commit $EXPECTED_SOURCE_COMMIT." \
+            "${release_paths[@]}"
+
+      - name: Verify every published GitHub Release asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-after.json"
+          node scripts/github-release.mjs verify \
+            --release-json "$RUNNER_TEMP/release-after.json" \
+            --asset-root recovery-handoff/recovery-github-assets \
+            --repository "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" \
+            --source-commit "$EXPECTED_SOURCE_COMMIT"

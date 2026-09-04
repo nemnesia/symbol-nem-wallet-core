@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { isValidSemVer, parseSemVer } from "./release-identity.mjs";
 import { validateNpmRepositoryMetadata } from "./npm-repository.mjs";
 import { REPOSITORY, validateNpmProvenanceEvidence } from "./npm-provenance.mjs";
+import { validateNativeManifest } from "../packages/wallet-core/src/manifest.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
@@ -421,7 +422,7 @@ function validateWasmEvidence(releaseDir, manifest, sourceCommit) {
   }
 }
 
-function validateTarball(releaseDir, manifest) {
+function validateTarball(releaseDir, manifest, recovery) {
   const tarballPath = requiredFile(releaseDir, manifest.npm_tarball.filename, "npm tarball");
   if (basename(tarballPath) !== manifest.npm_tarball.filename) fail("npm tarball filename is unsafe");
   if (sha256File(tarballPath, "npm tarball") !== manifest.npm_tarball.sha256 || fileSize(tarballPath, "npm tarball") !== manifest.npm_tarball.size) {
@@ -441,25 +442,48 @@ function validateTarball(releaseDir, manifest) {
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
-  safeRelativePath(manifest.wasm.canonical_artifact.relative_path, "canonical WASM path");
-  const wasmPath = `package/${manifest.wasm.canonical_artifact.relative_path}`;
+  let runtimeManifest;
+  try {
+    runtimeManifest = JSON.parse(readTarEntry(tarballPath, "package/dist/native/artifact-manifest.json").toString("utf8"));
+    validateNativeManifest(runtimeManifest, metadata);
+  } catch {
+    fail("npm tarball native artifact manifest is invalid");
+  }
+  if (runtimeManifest.source_commit !== manifest.source_commit || runtimeManifest.package_version !== manifest.package_version) fail("npm tarball native artifact manifest identity differs from the release");
+  const expectedTarballTargets = recovery ? REQUIRED_NATIVE_TARGETS : manifest.native_artifacts.map((artifact) => artifact.target_id);
+  if (JSON.stringify(runtimeManifest.artifacts.map((artifact) => artifact.target_id)) !== JSON.stringify(expectedTarballTargets)) fail("npm tarball native artifact set differs from the release manifest");
+  for (const artifact of runtimeManifest.artifacts) {
+    const runtime = runtimeManifest.artifacts.find((entry) => entry.target_id === artifact.target_id);
+    if (!isPlainObject(runtime) || runtime.relative_path !== artifact.relative_path || runtime.sha256 !== artifact.sha256) fail(`native artifact in npm tarball differs from its runtime manifest: ${artifact.target_id}`);
+    const artifactBytes = readTarEntry(tarballPath, `package/${runtime.relative_path}`);
+    if (sha256(artifactBytes, `native artifact in npm tarball ${artifact.target_id}`) !== runtime.sha256) fail(`native artifact bytes in npm tarball differ from its runtime manifest: ${artifact.target_id}`);
+    if (!recovery) {
+      const expectedArtifact = manifest.native_artifacts.find((entry) => entry.target_id === artifact.target_id);
+      if (!isPlainObject(expectedArtifact) || runtime.relative_path !== expectedArtifact.relative_path || runtime.sha256 !== expectedArtifact.sha256 || artifactBytes.length !== expectedArtifact.size) fail(`native artifact in npm tarball differs from the release manifest: ${artifact.target_id}`);
+    }
+  }
+  const wasmPath = recovery ? "package/dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm" : `package/${manifest.wasm.canonical_artifact.relative_path}`;
   const wasmBytes = readTarEntry(tarballPath, wasmPath);
-  if (
-    sha256(wasmBytes, "canonical WASM in npm tarball") !== manifest.wasm.canonical_artifact.sha256 ||
-    wasmBytes.length !== manifest.wasm.canonical_artifact.size
-  ) {
-    fail("canonical WASM in npm tarball differs from the release manifest");
+  if (wasmBytes.length === 0) fail("canonical WASM in npm tarball is empty");
+  if (!recovery) {
+    safeRelativePath(manifest.wasm.canonical_artifact.relative_path, "canonical WASM path");
+    if (
+      sha256(wasmBytes, "canonical WASM in npm tarball") !== manifest.wasm.canonical_artifact.sha256 ||
+      wasmBytes.length !== manifest.wasm.canonical_artifact.size
+    ) {
+      fail("canonical WASM in npm tarball differs from the release manifest");
+    }
   }
   return { tarballPath, metadata, wasmBytes };
 }
 
-function validateReleaseDigests(releaseDir, manifest, tarball) {
+function validateReleaseDigests(releaseDir, manifest, tarball, recovery) {
   const expected = manifest.native_artifacts.map((artifact) => ({
     hash: sha256File(requiredFile(releaseDir, artifact.artifact_filename), artifact.artifact_filename),
     path: artifact.relative_path,
   }));
   expected.push({
-    hash: sha256(tarball.wasmBytes, "canonical WASM in npm tarball"),
+    hash: recovery ? manifest.wasm.canonical_artifact.sha256 : sha256(tarball.wasmBytes, "canonical WASM in npm tarball"),
     path: manifest.wasm.canonical_artifact.relative_path,
   });
   expected.push({ hash: sha256File(tarball.tarballPath, "npm tarball"), path: manifest.npm_tarball.filename });
@@ -513,7 +537,7 @@ function validatePhaseEvidence(releaseDir, manifest) {
   };
 }
 
-export function validateReleaseBundle({ releaseDir, identityPath, tag, sourceCommit, environment = RELEASE_ENVIRONMENT }) {
+export function validateReleaseBundle({ releaseDir, identityPath, tag, sourceCommit, environment = RELEASE_ENVIRONMENT, recovery = false }) {
   const sourceMetadata = json(resolve(repositoryRoot, "packages/wallet-core/package.json"), "source npm package metadata");
   try {
     validateNpmRepositoryMetadata(sourceMetadata, "source npm package metadata");
@@ -527,8 +551,8 @@ export function validateReleaseBundle({ releaseDir, identityPath, tag, sourceCom
   validateSourceEvidence(json(requiredFile(releaseDir, "release-source.json", "source evidence"), "source evidence"), manifest);
   validateNativeEvidence(releaseDir, manifest, sourceCommit);
   validateWasmEvidence(releaseDir, manifest, sourceCommit);
-  const tarball = validateTarball(releaseDir, manifest);
-  validateReleaseDigests(releaseDir, manifest, tarball);
+  const tarball = validateTarball(releaseDir, manifest, recovery);
+  validateReleaseDigests(releaseDir, manifest, tarball, recovery);
   const evidence = validatePhaseEvidence(releaseDir, manifest);
   return {
     schema_version: 1,
@@ -579,6 +603,7 @@ export function finalizeReleaseOperation({
   if (!isPlainObject(operation) || operation.package_name !== PACKAGE_NAME || operation.package_version !== manifest.package_version || operation.release_tag !== tag || operation.source_commit !== sourceCommit || operation.provenance?.status !== "required-at-publish") {
     fail("pre-publish release operation identity is invalid");
   }
+  if (operation.npm_tarball?.sha256 !== manifest.npm_tarball.sha256) fail("pre-publish release operation tarball differs from the release manifest");
   if (repository !== REPOSITORY) fail("GitHub repository is not the approved release repository");
   if (workflowRef !== `${repository}/.github/workflows/release.yml@refs/tags/${tag}`) fail("GitHub workflow identity differs from the release tag");
   if (typeof runId !== "string" || !/^\d+$/.test(runId)) fail("GitHub workflow run identity is invalid");
@@ -594,7 +619,11 @@ export function finalizeReleaseOperation({
     tarballSha256: manifest.npm_tarball.sha256,
     tarballSize: manifest.npm_tarball.size,
     tarballSha512: provenance.registry?.tarball_sha512,
+    workflowRunId: runId,
+    workflowRunAttempt: publicationMode === "published" ? runAttempt : undefined,
   });
+  const expectedPublicationMode = publicationMode === "recovered-existing" ? "post-publish-recovery" : "fresh-publish";
+  if (provenance.publication_mode !== expectedPublicationMode) fail("npm provenance publication mode does not match the publication operation");
   const provenanceDigest = sha256File(provenancePath, "npm provenance evidence");
   const finalOperation = {
     ...operation,
@@ -668,6 +697,53 @@ export function validateReleaseWorkflowConcurrency({ releaseWorkflow, candidateW
   };
 }
 
+export function validateReleaseArtifactPreservation({ releaseWorkflow, candidateWorkflow, cAbiWorkflow }) {
+  const suffix = "${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}";
+  const counts = {};
+  for (const [label, workflow] of [["release workflow", releaseWorkflow], ["candidate workflow", candidateWorkflow], ["C ABI workflow", cAbiWorkflow]]) {
+    if (/^\s+overwrite:\s*true\s*$/m.test(workflow)) fail(`${label} uses destructive artifact overwrite`);
+    const names = [...workflow.matchAll(/^\s+name: (release-.*)$/gm)].map((match) => match[1]);
+    if (names.length === 0 || names.some((name) => !name.includes(suffix))) fail(`${label} artifact names are not attempt-scoped`);
+    counts[label] = names.length;
+  }
+  return { suffix, counts };
+}
+
+export function validateRecoveryWorkflowBoundary(recoveryWorkflow) {
+  if (typeof recoveryWorkflow !== "string") fail("recovery workflow is unavailable");
+  requireWorkflowText(recoveryWorkflow, /^name: Post-publish release recovery$/m, "recovery workflow name is invalid");
+  requireWorkflowText(recoveryWorkflow, /^  workflow_dispatch:$/m, "recovery workflow is not manually triggered");
+  if (/^  (push|pull_request|schedule):$/m.test(recoveryWorkflow)) fail("recovery workflow has an automatic trigger");
+  requireWorkflowText(recoveryWorkflow, /ref: \$\{\{ github\.sha \}\}/, "recovery workflow does not run the reviewed recovery tooling commit");
+  requireWorkflowText(recoveryWorkflow, /refs\/tags\/\$RELEASE_TAG:refs\/tags\/\$RELEASE_TAG/, "recovery workflow does not fetch and bind the immutable release tag");
+  for (const input of ["release_tag", "package_version", "expected_source_commit", "original_release_run_id", "original_release_run_attempt"]) {
+    requireWorkflowText(recoveryWorkflow, new RegExp(`^      ${input}:$`, "m"), `recovery workflow input is missing: ${input}`);
+  }
+  if (/\bnpm\s+(publish|dist-tag|unpublish)\b/.test(recoveryWorkflow)) fail("recovery workflow contains npm publication capability");
+  if (/id-token:\s*write|packages:\s*write|actions:\s*write|NPM_TOKEN|NODE_AUTH_TOKEN|_authToken/.test(recoveryWorkflow)) fail("recovery workflow contains an unnecessary publication credential or permission");
+  requireWorkflowText(recoveryWorkflow, /actions:\s*read/, "recovery workflow cannot read the original Actions run artifacts");
+  requireWorkflowText(recoveryWorkflow, /actions\/download-artifact@[0-9a-f]{40}[\s\S]*run-id:/, "recovery workflow does not bind artifact downloads to the original run");
+  requireWorkflowText(recoveryWorkflow, /scripts\/npm-provenance\.mjs capture[\s\S]*--recovery/, "recovery workflow does not capture recovery provenance");
+  requireWorkflowText(recoveryWorkflow, /scripts\/release-recovery\.mjs canonicalize/, "recovery workflow does not canonicalize the registry artifact");
+  requireWorkflowText(recoveryWorkflow, /scripts\/release-operation\.mjs finalize/, "recovery workflow does not finalize the release operation");
+  requireWorkflowText(recoveryWorkflow, /scripts\/release-record\.mjs (generate|validate)/, "recovery workflow does not validate a reconstructed release record");
+  requireWorkflowText(recoveryWorkflow, /scripts\/release-publication\.mjs assemble/, "recovery workflow does not reuse the exact publication asset contract");
+  requireWorkflowText(recoveryWorkflow, /gh release create/, "recovery workflow does not create the formal GitHub Release");
+  requireWorkflowText(recoveryWorkflow, /scripts\/github-release\.mjs verify/, "recovery workflow does not verify the published GitHub Release assets");
+  const verify = jobBlock(recoveryWorkflow, "verify");
+  const publication = jobBlock(recoveryWorkflow, "publication");
+  if (!verify.includes("    permissions:\n      contents: read\n      actions: read") || verify.includes("contents: write")) fail("recovery verification permissions are not read-only");
+  if (!publication.includes("    environment:\n      name: release") || !publication.includes("    permissions:\n      contents: write")) fail("recovery GitHub Release publication is not protected by the release Environment");
+  if (verify.includes("    environment:")) fail("recovery verification job uses the release Environment");
+  return {
+    trigger: "workflow_dispatch",
+    publish_capability: false,
+    verification_permissions: ["contents: read", "actions: read"],
+    publication_job: "publication",
+    publication_environment: RELEASE_ENVIRONMENT,
+  };
+}
+
 export function validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWorkflow, cAbiWorkflow }) {
   requireWorkflowText(releaseWorkflow, /^name: Release operation$/m, "release workflow name is invalid");
   requireWorkflowText(releaseWorkflow, /^    tags:\n      - ["']v\*["']$/m, "release workflow is not tag-triggered");
@@ -675,6 +751,7 @@ export function validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWork
   requireWorkflowText(releaseWorkflow, /release_mode: release/, "formal release mode is not selected");
   requireWorkflowText(releaseWorkflow, /release_tag: \$\{\{ github\.ref_name \}\}/, "release tag is not passed from the tag event");
   const concurrency = validateReleaseWorkflowConcurrency({ releaseWorkflow, candidateWorkflow, cAbiWorkflow });
+  const artifactPreservation = validateReleaseArtifactPreservation({ releaseWorkflow, candidateWorkflow, cAbiWorkflow });
   const environmentMatches = releaseWorkflow.match(/^    environment:\n      name: release$/gm) ?? [];
   const publish = jobBlock(releaseWorkflow, "publish");
   const publication = jobBlock(releaseWorkflow, "publication");
@@ -711,6 +788,7 @@ export function validateReleaseWorkflowBoundary({ releaseWorkflow, candidateWork
     publication_job: "publication",
     durable_release_record: "GitHub Release assets",
     retry_recovery: "existing-version provenance verification without republish",
+    artifact_preservation: artifactPreservation,
     provenance_command: PROVENANCE_PUBLISH_COMMAND,
   };
 }
@@ -783,16 +861,18 @@ function run() {
   const sourceCommit = argument(argv, "--source-commit", process.env.GITHUB_SHA);
   const environment = argument(argv, "--environment", process.env.SNWC_RELEASE_ENVIRONMENT ?? RELEASE_ENVIRONMENT);
   const outputPath = argv.includes("--output") ? resolve(repositoryRoot, argument(argv, "--output")) : undefined;
+  const recovery = argv.includes("--recovery");
   if (process.env.GITHUB_REF_TYPE !== undefined && process.env.GITHUB_REF_TYPE !== "tag") fail("release workflow ref type is not tag");
   if (process.env.GITHUB_REF !== undefined && process.env.GITHUB_REF !== `refs/tags/${tag}`) fail("release workflow ref differs from release tag");
   const checkoutHead = gitCommit("HEAD", "checked out release commit");
   const tagCommit = gitCommit(`refs/tags/${tag}`, "release tag ref in the publish checkout");
-  if (checkoutHead !== sourceCommit || tagCommit !== sourceCommit) fail("publish checkout does not match the release source commit and tag");
+  if (tagCommit !== sourceCommit || (!recovery && checkoutHead !== sourceCommit)) fail("publish checkout does not match the release source commit and tag");
   const mainRefCommit = gitCommit("refs/remotes/origin/main", "main ref in the publish checkout");
   if (!isAncestor(sourceCommit, "refs/remotes/origin/main")) fail("publish source commit is not contained in main");
   const identity = json(identityPath, "release identity evidence");
-  if (identity.main_ref_commit !== mainRefCommit) fail("publish main ref differs from release identity evidence");
-  const result = validateReleaseBundle({ releaseDir, identityPath, tag, sourceCommit, environment });
+  if (!recovery && identity.main_ref_commit !== mainRefCommit) fail("publish main ref differs from release identity evidence");
+  if (recovery && (!COMMIT_PATTERN.test(identity.main_ref_commit) || !isAncestor(identity.main_ref_commit, "refs/remotes/origin/main"))) fail("original release main ref is not contained in the approved main history");
+  const result = validateReleaseBundle({ releaseDir, identityPath, tag, sourceCommit, environment, recovery });
   if (outputPath !== undefined) writeJson(outputPath, result);
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

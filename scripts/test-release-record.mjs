@@ -72,12 +72,14 @@ function fixture() {
       package_name: "@nemnesia/symbol-nem-wallet-core",
       package_version: VERSION,
       sha256: "0".repeat(64),
+      size: 0,
     },
   };
   writeJson(resolve(npmDir, "release-manifest.json"), npmManifest);
   const tarball = Buffer.from("npm tarball fixture\n");
   write(resolve(npmDir, npmTarball), tarball);
   npmManifest.npm_tarball.sha256 = hash(tarball);
+  npmManifest.npm_tarball.size = tarball.length;
   writeJson(resolve(npmDir, "release-manifest.json"), npmManifest);
   writeJson(resolve(npmDir, "release-source.json"), {
     source_commit: COMMIT,
@@ -220,6 +222,16 @@ try {
     release_tag: `v${VERSION}`,
     source_commit: COMMIT,
     environment: "release",
+    publication_mode: "fresh-publish",
+    candidate_artifact: null,
+    canonical_artifact: {
+      source: "registry",
+      sha256: hash(readFileSync(npmTarballPath)),
+      sha512: "c".repeat(128),
+      size: readFileSync(npmTarballPath).length,
+      integrity: `sha512-${Buffer.from("c".repeat(128), "hex").toString("base64")}`,
+      tarball_url: "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/-/symbol-nem-wallet-core-0.1.0.tgz",
+    },
     verification: { status: "PASS" },
   });
   writeJson(resolve(npmDir, "release-operation.json"), {
@@ -239,8 +251,17 @@ try {
       workflow_ref: `nemnesia/symbol-nem-wallet-core/.github/workflows/release.yml@refs/tags/v${VERSION}`,
       workflow_run_id: "123",
       workflow_run_attempt: 1,
+      registry_tarball_sha256: hash(readFileSync(npmTarballPath)),
     },
   });
+  const operationPath = resolve(npmDir, "release-operation.json");
+  const operation = JSON.parse(readFileSync(operationPath, "utf8"));
+  writeJson(operationPath, { ...operation, publication: { ...operation.publication, registry_tarball_sha256: "d".repeat(64) } });
+  assert.throws(
+    () => createReleaseRecord({ npmDir, cAbiDir, outputDir, mode: "release", tag: `v${VERSION}`, sourceCommit: COMMIT, provenanceStatus: "published" }),
+    /canonical tarball differs from the release manifest/,
+  );
+  writeJson(operationPath, operation);
   const publishedRecordDir = resolve(root, "published-record");
   const publishedRecord = createReleaseRecord({ npmDir, cAbiDir, outputDir: publishedRecordDir, mode: "release", tag: `v${VERSION}`, sourceCommit: COMMIT, provenanceStatus: "published" });
   validateReleaseRecord({ npmDir, cAbiDir, outputDir: publishedRecordDir, mode: "release", tag: `v${VERSION}`, sourceCommit: COMMIT, provenanceStatus: "published" });

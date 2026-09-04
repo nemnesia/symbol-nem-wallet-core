@@ -85,13 +85,14 @@ jobs:
           node scripts/test-npm-provenance.mjs
           node scripts/test-github-release.mjs
           node scripts/test-release-record.mjs
+          node scripts/test-release-recovery.mjs
+          node scripts/test-browser-parity.mjs
 
       - name: Upload source evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-source
+          name: release-source-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-source.json
-          overwrite: true
 
   core-c-abi:
     name: Core and C ABI maintained CI
@@ -184,9 +185,8 @@ jobs:
       - name: Upload WASM artifact and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-wasm
+          name: release-wasm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-wasm/
-          overwrite: true
 
   native:
     name: ${{ matrix.target_id }} native release artifact
@@ -272,9 +272,8 @@ jobs:
       - name: Upload native artifact and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-native-${{ matrix.target_id }}
+          name: release-native-${{ matrix.target_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-native/
-          overwrite: true
 
   parity-regression:
     name: Native / WASM / npm parity regression
@@ -335,6 +334,10 @@ jobs:
         with:
           node-version: "24.x"
 
+      - name: Set source-derived reproducibility epoch
+        shell: bash
+        run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct \"$GITHUB_SHA\")" >> "$GITHUB_ENV"
+
       - name: Install pnpm workspace dependencies
         run: corepack pnpm install --frozen-lockfile --ignore-scripts
 
@@ -348,13 +351,13 @@ jobs:
       - name: Download source evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-source
+          name: release-source-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-input/source
 
       - name: Download the canonical WASM artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-wasm
+          name: release-wasm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-input/wasm
 
       - name: Validate all artifact evidence before assembly
@@ -637,9 +640,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-npm-package
+          name: release-npm-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-output/
-          overwrite: true
 
   npm-consumer:
     name: ${{ matrix.platform }} / Node ${{ matrix.node }} clean tarball consumer
@@ -688,7 +690,7 @@ jobs:
       - name: Download final npm tarball
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-npm-package
+          name: release-npm-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-output
 
       - name: Run ESM, CJS, WASM fallback, and fail-closed consumer smoke
@@ -720,7 +722,7 @@ jobs:
       - name: Download final npm tarball
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-npm-package
+          name: release-npm-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-output
 
       - name: Run Vite, webpack 5, esbuild, Browser, and MV3 smoke

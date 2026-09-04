@@ -228,8 +228,8 @@ function validateCAbiManifest(cAbiDir, mode, tag, sourceCommit) {
   return { manifest, assets };
 }
 
-function optionalPublishedEvidence(npmDir, provenanceStatus, sourceCommit, version, tag) {
-  if (provenanceStatus === "not-executed" || provenanceStatus === "required-at-publish") return [];
+function optionalPublishedEvidence(npmDir, provenanceStatus, sourceCommit, version, tag, expectedTarball) {
+  if (provenanceStatus === "not-executed" || provenanceStatus === "required-at-publish") return { files: [], canonicalArtifact: null };
   if (provenanceStatus !== "published") fail("unsupported npm provenance status");
   const operation = fileRecord(npmDir, "release-operation.json", "npm release operation evidence");
   const provenance = fileRecord(npmDir, "npm-provenance.json", "npm provenance record");
@@ -237,16 +237,22 @@ function optionalPublishedEvidence(npmDir, provenanceStatus, sourceCommit, versi
   if (!isPlainObject(operationDocument) || operationDocument.package_name !== NPM_PACKAGE_NAME || operationDocument.package_version !== version || operationDocument.release_tag !== tag || operationDocument.source_commit !== sourceCommit || operationDocument.environment !== "release" || operationDocument.provenance?.required !== true || operationDocument.provenance?.status !== "published" || operationDocument.provenance?.evidence?.filename !== "npm-provenance.json" || operationDocument.publication?.repository !== NPM_REPOSITORY || operationDocument.publication?.workflow_ref !== `${NPM_REPOSITORY}/.github/workflows/release.yml@refs/tags/${tag}` || !["published", "recovered-existing"].includes(operationDocument.publication?.mode) || typeof operationDocument.publication?.workflow_run_id !== "string" || !/^\d+$/.test(operationDocument.publication.workflow_run_id) || !Number.isInteger(operationDocument.publication?.workflow_run_attempt) || operationDocument.publication.workflow_run_attempt < 1) fail("npm release operation evidence identity is invalid");
   if (operationDocument.provenance.evidence.sha256 !== provenance.sha256) fail("npm release operation provenance digest differs from the published evidence");
   const provenanceDocument = json(resolveUnder(npmDir, "npm-provenance.json", "npm provenance record"), "npm provenance record");
-  if (!isPlainObject(provenanceDocument) || provenanceDocument.schema_version !== 1 || provenanceDocument.artifact_kind !== "npm-provenance" || provenanceDocument.package_name !== NPM_PACKAGE_NAME || provenanceDocument.package_version !== version || provenanceDocument.release_tag !== tag || provenanceDocument.source_commit !== sourceCommit || provenanceDocument.environment !== "release" || provenanceDocument.verification?.status !== "PASS") fail("npm provenance record identity is invalid");
-  return [operation, provenance];
+  const canonical = provenanceDocument.canonical_artifact;
+  if (!isPlainObject(provenanceDocument) || provenanceDocument.schema_version !== 1 || provenanceDocument.artifact_kind !== "npm-provenance" || provenanceDocument.package_name !== NPM_PACKAGE_NAME || provenanceDocument.package_version !== version || provenanceDocument.release_tag !== tag || provenanceDocument.source_commit !== sourceCommit || provenanceDocument.environment !== "release" || provenanceDocument.verification?.status !== "PASS" || !isPlainObject(canonical) || canonical.source !== "registry" || !HASH_PATTERN.test(canonical.sha256) || !/^[0-9a-f]{128}$/.test(canonical.sha512) || !Number.isSafeInteger(canonical.size) || canonical.size < 0 || canonical.integrity !== `sha512-${Buffer.from(canonical.sha512, "hex").toString("base64")}` || typeof canonical.tarball_url !== "string" || !canonical.tarball_url.startsWith("https://registry.npmjs.org/")) fail("npm provenance record identity is invalid");
+  if (operationDocument.publication.registry_tarball_sha256 !== canonical.sha256 || canonical.sha256 !== expectedTarball.sha256 || canonical.size !== expectedTarball.size) fail("npm release operation canonical tarball differs from the release manifest");
+  const expectedPublicationMode = operationDocument.publication.mode === "recovered-existing" ? "post-publish-recovery" : "fresh-publish";
+  if (provenanceDocument.publication_mode !== expectedPublicationMode) fail("npm provenance mode differs from the publication operation");
+  if (expectedPublicationMode === "post-publish-recovery" && !isPlainObject(provenanceDocument.candidate_artifact)) fail("npm recovery candidate artifact evidence is missing");
+  return { files: [operation, provenance], canonicalArtifact: provenanceDocument.canonical_artifact };
 }
 
 export function createReleaseRecord({ npmDir, cAbiDir, outputDir, mode = "candidate", tag = null, sourceCommit, provenanceStatus = mode === "candidate" ? "not-executed" : "required-at-publish", write = true }) {
   if (provenanceStatus === "published" && mode !== "release") fail("published npm provenance requires formal release mode");
   const npm = validateNpmManifest(npmDir, mode, tag, sourceCommit, provenanceStatus);
   const cAbi = validateCAbiManifest(cAbiDir, mode, tag, sourceCommit);
-  const publishedEvidence = optionalPublishedEvidence(npmDir, provenanceStatus, sourceCommit, npm.manifest.package_version, tag);
-  const npmAssets = [...npm.assets, ...publishedEvidence];
+  const publishedEvidence = optionalPublishedEvidence(npmDir, provenanceStatus, sourceCommit, npm.manifest.package_version, tag, npm.manifest.npm_tarball);
+  const publishedEvidenceFiles = publishedEvidence.files;
+  const npmAssets = [...npm.assets, ...publishedEvidenceFiles];
   const allAssetNames = [...npmAssets, ...cAbi.assets].map((entry) => entry.filename);
   if (new Set(allAssetNames).size !== allAssetNames.length) fail("durable release asset filenames are duplicated");
   const record = {
@@ -283,7 +289,8 @@ export function createReleaseRecord({ npmDir, cAbiDir, outputDir, mode = "candid
         mechanism: "npm-trusted-publishing-oidc",
         required: true,
         status: provenanceStatus,
-        record: publishedEvidence.find((entry) => entry.filename === "npm-provenance.json") ?? null,
+        record: publishedEvidenceFiles.find((entry) => entry.filename === "npm-provenance.json") ?? null,
+        canonical_artifact: publishedEvidence.canonicalArtifact ?? null,
       },
     },
     c_abi: {

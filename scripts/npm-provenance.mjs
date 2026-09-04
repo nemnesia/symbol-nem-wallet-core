@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -11,12 +12,25 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { validateNpmRepositoryMetadata } from "./npm-repository.mjs";
+import { validateNativeManifest } from "../packages/wallet-core/src/manifest.mjs";
+
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const NPM_REGISTRY = "https://registry.npmjs.org/";
 const PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
 const REPOSITORY = "nemnesia/symbol-nem-wallet-core";
 const WORKFLOW_PATH = ".github/workflows/release.yml";
 const RELEASE_ENVIRONMENT = "release";
+const REQUIRED_NATIVE_TARGETS = [
+  "win32-x64-msvc",
+  "darwin-x64",
+  "darwin-arm64",
+  "linux-x64-gnu",
+];
+const ATTESTATION_RETRY_ATTEMPTS = 6;
+const ATTESTATION_RETRY_INITIAL_DELAY_MS = 2_000;
+const ATTESTATION_RETRY_MAX_DELAY_MS = 10_000;
+const ATTESTATION_REQUEST_TIMEOUT_MS = 10_000;
 const PROVENANCE_PREDICATE_TYPES = new Set([
   "https://slsa.dev/provenance/v1",
   "https://slsa.dev/provenance/v0.2",
@@ -71,7 +85,7 @@ function safeHttpsUrl(value, label, expectedOrigin = new URL(NPM_REGISTRY).origi
   } catch {
     fail(`${label} is not a URL`);
   }
-  if (parsed.protocol !== "https:" || parsed.origin !== expectedOrigin) fail(`${label} is not an npm registry HTTPS URL`);
+  if (parsed.protocol !== "https:" || parsed.origin !== expectedOrigin || parsed.username !== "" || parsed.password !== "" || parsed.hash !== "") fail(`${label} is not an npm registry HTTPS URL`);
   return parsed.href;
 }
 
@@ -84,11 +98,11 @@ function registryVersionUrl(packageName, version) {
   return `${NPM_REGISTRY}${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`;
 }
 
-async function fetchResponse(url, label) {
-  if (typeof fetch !== "function") fail("fetch is unavailable");
+async function fetchResponse(url, label, { fetchImpl = fetch } = {}) {
+  if (typeof fetchImpl !== "function") fail("fetch is unavailable");
   let response;
   try {
-    response = await fetch(url, {
+    response = await fetchImpl(url, {
       redirect: "manual",
       signal: AbortSignal.timeout(30_000),
       headers: { accept: "application/json" },
@@ -100,8 +114,8 @@ async function fetchResponse(url, label) {
   return response;
 }
 
-async function fetchJson(url, label) {
-  const response = await fetchResponse(url, label);
+async function fetchJson(url, label, options = {}) {
+  const response = await fetchResponse(url, label, options);
   try {
     return await response.json();
   } catch {
@@ -109,23 +123,97 @@ async function fetchJson(url, label) {
   }
 }
 
-async function fetchBytes(url, label) {
-  if (typeof fetch !== "function") fail("fetch is unavailable");
-  let response;
-  try {
-    response = await fetch(url, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(60_000),
-    });
-  } catch {
-    fail(`${label} request failed`);
+async function fetchBytes(url, label, { fetchImpl = fetch } = {}) {
+  if (typeof fetchImpl !== "function") fail("fetch is unavailable");
+  let currentUrl = safeHttpsUrl(url, `${label} URL`);
+  for (let redirect = 0; redirect <= 3; redirect += 1) {
+    let response;
+    try {
+      response = await fetchImpl(currentUrl, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch {
+      fail(`${label} request failed`);
+    }
+    if (response.status >= 300 && response.status <= 399) {
+      const location = response.headers?.get?.("location");
+      if (typeof location !== "string" || location.length === 0) fail(`${label} returned a redirect without a location`);
+      currentUrl = safeHttpsUrl(new URL(location, currentUrl).href, `${label} redirect`);
+      if (redirect === 3) fail(`${label} exceeded the redirect limit`);
+      continue;
+    }
+    if (!response.ok) fail(`${label} request returned HTTP ${response.status}`);
+    try {
+      return Buffer.from(await response.arrayBuffer());
+    } catch {
+      fail(`${label} response is unreadable`);
+    }
   }
-  if (!response.ok) fail(`${label} request returned HTTP ${response.status}`);
-  try {
-    return Buffer.from(await response.arrayBuffer());
-  } catch {
-    fail(`${label} response is unreadable`);
+  fail(`${label} request did not complete`);
+}
+
+function retryDelay(attempt, initialDelayMs, maxDelayMs) {
+  return Math.min(maxDelayMs, initialDelayMs * 2 ** (attempt - 1));
+}
+
+function sleep(delayMs) {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs));
+}
+
+function retryableAttestationStatus(status) {
+  return status === 404 || status === 429 || status >= 500 && status <= 599;
+}
+
+export async function fetchAttestationRecord(
+  url,
+  {
+    fetchImpl = fetch,
+    sleepImpl = sleep,
+    attempts = ATTESTATION_RETRY_ATTEMPTS,
+    initialDelayMs = ATTESTATION_RETRY_INITIAL_DELAY_MS,
+    maxDelayMs = ATTESTATION_RETRY_MAX_DELAY_MS,
+  } = {},
+) {
+  if (!Number.isInteger(attempts) || attempts < 1) fail("npm attestation retry attempts are invalid");
+  if (!Number.isFinite(initialDelayMs) || initialDelayMs < 0 || !Number.isFinite(maxDelayMs) || maxDelayMs < initialDelayMs) {
+    fail("npm attestation retry delay policy is invalid");
   }
+  safeHttpsUrl(url, "npm attestations URL");
+  if (typeof fetchImpl !== "function") fail("fetch is unavailable");
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    let response;
+    try {
+      response = await fetchImpl(url, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(ATTESTATION_REQUEST_TIMEOUT_MS),
+        headers: { accept: "application/json" },
+      });
+    } catch {
+      if (attempt === attempts) fail("npm attestation record request failed after bounded retry");
+      await sleepImpl(retryDelay(attempt, initialDelayMs, maxDelayMs));
+      continue;
+    }
+
+    if (response?.ok === true) {
+      try {
+        const value = await response.json();
+        if (!isPlainObject(value) || !Array.isArray(value.attestations)) fail("npm attestation record response is malformed");
+        return value;
+      } catch {
+        fail("npm attestation record response is malformed");
+      }
+    }
+
+    const status = response?.status;
+    if (!Number.isInteger(status)) fail("npm attestation record response is ambiguous");
+    if (!retryableAttestationStatus(status)) fail(`npm attestation record request returned HTTP ${status}`);
+    if (attempt === attempts) fail(`npm attestation record request returned HTTP ${status} after bounded retry`);
+    await sleepImpl(retryDelay(attempt, initialDelayMs, maxDelayMs));
+  }
+
+  fail("npm attestation record retry did not complete");
 }
 
 function decodeStatement(bundle, label) {
@@ -162,6 +250,15 @@ function provenanceIdentity(attestation, expected) {
   const invocationId = statement.predicate?.runDetails?.metadata?.invocationId;
   if (typeof invocationId !== "string" || !invocationId.startsWith(`https://github.com/${expected.repository}/actions/runs/`)) {
     fail("npm provenance invocation identity is unavailable");
+  }
+  if (expected.workflowRunId !== undefined) {
+    const expectedInvocationPrefix = `https://github.com/${expected.repository}/actions/runs/${expected.workflowRunId}`;
+    if (invocationId !== expectedInvocationPrefix && !invocationId.startsWith(`${expectedInvocationPrefix}/attempts/`)) {
+      fail("npm provenance invocation identity does not match the original release run");
+    }
+    if (expected.workflowRunAttempt !== undefined && invocationId.includes("/attempts/") && !invocationId.endsWith(`/attempts/${expected.workflowRunAttempt}`)) {
+      fail("npm provenance invocation attempt does not match the original release run");
+    }
   }
   return {
     predicate_type: attestation.predicateType,
@@ -201,7 +298,80 @@ function validateAuditSignatures(audit, expected) {
   };
 }
 
-function expectedFromManifest(manifest, tag, sourceCommit, environment, repository) {
+function tarEntry(tarball, entryPath, label) {
+  try {
+    return execFileSync("tar", ["-xOf", "-", entryPath], {
+      cwd: repositoryRoot,
+      input: tarball,
+    });
+  } catch {
+    fail(`${label} is missing or unreadable in the registry tarball`);
+  }
+}
+
+function validateRegistryTarballContent(tarball, expected, manifest, recovery) {
+  let listing;
+  try {
+    listing = execFileSync("tar", ["-tzf", "-"], { cwd: repositoryRoot, input: tarball, encoding: "utf8" });
+  } catch {
+    fail("registry tarball is corrupt or unreadable");
+  }
+  const entries = listing.split(/\r?\n/).filter(Boolean);
+  if (entries.some((entry) => entry.startsWith("/") || entry.includes("\\") || entry.split("/").some((part) => part === ".."))) {
+    fail("registry tarball contains an unsafe path");
+  }
+  if (entries.filter((entry) => entry === "package/package.json").length !== 1) fail("registry tarball package metadata is missing or duplicated");
+
+  let metadata;
+  try {
+    metadata = JSON.parse(tarEntry(tarball, "package/package.json", "registry package metadata").toString("utf8"));
+  } catch {
+    fail("registry tarball package metadata is malformed");
+  }
+  if (!isPlainObject(metadata) || metadata.name !== PACKAGE_NAME || metadata.version !== expected.version) fail("registry tarball package identity differs from the release");
+  try {
+    validateNpmRepositoryMetadata(metadata, "registry tarball package metadata");
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+
+  if (!isPlainObject(manifest) || !isPlainObject(manifest.wasm?.canonical_artifact) || !Array.isArray(manifest.native_artifacts)) {
+    fail("release manifest artifact identity is unavailable for registry tarball verification");
+  }
+  let runtimeManifest;
+  try {
+    runtimeManifest = JSON.parse(tarEntry(tarball, "package/dist/native/artifact-manifest.json", "registry native artifact manifest").toString("utf8"));
+    validateNativeManifest(runtimeManifest, metadata);
+  } catch {
+    fail("registry native artifact manifest is malformed");
+  }
+  if (!isPlainObject(runtimeManifest) || runtimeManifest.package_name !== PACKAGE_NAME || runtimeManifest.package_version !== expected.version || runtimeManifest.source_commit !== expected.sourceCommit || !Array.isArray(runtimeManifest.artifacts)) {
+    fail("registry native artifact manifest identity differs from the release");
+  }
+  const expectedTargets = recovery ? REQUIRED_NATIVE_TARGETS : manifest.native_artifacts.map((artifact) => artifact.target_id);
+  const actualTargets = runtimeManifest.artifacts.map((artifact) => artifact.target_id);
+  if (JSON.stringify(actualTargets) !== JSON.stringify(expectedTargets)) fail("registry native artifact set differs from the release");
+  for (const artifact of runtimeManifest.artifacts) {
+    const runtime = runtimeManifest.artifacts.find((entry) => entry?.target_id === artifact.target_id);
+    if (!isPlainObject(runtime) || runtime.relative_path !== artifact.relative_path || runtime.sha256 !== artifact.sha256) fail(`registry native artifact identity differs: ${artifact.target_id}`);
+    const artifactBytes = tarEntry(tarball, `package/${runtime.relative_path}`, `registry native artifact ${artifact.target_id}`);
+    if (sha256(artifactBytes) !== runtime.sha256) fail(`registry native artifact bytes differ: ${artifact.target_id}`);
+    if (!recovery) {
+      const expectedArtifact = manifest.native_artifacts.find((entry) => entry.target_id === artifact.target_id);
+      if (!isPlainObject(expectedArtifact) || runtime.relative_path !== expectedArtifact.relative_path || runtime.sha256 !== expectedArtifact.sha256 || artifactBytes.length !== expectedArtifact.size) fail(`registry native artifact differs from the release: ${artifact.target_id}`);
+    }
+  }
+  const wasmPath = recovery ? "package/dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm" : `package/${manifest.wasm.canonical_artifact.relative_path}`;
+  const wasmBytes = tarEntry(tarball, wasmPath, "registry canonical WASM");
+  if (wasmBytes.length === 0) fail("registry canonical WASM is empty");
+  if (!recovery) {
+    const wasm = manifest.wasm.canonical_artifact;
+    if (sha256(wasmBytes) !== wasm.sha256 || wasmBytes.length !== wasm.size) fail("registry canonical WASM differs from the release manifest");
+  }
+  return { metadata, runtimeManifest };
+}
+
+function expectedFromManifest(manifest, tag, sourceCommit, environment, repository, recovery = false) {
   if (!isPlainObject(manifest) || manifest.mode !== "release" || manifest.package_name !== PACKAGE_NAME || typeof manifest.package_version !== "string" || manifest.release_tag !== tag || manifest.source_commit !== sourceCommit || !isPlainObject(manifest.npm_tarball)) {
     fail("release manifest identity is invalid");
   }
@@ -218,7 +388,7 @@ function expectedFromManifest(manifest, tag, sourceCommit, environment, reposito
     sourceCommit,
     environment,
     repository,
-    tarballSha256: manifest.npm_tarball.sha256,
+    tarballSha256: recovery ? undefined : manifest.npm_tarball.sha256,
   };
 }
 
@@ -229,13 +399,29 @@ export function validateNpmProvenanceEvidence(evidence, expected) {
   if (!isPlainObject(registry) || registry.package_name !== expected.packageName || registry.package_version !== expected.version || registry.tarball_sha256 !== expected.tarballSha256 || registry.tarball_size !== expected.tarballSize || typeof registry.tarball_sha512 !== "string" || !/^[0-9a-f]{128}$/.test(registry.tarball_sha512) || typeof registry.dist_integrity !== "string") fail("npm registry evidence identity is invalid");
   if (registry.dist_integrity !== `sha512-${Buffer.from(registry.tarball_sha512, "hex").toString("base64")}`) fail("npm registry integrity does not match the tarball digest");
   if (expected.tarballSha512 !== undefined && registry.tarball_sha512 !== expected.tarballSha512) fail("npm registry SHA-512 differs from the downloaded tarball");
+  if (!isPlainObject(evidence.canonical_artifact) || evidence.canonical_artifact.source !== "registry" || evidence.canonical_artifact.sha256 !== registry.tarball_sha256 || evidence.canonical_artifact.sha512 !== registry.tarball_sha512 || evidence.canonical_artifact.size !== registry.tarball_size || evidence.canonical_artifact.integrity !== registry.dist_integrity || evidence.canonical_artifact.tarball_url !== registry.tarball_url) {
+    fail("npm canonical published artifact identity is invalid");
+  }
+  if (evidence.publication_mode !== "fresh-publish" && evidence.publication_mode !== "post-publish-recovery") fail("npm provenance publication mode is invalid");
+  if (evidence.publication_mode === "post-publish-recovery" && (!isPlainObject(evidence.candidate_artifact) || typeof evidence.candidate_artifact.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(evidence.candidate_artifact.sha256) || !Number.isInteger(evidence.candidate_artifact.size) || evidence.candidate_artifact.size < 0)) {
+    fail("npm recovery candidate artifact evidence is missing");
+  }
+  if (registry.metadata_url !== registryVersionUrl(expected.packageName, expected.version)) fail("npm metadata URL is not the exact package/version registry endpoint");
   safeHttpsUrl(registry.metadata_url, "npm metadata URL");
   safeHttpsUrl(registry.tarball_url, "npm tarball URL");
   safeHttpsUrl(registry.attestations_url, "npm attestations URL");
+  if (!isPlainObject(evidence.registry_metadata) || evidence.registry_metadata.name !== expected.packageName || evidence.registry_metadata.version !== expected.version || !isPlainObject(evidence.registry_metadata.dist) || evidence.registry_metadata.dist.tarball !== registry.tarball_url || evidence.registry_metadata.dist.integrity !== registry.dist_integrity || evidence.registry_metadata.dist.attestations?.url !== registry.attestations_url) {
+    fail("npm registry metadata evidence is incomplete or inconsistent");
+  }
+  try {
+    validateNpmRepositoryMetadata(evidence.registry_metadata, "npm registry metadata evidence");
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
   const attestations = evidence.registry_attestations?.attestations;
   const identities = provenanceIdentities(attestations, {
     ...expected,
-    tarballSha512: expected.tarballSha512,
+    tarballSha512: registry.tarball_sha512,
   });
   if (!Array.isArray(evidence.provenance?.identities) || JSON.stringify(evidence.provenance.identities) !== JSON.stringify(identities)) fail("npm provenance identity summary differs from the registry attestation");
   if (evidence.verification?.status !== "PASS" || evidence.verification?.command !== "npm audit signatures --json --include-attestations") fail("npm provenance was not verified by the npm signature verifier");
@@ -307,23 +493,29 @@ function readJsonFromString(value, label) {
   }
 }
 
-export async function captureNpmProvenance({ manifestPath, tag, sourceCommit, environment = RELEASE_ENVIRONMENT, repository = process.env.GITHUB_REPOSITORY, outputPath }) {
+export async function captureNpmProvenance({ manifestPath, tag, sourceCommit, environment = RELEASE_ENVIRONMENT, repository = process.env.GITHUB_REPOSITORY, outputPath, tarballOutputPath, recovery = false, workflowRunId, workflowRunAttempt, fetchImpl = fetch, sleepImpl = sleep }) {
   const manifest = readJson(resolve(repositoryRoot, manifestPath), "release manifest");
   const metadataUrl = registryVersionUrl(PACKAGE_NAME, manifest.package_version);
-  const metadata = await fetchJson(metadataUrl, "npm package metadata");
+  const metadata = await fetchJson(metadataUrl, "npm package metadata", { fetchImpl });
   if (!isPlainObject(metadata) || metadata.name !== PACKAGE_NAME || metadata.version !== manifest.package_version || !isPlainObject(metadata.dist)) fail("npm registry package metadata identity is invalid");
+  try {
+    validateNpmRepositoryMetadata(metadata, "npm registry package metadata");
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
   const tarballUrl = safeHttpsUrl(metadata.dist.tarball, "npm tarball URL");
   if (typeof metadata.dist.integrity !== "string") fail("npm registry tarball integrity is missing");
   const attestationsUrl = safeHttpsUrl(metadata.dist.attestations?.url, "npm attestations URL");
-  const tarball = await fetchBytes(tarballUrl, "npm release tarball");
+  const tarball = await fetchBytes(tarballUrl, "npm release tarball", { fetchImpl });
   const tarballSha256 = sha256(tarball);
   const tarballSha512 = sha512(tarball);
-  const expected = expectedFromManifest(manifest, tag, sourceCommit, environment, repository);
-  if (tarballSha256 !== expected.tarballSha256 || tarball.length !== manifest.npm_tarball.size) fail("registry tarball differs from the release manifest");
+  const expected = expectedFromManifest(manifest, tag, sourceCommit, environment, repository, recovery);
+  if (!recovery && (tarballSha256 !== expected.tarballSha256 || tarball.length !== manifest.npm_tarball.size)) fail("registry tarball differs from the release manifest");
   const expectedIntegrity = `sha512-${Buffer.from(tarballSha512, "hex").toString("base64")}`;
   if (metadata.dist.integrity !== expectedIntegrity) fail("registry tarball integrity differs from the downloaded bytes");
-  const registryAttestations = await fetchJson(attestationsUrl, "npm attestation record");
-  const provenanceExpected = { ...expected, tarballSha512, tarballSize: tarball.length };
+  validateRegistryTarballContent(tarball, { ...expected, tarballSha512, tarballSize: tarball.length }, manifest, recovery);
+  const registryAttestations = await fetchAttestationRecord(attestationsUrl, { fetchImpl, sleepImpl });
+  const provenanceExpected = { ...expected, tarballSha256, tarballSha512, tarballSize: tarball.length, workflowRunId, workflowRunAttempt };
   const identities = provenanceIdentities(registryAttestations.attestations, provenanceExpected);
   const audit = runNpmAudit(provenanceExpected);
   const auditSummary = validateAuditSignatures(audit, provenanceExpected);
@@ -335,6 +527,17 @@ export async function captureNpmProvenance({ manifestPath, tag, sourceCommit, en
     release_tag: tag,
     source_commit: sourceCommit,
     environment,
+    publication_mode: recovery ? "post-publish-recovery" : "fresh-publish",
+    candidate_artifact: recovery ? { sha256: manifest.npm_tarball.sha256, size: manifest.npm_tarball.size } : null,
+    canonical_artifact: {
+      source: "registry",
+      sha256: tarballSha256,
+      sha512: tarballSha512,
+      size: tarball.length,
+      integrity: metadata.dist.integrity,
+      tarball_url: tarballUrl,
+    },
+    registry_metadata: metadata,
     registry: {
       package_name: metadata.name,
       package_version: metadata.version,
@@ -361,9 +564,15 @@ export async function captureNpmProvenance({ manifestPath, tag, sourceCommit, en
   };
   validateNpmProvenanceEvidence(evidence, {
     ...expected,
+    tarballSha256,
     tarballSha512,
     tarballSize: tarball.length,
   });
+  if (tarballOutputPath !== undefined) {
+    const outputTarballPath = resolve(repositoryRoot, tarballOutputPath);
+    mkdirSync(resolve(outputTarballPath, ".."), { recursive: true });
+    writeFileSync(outputTarballPath, tarball);
+  }
   writeJson(resolve(repositoryRoot, outputPath), evidence);
   process.stdout.write(`${JSON.stringify({ package_name: PACKAGE_NAME, package_version: manifest.package_version, provenance_status: "PASS", tarball_sha256: tarballSha256, provenance_attestation_count: identities.length })}\n`);
   return evidence;
@@ -390,11 +599,18 @@ async function run() {
     environment: argument(argv, "--environment", process.env.SNWC_RELEASE_ENVIRONMENT ?? RELEASE_ENVIRONMENT),
     repository: argument(argv, "--repository", process.env.GITHUB_REPOSITORY),
     outputPath: argument(argv, "--output"),
+    tarballOutputPath: argv.includes("--tarball-output") ? argument(argv, "--tarball-output") : undefined,
+    recovery: argv.includes("--recovery"),
+    workflowRunId: argv.includes("--workflow-run-id") ? argument(argv, "--workflow-run-id") : undefined,
+    workflowRunAttempt: argv.includes("--workflow-run-attempt") ? Number(argument(argv, "--workflow-run-attempt")) : undefined,
   });
 }
 
 export {
   PACKAGE_NAME,
+  ATTESTATION_RETRY_ATTEMPTS,
+  ATTESTATION_RETRY_INITIAL_DELAY_MS,
+  ATTESTATION_RETRY_MAX_DELAY_MS,
   PROVENANCE_PREDICATE_TYPES,
   REPOSITORY,
   RELEASE_ENVIRONMENT,

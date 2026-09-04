@@ -10,6 +10,9 @@ const browserModule = "/packages/wallet-core/dist/wasm/index.mjs";
 const scenarioModule = "/packages/wallet-core/test/parity-scenarios.mjs";
 const browserCandidates = ["chromium", "chromium-browser", "google-chrome", "chrome", "firefox"];
 const BROWSER_BLOCKED_REASON = "BLOCKED / Browser WASM runtime parity evidence unavailable";
+const BROWSER_TIMEOUT_MS = 30_000;
+const BROWSER_MAX_ATTEMPTS = 2;
+const MAX_STDERR_BYTES = 16 * 1024;
 
 function findBrowser() {
   const candidates = process.env.SNWC_BROWSER ? [process.env.SNWC_BROWSER] : browserCandidates;
@@ -82,31 +85,56 @@ async function serveStatic(request, response, pathname) {
   }
 }
 
-export async function runBrowserParity() {
-  const browser = findBrowser();
-  if (browser === null) {
-    return { status: "blocked", reason: BROWSER_BLOCKED_REASON };
+function boundedStderr(stream) {
+  let captured = Buffer.alloc(0);
+  if (stream !== undefined && typeof stream.on === "function") {
+    stream.on("data", (chunk) => {
+      if (captured.length >= MAX_STDERR_BYTES) return;
+      const remaining = MAX_STDERR_BYTES - captured.length;
+      captured = Buffer.concat([captured, Buffer.from(chunk).subarray(0, remaining)]);
+    });
   }
+  return () => `${captured.toString("utf8")}${captured.length >= MAX_STDERR_BYTES ? "\n[stderr truncated]" : ""}`;
+}
 
-  let report;
+function diagnostic(browser, classification, { child, stderr, exitCode = null, signal = null, timeout = false, reportStatus = null, reportError = null, retryable = false }) {
+  return {
+    classification,
+    browser: { command: browser.command, version: browser.version },
+    browser_command: browser.command,
+    browser_version: browser.version,
+    exit_code: exitCode,
+    signal,
+    stderr: stderr ?? "",
+    timeout,
+    report_error: reportError,
+    report_status: reportStatus,
+    retryable,
+    child_exit_code: child?.exitCode ?? exitCode,
+    child_signal: child?.signalCode ?? signal,
+  };
+}
+
+async function runBrowserAttempt({ browser, spawnImpl = spawn, createServerImpl = createServer, timeoutMs = BROWSER_TIMEOUT_MS }) {
   let reportResolve;
   let reportReject;
   const reportPromise = new Promise((resolveReport, rejectReport) => {
     reportResolve = resolveReport;
     reportReject = rejectReport;
   });
-  const server = createServer(async (request, response) => {
+  const server = createServerImpl(async (request, response) => {
     const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
     if (request.method === "POST" && pathname === "/__snwc_report") {
       try {
-        report = JSON.parse(await readRequestBody(request));
-        reportResolve(report);
+        const body = await readRequestBody(request);
+        const report = JSON.parse(body);
         response.writeHead(204);
         response.end();
+        reportResolve(report);
       } catch {
-        reportReject(new Error("browser parity report failed"));
         response.writeHead(400);
         response.end();
+        reportReject({ classification: "browser-report-error", retryable: false, reportError: "browser parity report is malformed" });
       }
       return;
     }
@@ -124,6 +152,7 @@ export async function runBrowserParity() {
   });
 
   let child;
+  let stderr = () => "";
   try {
     await new Promise((resolveListen, rejectListen) => {
       server.once("error", rejectListen);
@@ -136,37 +165,138 @@ export async function runBrowserParity() {
     const browserArgs = browser.command.toLowerCase().endsWith("firefox")
       ? ["--headless", `http://127.0.0.1:${address.port}/`]
       : ["--headless", "--no-sandbox", "--disable-gpu", `http://127.0.0.1:${address.port}/`];
-    child = spawn(browser.command, browserArgs, { stdio: "ignore" });
-    const childExit = new Promise((resolveExit, rejectExit) => {
-      child.once("exit", resolveExit);
-      child.once("error", rejectExit);
+    try {
+      child = spawnImpl(browser.command, browserArgs, { stdio: ["ignore", "ignore", "pipe"] });
+      stderr = boundedStderr(child.stderr);
+    } catch (error) {
+      return {
+        status: "blocked",
+        reason: BROWSER_BLOCKED_REASON,
+        diagnostic: diagnostic(browser, "browser-launch-error", { stderr: String(error?.message ?? "browser launch failed"), retryable: true }),
+      };
+    }
+    const childExit = new Promise((resolveExit) => {
+      child.once("exit", (exitCode, signal) => resolveExit({ exitCode, signal }));
+      child.once("error", (error) => resolveExit({ error }));
     });
     let timeout;
+    let outcome;
     try {
-      await Promise.race([
-        reportPromise,
-        childExit.then(() => {
-          throw new Error("browser parity runtime exited before report");
-        }),
-        new Promise((_, reject) => {
-          timeout = setTimeout(() => reject(new Error("browser parity runtime timed out")), 30_000);
+      outcome = await Promise.race([
+        reportPromise.then((value) => ({ type: "report", value })).catch((error) => ({ type: "report-error", error })),
+        childExit.then((value) => ({ type: "exit", value })),
+        new Promise((resolveTimeout) => {
+          timeout = setTimeout(() => resolveTimeout({ type: "timeout" }), timeoutMs);
         }),
       ]);
-    } catch {
-      return { status: "blocked", reason: BROWSER_BLOCKED_REASON };
     } finally {
       clearTimeout(timeout);
     }
-    if (report?.status !== "ok" || report.result === undefined) {
-      return { status: "failed", reason: "Browser WASM parity failure" };
+    if (outcome.type === "report-error") {
+      return {
+        status: "blocked",
+        reason: BROWSER_BLOCKED_REASON,
+        diagnostic: diagnostic(browser, outcome.error.classification ?? "browser-report-error", {
+          child,
+          stderr: stderr(),
+          reportError: outcome.error.reportError ?? "browser parity report transport failed",
+          retryable: outcome.error.retryable === true,
+        }),
+      };
     }
-    return { status: "ok", browser, result: report.result };
-  } catch {
-    return { status: "blocked", reason: BROWSER_BLOCKED_REASON };
+    if (outcome.type === "report") {
+      if (outcome.value?.status !== "ok") {
+        return {
+          status: "failed",
+          reason: "Browser WASM parity failure",
+          diagnostic: diagnostic(browser, "browser-parity-failure", {
+            child,
+            stderr: stderr(),
+            reportStatus: outcome.value?.status ?? null,
+            retryable: false,
+          }),
+        };
+      }
+      if (outcome.value.result === undefined) {
+        return {
+          status: "blocked",
+          reason: BROWSER_BLOCKED_REASON,
+          diagnostic: diagnostic(browser, "browser-report-error", {
+            child,
+            stderr: stderr(),
+            reportStatus: outcome.value.status,
+            reportError: "browser parity report has no result",
+            retryable: false,
+          }),
+        };
+      }
+      return { status: "ok", browser, result: outcome.value.result };
+    }
+    if (outcome.type === "timeout") {
+      return {
+        status: "blocked",
+        reason: BROWSER_BLOCKED_REASON,
+        diagnostic: diagnostic(browser, "browser-timeout", { child, stderr: stderr(), timeout: true, retryable: true }),
+      };
+    }
+    if (outcome.value.error !== undefined) {
+      return {
+        status: "blocked",
+        reason: BROWSER_BLOCKED_REASON,
+        diagnostic: diagnostic(browser, "browser-launch-error", { child, stderr: stderr(), reportError: outcome.value.error.message, retryable: true }),
+      };
+    }
+    return {
+      status: "blocked",
+      reason: BROWSER_BLOCKED_REASON,
+      diagnostic: diagnostic(browser, "browser-exited-before-report", {
+        child,
+        stderr: stderr(),
+        exitCode: outcome.value.exitCode,
+        signal: outcome.value.signal,
+        retryable: true,
+      }),
+    };
+  } catch (error) {
+    return {
+      status: "blocked",
+      reason: BROWSER_BLOCKED_REASON,
+      diagnostic: diagnostic(browser, "browser-launch-error", { child, stderr: stderr(), reportError: error?.message ?? "browser parity setup failed", retryable: true }),
+    };
   } finally {
-    if (child !== undefined && child.exitCode === null) {
+    if (child !== undefined && child.exitCode === null && child.signalCode === null) {
       child.kill("SIGTERM");
     }
     await new Promise((resolveClose) => server.close(resolveClose));
   }
 }
+
+export async function runBrowserParity({ findBrowserImpl = findBrowser, spawnImpl = spawn, createServerImpl = createServer, timeoutMs = BROWSER_TIMEOUT_MS, maxAttempts = BROWSER_MAX_ATTEMPTS } = {}) {
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > BROWSER_MAX_ATTEMPTS) throw new Error("browser parity retry policy is invalid");
+  const browser = findBrowserImpl();
+  if (browser === null) {
+    return {
+      status: "blocked",
+      reason: BROWSER_BLOCKED_REASON,
+      diagnostic: { classification: "browser-not-found", browser: null, browser_command: null, browser_version: null, exit_code: null, signal: null, stderr: "", timeout: false, report_error: null, report_status: null, retryable: false },
+      attempts: [],
+    };
+  }
+  const attempts = [];
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = await runBrowserAttempt({ browser, spawnImpl, createServerImpl, timeoutMs });
+    if (result.status === "ok" || result.diagnostic?.classification === "browser-parity-failure" || result.diagnostic?.retryable !== true || attempt === maxAttempts) {
+      if (result.diagnostic !== undefined) attempts.push(result.diagnostic);
+      return { ...result, attempts: [...attempts] };
+    }
+    attempts.push(result.diagnostic);
+  }
+  return { status: "blocked", reason: BROWSER_BLOCKED_REASON, attempts };
+}
+
+export {
+  BROWSER_BLOCKED_REASON,
+  BROWSER_MAX_ATTEMPTS,
+  BROWSER_TIMEOUT_MS,
+  MAX_STDERR_BYTES,
+};

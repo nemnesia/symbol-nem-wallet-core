@@ -40,6 +40,11 @@ jobs:
       - name: Run release operation deterministic tests
         run: node scripts/test-release-operation.mjs
 
+      - name: Run release recovery and browser parity deterministic tests
+        run: |
+          node scripts/test-release-recovery.mjs
+          node scripts/test-browser-parity.mjs
+
       - name: Run final release evidence deterministic fixture tests
         run: |
           node scripts/test-npm-provenance.mjs
@@ -62,9 +67,8 @@ jobs:
       - name: Upload release identity evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-identity
+          name: release-identity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-identity.json
-          overwrite: true
 
   candidate:
     name: Build and validate formal release candidate
@@ -108,13 +112,13 @@ jobs:
       - name: Download final npm evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-npm-package
+          name: release-npm-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-npm-input
 
       - name: Download final C ABI evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-c-abi
+          name: release-c-abi-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-input
 
       - name: Generate and validate pre-publish unified release record
@@ -141,9 +145,8 @@ jobs:
       - name: Upload unified release record handoff
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-record
+          name: release-record-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-record-output/
-          overwrite: true
 
   publish:
     name: Publish npm package with provenance
@@ -173,25 +176,25 @@ jobs:
       - name: Download release identity evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-identity
+          name: release-identity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-identity-input
 
       - name: Download final release evidence bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-npm-package
+          name: release-npm-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-output
 
       - name: Download C ABI release evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-c-abi
+          name: release-c-abi-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-input
 
       - name: Download unified release record
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-record
+          name: release-record-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-record-input
 
       - name: Download and validate unified release record
@@ -253,7 +256,50 @@ jobs:
               ;;
           esac
 
-      - name: Capture and verify actual npm provenance
+      - name: Capture canonical registry artifact for existing-version recovery
+        if: env.SNWC_PUBLICATION_MODE == 'recovered-existing'
+        shell: bash
+        env:
+          SNWC_RELEASE_ENVIRONMENT: release
+        run: |
+          set -euo pipefail
+          node scripts/npm-provenance.mjs capture \
+            --recovery \
+            --manifest release-output/release-manifest.json \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA" \
+            --environment "$SNWC_RELEASE_ENVIRONMENT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --output "$RUNNER_TEMP/npm-provenance.json" \
+            --tarball-output "$RUNNER_TEMP/registry-release.tgz"
+          node scripts/release-recovery.mjs canonicalize \
+            --source-dir release-output \
+            --registry-tarball "$RUNNER_TEMP/registry-release.tgz" \
+            --output release-output-recovered \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA"
+          cp -a release-output-recovered/. release-output/
+          cp "$RUNNER_TEMP/npm-provenance.json" release-output/npm-provenance.json
+
+      - name: Re-verify canonical existing-version recovery bundle
+        if: env.SNWC_PUBLICATION_MODE == 'recovered-existing'
+        shell: bash
+        env:
+          SNWC_RELEASE_ENVIRONMENT: release
+        run: |
+          set -euo pipefail
+          node scripts/release-operation.mjs verify \
+            --recovery \
+            --release-dir release-output \
+            --identity release-identity-input/release-identity.json \
+            --tag "$GITHUB_REF_NAME" \
+            --source-commit "$GITHUB_SHA" \
+            --environment "$SNWC_RELEASE_ENVIRONMENT" \
+            --output release-output/release-operation.json
+
+      - name: Capture and verify actual npm provenance for fresh publication
+        if: env.SNWC_PUBLICATION_MODE == 'published'
         shell: bash
         env:
           SNWC_RELEASE_ENVIRONMENT: release
@@ -313,25 +359,22 @@ jobs:
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-published-npm
+          name: release-published-npm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-output/
-          overwrite: true
 
       - name: Upload published unified release record
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-record-published
+          name: release-record-published-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-record-published/
-          overwrite: true
 
       - name: Upload release operation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-operation
+          name: release-operation-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-output/release-operation.json
-          overwrite: true
 
   publication:
     name: Publish durable GitHub Release evidence
@@ -358,19 +401,19 @@ jobs:
       - name: Download published npm evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-published-npm
+          name: release-published-npm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-published-npm
 
       - name: Download C ABI evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-c-abi
+          name: release-c-abi-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-input
 
       - name: Download published unified release record
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-record-published
+          name: release-record-published-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-record-published
 
       - name: Assemble exact durable GitHub Release asset set

@@ -63,6 +63,12 @@ identity to the exact package/version/tag/source/workflow, and finalizes
 `release-operation.json`. Published mode then requires both
 `release-operation.json` and the identity-bound `npm-provenance.json`.
 
+Fresh publish and post-publish recovery are separate contracts. Fresh publish validates the candidate tarball
+against the registry result after the one allowed npm publication. Recovery never calls npm publication: it downloads
+the already published registry tarball, verifies its `dist.integrity` and provenance subject SHA-512, and reconstructs
+the npm evidence bundle with that registry tarball as its canonical bytes. A regenerated candidate whose bytes differ
+is recorded as recovery candidate evidence and is never silently promoted to canonical.
+
 ## Durable GitHub Release asset set
 
 GitHub Release is the long-term release evidence record. GitHub Actions
@@ -139,6 +145,11 @@ The `publish` job performs the protected npm operation with
 `contents: write` and is responsible for creating/resuming the GitHub Release
 and uploading the durable asset set. `packages: write`, `actions: write`, and
 long-lived npm tokens are not used.
+
+For a failed post-publish run, `release-recovery.yml` is manually dispatched with the immutable tag, expected source
+commit, package version, original release run id / attempt, and (for new runs) its attempt-scoped artifact suffix.
+Verification is read-only and runs before a separate protected publication job. That job refuses an existing GitHub
+Release, creates the same manifest-backed asset set, and verifies every uploaded asset after creation.
 
 The v1 signing policy is npm provenance only. No cosign, Sigstore, GPG, custom
 PKI, private signing key, custom attestation protocol, or C ABI artifact

@@ -99,19 +99,44 @@ signature verifier が対象 package の provenance attestation を `verified` �
 
 `release-operation.json` は publication mode、workflow ref、run id / attempt、registry URL、
 provenance evidence digest および実際の provenance invocation identity を記録する。
+npm provenance evidence は registry metadata、`dist.integrity`、実 tarball bytes、attestation subject digest、
+package repository metadata、workflow repository/path/ref、source commit を同じ package/version
+identity に束ねる。
 published-mode `release-record.json` はこの2ファイルを exact npm evidence set に含め、
 `RELEASE-RECORD-SHA256` とともに durable GitHub Release へ保存する。
+
+### Fresh publish and post-publish recovery
+
+Fresh publish は registry version が存在しない場合だけに適用し、candidate tarball と publish 後の
+registry tarball が byte-for-byte 一致することを要求する。既存 version の検知は publish の再実行を
+意味しない。
+
+Post-publish recovery は `.github/workflows/release-recovery.yml` の明示的な `workflow_dispatch` だけを
+入口とする。この path は npm の publication credential / permission を持たず、registry が返す実 tarball
+を canonical published artifact として保存する。後続の rebuild candidate は比較・監査用にだけ残し、
+canonical artifact や release manifest の根拠に置き換えない。tag target、main ancestry、元の release run、
+package/version、registry integrity、provenance subject、tag/source/workflow identity、npm audit signatures
+が全て PASS し、GitHub Release がまだ存在しない場合だけ、protected `release` Environment の publication
+job が exact asset set を作成する。
 
 ### Partial failure and retry
 
 `npm publish` 成功後に provenance capture、published record、または GitHub Release upload が
 失敗した場合、workflow rerun は `GITHUB_RUN_ATTEMPT > 1` の identity gate で既存 version を
-明示的に認識する。publish job は `recovered-existing` mode へ入り、同じ source-built tarball、
-registry integrity、実 provenance、published record を検証してから publication job へ進む。
+明示的に認識する。publish job は `recovered-existing` mode へ入り、registry の実 tarball を canonical
+artifact として、registry integrity、実 provenance、published record を検証してから publication job へ進む。
 既存 version の bytes、attestation identity、tag/source/workflow binding が一致しない場合は
 再 publish や asset 上書きをせず fail closed とする。既存 GitHub Release は exact metadata と
 existing asset digest を検証し、欠落 asset だけを upload する。unexpected asset、同名の異なる
 asset、draft/prerelease、tag/source mismatch は自動 recovery しない。
+
+attestation の propagation race は、metadata が既に返した URL に対する HTTP 404、429、500--599、
+および一時的な network failure だけを、6回・指数 backoff・最大10秒 delay の bounded retry とする。
+malformed response、redirect、identity mismatch、invalid signature は retry しない。
+
+Actions artifact 名には run id、run attempt、source SHA を含め、`overwrite` は使用しない。元の attempt
+の evidence は後続 attempt から破壊されず、legacy の unscoped artifact は dedicated recovery の入力で
+空 suffix として明示的に指定できる。
 
 ### Phase 4A / 4B final boundary
 

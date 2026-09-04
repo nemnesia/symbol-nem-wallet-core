@@ -23,6 +23,8 @@ import {
   finalizeReleaseOperation,
   validateEvidenceDigests,
   validateReleaseOperationIdentity,
+  validateReleaseArtifactPreservation,
+  validateRecoveryWorkflowBoundary,
   validateReleaseWorkflowBoundary,
   validateSpdxReleaseIdentity,
 } from "./release-operation.mjs";
@@ -178,6 +180,7 @@ try {
 const releaseWorkflow = readFileSync(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
 const candidateWorkflow = readFileSync(resolve(repositoryRoot, ".github/workflows/node.yml"), "utf8");
 const cAbiWorkflow = readFileSync(resolve(repositoryRoot, ".github/workflows/c-abi-release.yml"), "utf8");
+const recoveryWorkflow = readFileSync(resolve(repositoryRoot, ".github/workflows/release-recovery.yml"), "utf8");
 const migrationDocumentation = readFileSync(resolve(repositoryRoot, "docs/migration/release-operation-provenance.md"), "utf8");
 const trustedPublisherSectionStart = migrationDocumentation.indexOf("4. npm package");
 const trustedPublisherSectionEnd = migrationDocumentation.indexOf("\n5.", trustedPublisherSectionStart);
@@ -200,6 +203,16 @@ assert.equal(workflow.provenance_command, PROVENANCE_PUBLISH_COMMAND);
 assert.equal(workflow.publication_job, "publication");
 assert.equal(workflow.durable_release_record, "GitHub Release assets");
 assert.equal(workflow.retry_recovery, "existing-version provenance verification without republish");
+assert.equal(workflow.artifact_preservation.suffix, "${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}");
+assert.equal(validateReleaseArtifactPreservation({ releaseWorkflow, candidateWorkflow, cAbiWorkflow }).suffix, "${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}");
+const recoveryBoundary = validateRecoveryWorkflowBoundary(recoveryWorkflow);
+assert.equal(recoveryBoundary.trigger, "workflow_dispatch");
+assert.equal(recoveryBoundary.publish_capability, false);
+assert.match(recoveryWorkflow, /ref: \$\{\{ github\.sha \}\}/);
+assert.match(recoveryWorkflow, /refs\/tags\/\$RELEASE_TAG:refs\/tags\/\$RELEASE_TAG/);
+expectFailure(() => validateRecoveryWorkflowBoundary(recoveryWorkflow.replace("actions: read", "actions: write")), /publication credential or permission/);
+expectFailure(() => validateRecoveryWorkflowBoundary(`${recoveryWorkflow}\nrun: npm publish`), /publication capability/);
+expectFailure(() => validateReleaseArtifactPreservation({ releaseWorkflow: `${releaseWorkflow}\n      overwrite: true`, candidateWorkflow, cAbiWorkflow }), /destructive artifact overwrite/);
 const identityStepStart = releaseWorkflow.indexOf("      - name: Validate release identity and npm version availability");
 const identityStepEnd = releaseWorkflow.indexOf("      - name: Upload release identity evidence", identityStepStart);
 assert.ok(identityStepStart >= 0 && identityStepEnd > identityStepStart);
@@ -456,6 +469,7 @@ try {
     package_version: VERSION,
     release_tag: `v${VERSION}`,
     source_commit: COMMIT,
+    npm_tarball: { filename: "fixture.tgz", sha256: tarSha256 },
     provenance: { required: true, status: "required-at-publish" },
   });
   writeJson(provenancePath, {
@@ -466,6 +480,26 @@ try {
     release_tag: `v${VERSION}`,
     source_commit: COMMIT,
     environment: RELEASE_ENVIRONMENT,
+    publication_mode: "fresh-publish",
+    candidate_artifact: null,
+    canonical_artifact: {
+      source: "registry",
+      sha256: tarSha256,
+      sha512: tarSha512,
+      size: 123,
+      integrity: `sha512-${Buffer.from(tarSha512, "hex").toString("base64")}`,
+      tarball_url: "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/-/symbol-nem-wallet-core-0.1.0.tgz",
+    },
+    registry_metadata: {
+      name: "@nemnesia/symbol-nem-wallet-core",
+      version: VERSION,
+      repository: { type: "git", url: "git+https://github.com/nemnesia/symbol-nem-wallet-core.git", directory: "packages/wallet-core" },
+      dist: {
+        tarball: "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/-/symbol-nem-wallet-core-0.1.0.tgz",
+        integrity: `sha512-${Buffer.from(tarSha512, "hex").toString("base64")}`,
+        attestations: { url: "https://registry.npmjs.org/-/npm/v1/attestations/@nemnesia%2Fsymbol-nem-wallet-core@0.1.0" },
+      },
+    },
     registry: {
       package_name: "@nemnesia/symbol-nem-wallet-core",
       package_version: VERSION,
@@ -500,6 +534,27 @@ try {
   assert.equal(finalized.publication.mode, "published");
   assert.equal(finalized.provenance.evidence.sha256, createHash("sha256").update(readFileSync(provenancePath)).digest("hex"));
   assert.deepEqual(JSON.parse(readFileSync(outputPath, "utf8")), finalized);
+
+  const recoveryProvenance = JSON.parse(readFileSync(provenancePath, "utf8"));
+  recoveryProvenance.publication_mode = "post-publish-recovery";
+  recoveryProvenance.candidate_artifact = { sha256: "d".repeat(64), size: 456 };
+  writeJson(provenancePath, recoveryProvenance);
+  const recovered = finalizeReleaseOperation({
+    preOperationPath: operationPath,
+    provenancePath,
+    manifestPath,
+    tag: `v${VERSION}`,
+    sourceCommit: COMMIT,
+    environment: RELEASE_ENVIRONMENT,
+    publicationMode: "recovered-existing",
+    workflowRef: `${repository}/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    repository,
+    runId: "123",
+    runAttempt: 2,
+    outputPath,
+  });
+  assert.equal(recovered.publication.mode, "recovered-existing");
+  assert.notEqual(recoveryProvenance.candidate_artifact.sha256, recovered.publication.registry_tarball_sha256);
 } finally {
   rmSync(finalizeRoot, { recursive: true, force: true });
 }
