@@ -18,7 +18,7 @@ Browser Extension は Browser runtime の利用形態として扱う。Desktop A
 
 ### 1.3 本書で決定しない事項
 
-API、型、保存レコード構造、暗号方式、KDF、salt / nonce、具体的な HD 導出パス値、Binding 実装、メモリ配置、zeroize 方法、署名内容の提示・承認に関する具体的な UI、対象 OS / Browser バージョン、CPU architecture matrix 等は本要件書では詳細を定めず、仕様設計またはリリース要件で決定する。対象 runtime / platform、サポート対象 version および architecture matrix の明示・検証は NFR-006、NFR-012 および NFR-013 に従う。秘密情報処理における side-channel の具体方式および検証方法も、SEC-023 の保証範囲を保ったまま下流へ委譲する。
+API、型、保存レコード構造、暗号方式、KDF、salt / nonce、具体的な HD 導出パス値、Binding 実装、メモリ配置、zeroize 方法、署名内容の提示・承認に関する具体的な UI、対象 OS / Browser バージョン、CPU architecture matrix 等は本要件書では詳細を定めず、仕様設計またはリリース要件で決定する。対象 runtime / platform、サポート対象 version および architecture matrix の明示・検証は NFR-006、NFR-012 および NFR-013 に従う。秘密情報処理における side-channel の具体方式および検証方法も、SEC-023 の保証範囲を保ったまま下流へ委譲する。React Native における同期実行の安全性、blocking、responsiveness、resource boundedness および async 化の判断条件は NFR-008、NFR-015 および AC-061 で要求し、具体的な閾値・実行方式・API は下流へ委譲する。
 
 ---
 
@@ -235,13 +235,14 @@ Desktop Application は Native C ABI、Node.js は Node-API Binding、Browser / 
 | NFR-005 | SHOULD | Core の自動検証では、行・関数カバレッジ90%以上、分岐カバレッジ85%以上を目標とし、未達時は未カバー範囲、理由および影響を確認可能にすること。カバレッジ率だけで仕様適合性、セキュリティまたは相互運用性を合格判定しないこと。 |
 | NFR-006 | MUST | Wallet Core は Desktop、Node.js、Browser、Browser Extension、React Native Android および React Native iOS を v1 の対象 runtime / platform として、同一 Rust Wallet Core の対象機能を利用可能にすること。Browser Extension は Browser runtime の利用形態として扱い、Browser と同じ Core の責任境界を適用すること。 |
 | NFR-007 | MUST | React Native 対応を理由に repository を分割せず、`nemnesia/symbol-nem-wallet-core` を単一 repository として維持すること。npm consumer 向け公開 package は `@nemnesia/symbol-nem-wallet-core` に統一し、React Native 専用 npm package を新設せず、platform-specific implementation を単一 package 内の責任として扱うこと。内部ディレクトリ構造、build artifact および package exports の具体形式は本要件で固定しないこと。 |
-| NFR-008 | MUST | 機能的に同一の operation は各対象 runtime / platform で一貫した公開 API 契約により利用できること。Android / iOS の差異だけを理由に application-facing API を分岐させず、共通契約では満たせない明示的な platform / runtime 要求がある場合に限り runtime-specific API を設け、その必要性を正当化すること。React Native 対応だけを理由に既存の公開 API surface を拡張しないこと。 |
+| NFR-008 | MUST | 機能的に同一の operation は各対象 runtime / platform で一貫した公開 API 契約により利用できること。Android / iOS の差異だけを理由に application-facing API を分岐させず、共通契約では満たせない明示的な platform / runtime 要求がある場合に限り runtime-specific API を設け、その必要性を正当化すること。React Native 対応だけを理由に既存の公開 API surface を拡張しないこと。現行の synchronous public contract は compatibility baseline とするが、React Native の安全性、responsiveness または resource boundedness を犠牲にしてまで同期性を強制しないこと。同期契約を安全に維持可能かを、測定可能な evidence により評価できること。async 化または runtime-specific divergence が必要な場合は、対象 operation、影響範囲および compatibility impact を明示し、user decision なしに public API semantics を変更しないこと。runtime ごとに黙って同期 / 非同期 semantics を分岐させないこと。 |
 | NFR-009 | MUST | cryptographic operation、key derivation、signing、Wallet Store processing、private key handling、Mnemonic handling および secret zeroization 等の security-sensitive processing は既存 Rust Core の責任境界に維持すること。React Native binding は platform integration、データ受渡しおよび invocation boundary を担うが、同等の暗号ロジックまたは security-sensitive business logic の authoritative implementation を新たに持たず、入力・出力検証を bypass しないこと。 |
 | NFR-010 | MUST | unsupported platform / runtime、native binding の初期化・load・invocation failure および security-sensitive operation の failure を fail-closed に扱い、silent fallback、未定義動作または成功として扱わないこと。failure は application が成功と区別して識別でき、platform 差異によって error semantics を不必要に変えないこと。exact error code、error class および mapping は仕様へ委譲すること。 |
 | NFR-011 | MUST | React Native 対応の追加により、既存の Node.js runtime と Node.js 22.x / 24.x の support / verification policy、Browser runtime、Browser Extension use case、WASM behavior、native Node behavior、public API compatibility、security boundary および既存 release / supply-chain guarantees を退行させないこと。既存 runtime の routing または fallback の変更が必要となる場合は、採用前に明示的な互換性影響評価を行うこと。 |
 | NFR-012 | MUST | 各対象 runtime / platform のサポート対象 version を support matrix として明示し、CI または release gate でその matrix の適合性を検証可能にすること。Node.js の version policy は既存 npm / release contract を継承し、`engines.node >=22.0.0`、Node.js 22.x の minimum / support line および Node.js 24.x の primary verification line を変更または再オープンしないこと。minimum React Native version、minimum Android API level、minimum iOS version および supported browser baseline の具体値は、本要件の更新時点では固定しないこと。 |
 | NFR-013 | MUST | React Native Android / iOS の supported CPU architecture、device / simulator を含む対象 architecture matrix を明示し、CI または release gate で検証可能にすること。arm64、x86_64、legacy ARM その他の具体 target の採否は、本要件の更新時点では固定しないこと。 |
 | NFR-014 | MUST | Node.js、Browser および Browser Extension の consumer に React Native 固有設定を文書化された通常利用経路の前提として要求せず、React Native consumer に Node.js native addon または Browser / WASM runtime を文書化された通常利用経路として要求しないこと。各 consumer が同一 package から対象 runtime / platform に対応した Core 利用経路を選択できること。 |
+| NFR-015 | MUST | React Native で高コストとなる可能性がある operation について、execution cost、JS runtime thread の blocking behavior、responsiveness impact、bounded input / Store size との関係、cancellation / interruption の可能性および failure 時の cleanup を、代表的な実行環境と入力条件で downstream の prototype、benchmark または実測により検証可能にすること。対象には password KDF、Wallet Store の encrypt / decrypt、Mnemonic seed / derivation、key derivation、signing および大きな Store processing を含め得るが、これらが常に高コストであるとは仮定しないこと。具体的な閾値、device 名、queue / worker、timeout および cancellation API は仕様・実装・性能検証へ委譲する。同期実行が安全な responsiveness、resource boundedness、lifetime / cleanup または必要な interruption semantics を満たせない evidence がある場合、対象 operation の async contract または RN support exclusion は API design / compatibility change として扱い、明示的な user decision なしに採用しないこと。async 化を同期実行の自動 fallback として扱わないこと。 |
 
 ---
 
@@ -353,6 +354,7 @@ Desktop Application は Native C ABI、Node.js は Node-API Binding、Browser / 
 | AC-058 | NFR-012 | Node.js、Browser、Browser Extension、React Native Android / iOS および既存 Desktop target ごとの supported version が support matrix に明示され、CI または release gate で適合性を判定できる。Node.js は既存 contract の `engines.node >=22.0.0`、Node.js 22.x minimum / support line および Node.js 24.x primary verification line を継承し、未確定として扱わない。minimum React Native version、minimum Android API level、minimum iOS version および browser baseline の具体値は、別途決定されるまで未確定として扱う。 |
 | AC-059 | NFR-013 | React Native Android / iOS の device / simulator を含む supported CPU architecture matrix が明示され、CI または release gate で適合性を判定できる。arm64、x86_64、legacy ARM その他の具体 target の採否は、別途決定されるまで未確定として扱う。 |
 | AC-060 | NFR-014 | Node.js、Browser および Browser Extension consumer が React Native 固有設定なしに同一 package の通常利用経路を使用でき、React Native Android / iOS consumer が Node.js native addon または Browser / WASM runtime を通常利用経路として要求されない。 |
+| AC-061 | NFR-008, NFR-015 | React Native の高コストとなる可能性がある operation について、代表的な Android / iOS 実行環境、production-equivalent native build、代表的な Store / input size および合理的な worst-case input class における execution cost、JS runtime thread の blocking、responsiveness、resource behavior、cancellation / interruption および failure cleanup を測定・評価できる。debug build だけを根拠にせず、exact threshold は仕様・性能検証へ委譲する。synchronous public contract を安全に維持できない evidence が確認された場合、対象 operation と影響範囲、compatibility impact および async contract または support exclusion の選択肢が記録されるまで、同期性を黙って強制せず、async 化も user decision なしに採用しない。runtime-specific な sync / async semantics を黙って分岐させない。 |
 
 ---
 
@@ -394,6 +396,13 @@ Node.js support policy は既存の npm package / release contract を継承し�
 
 上記の具体値・採否は、NFR-012 / NFR-013 の support matrix と release gate で検証可能な形にしたうえで、ユーザー判断後に確定する。API、型、保存レコード構造、暗号方式、KDF、salt / nonce、具体的な HD 導出パス値、Binding 実装、メモリ配置、zeroize 方法、署名内容の提示・承認に関する具体的な UI、package exports の exact JSON、error code / error class / mapping および具体的な test command は本書の未決定事項ではなく、要件から仕様・設計・リリース検証へ引き継ぐ事項として扱う。
 
+同期 / 非同期については、単純な方針未決定ではなく、次の条件付き future decision とする。
+
+- 現時点の compatibility baseline は、既存 synchronous public API を React Native でも原則として維持することである。
+- NFR-015 / AC-061 の prototype、benchmark または実測 evidence により、対象 operation の synchronous execution が reasonable responsiveness、resource boundedness、safe lifetime / cleanup または必要な cancellation / interruption semantics を満たせないと確認された場合に限り、対象 operation の async contract または React Native support exclusion を再提案できる。
+- その場合は対象 operation、evidence、影響範囲、compatibility impact および候補 contract を記録し、async 化の採否を `NEEDS USER DECISION` とする。user decision 前に Promise 化、async 化または runtime ごとの黙った semantics 分岐を行わない。
+- native worker への移送、同期 wait、timeout または cancellation の具体方式だけでは async 採用の決定とみなさず、下流の仕様・実測検証へ引き継ぐ。
+
 仕様設計で決定する具体方式は未決定事項ではなく、要件から仕様へ引き継ぐ設計事項として管理する。
 
 ---
@@ -425,7 +434,7 @@ Profile パスワードの品質ポリシーそのものは Core 仕様設計の
 
 - Native / Node-API / WASM Binding および React Native Android / iOS binding boundary の外部契約、言語間の値変換、入力・出力検証およびエラー伝播
 - Node-API / WASM Binding と JavaScript 境界、React Native binding と application 境界の秘密情報受渡し・コピー・所有権・lifetime・消去
-- React Native binding における platform integration、Core invocation、初期化・load・invocation failure の具体的な扱い。JSI、TurboModule、Legacy Native Module、JNI、Swift、Objective-C++ その他の採用方式は本書で固定しない。
+- React Native binding における platform integration、Core invocation、初期化・load・invocation failure、ならびに高コスト operation の execution cost、JS blocking、responsiveness、resource behavior、cancellation / interruption および failure cleanup を測定・評価する具体的な扱い。JSI、TurboModule、Legacy Native Module、JNI、Swift、Objective-C++ その他の採用方式は本書で固定しない。
 - Browser 固有 Storage と Application の責任分界。current Store の選択、成功 replacement の適用、stale / historical Store の再適用防止および backup / snapshot の最新版管理は Application / persistence layer の責任とする。
 - 対象 OS / Browser / runtime の version、React Native Android / iOS の CPU architecture matrix、ビルド・配布方式。Node.js 22.x / 24.x の version policy は既存 npm / release contract を継承し、React Native 対応のために再定義しない。その他の具体値は NFR-012 / NFR-013 の support matrix と release gate による検証を満たす形で定義する。
 - `@nemnesia/symbol-nem-wallet-core` の package exports、runtime / platform resolution、build artifact および package 内部の platform-specific implementation。NFR-007 の単一 repository / package 制約を満たす具体形式を定義する。
