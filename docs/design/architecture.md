@@ -464,7 +464,30 @@ baseline は bounded operation / input / Store envelope、reasonable worst-case 
 
 この evidence で同期実行の安全な維持が困難な operation が出た場合は、対象と影響範囲を特定し、async public contract または RN support exclusion の採否を `NEEDS USER DECISION` とする。user decision なしに RN だけ Promise 化、async 化、runtime-specific な黙った semantics 分岐または automatic fallback を行わない。
 
-RN adapter を v1 の Core invocation admission / serialization authority とする。全 invocation を adapter が受け付け、同じ logical consumer context の read / mutation を v1 では一つずつ deterministic に実行する。Core / C ABI の concurrent thread-safety を RN integration contract とせず、admission order を execution order とし、completion / cleanup / result delivery 後に次を開始する。initialization は single-flight または同等の一意な lifecycle、shutdown / invalidation は新規 invoke を止める barrier とする。same current Store の mutation ordering、replacement の適用および current-state selection は Application / persistence layer の責任であり、RN Binding は Store history、Profile state、password cache、unlocked state、decrypted secret または current Store を共有保持しない。
+process-wide RN binding coordination を v1 の全 RN invocation domain に対する Core invocation admission / serialization authority とし、RN adapter はその境界内で各 logical consumer context の invocation を受け付ける。各 context の read / mutation は v1 では一つずつ deterministic に実行するが、Core / C ABI の concurrent thread-safety を RN integration contract としない。process-wide admission order を execution order とし、completion / cleanup / result delivery の可否判定後に次を開始する。initialization は process-wide single-flight または同等の一意な lifecycle、runtime-local shutdown / invalidation は当該 context の新規 invoke を止める barrier とする。same current Store の mutation ordering、replacement の適用および current-state selection は Application / persistence layer の責任であり、RN Binding は Store history、Profile state、password cache、unlocked state、decrypted secret または current Store を共有保持しない。
+
+この authority の scope は logical consumer context 内に閉じず、同一 process 内で RN から同じ C ABI / Rust Core に到達し得る全 invocation domain を覆う process-wide RN binding coordination とする。複数の RN runtime、module registry および logical consumer context は許可できるが、それぞれが独立した Core access authority を持つ構成は採用しない。責任階層は次のとおりである。
+
+```text
+process-wide RN binding coordination
+        ↓ 全 RN runtime / module registry の admission、共有 native resource lifecycle
+runtime / module-registry scope
+        ↓ runtime registration、runtime validity、result delivery、local teardown
+logical consumer context
+        ↓ context 内 ordering、reentrancy、request lifecycle
+RN adapter admission
+        ↓ existing public C ABI contract
+Rust Wallet Core
+        ↓ cryptographic / validation / authorization / Store security authority
+```
+
+process-wide coordination は、全 context の Core / C ABI invocation、shared native resource の初期化・利用・終了、cross-context の実行順、process-wide admission barrier および stale completion の棄却を一意に管理する。v1 では read、secret-capable operation および Store mutation を含む全 RN invocation に対して process-wide に同時 Core / C ABI 実行を許可しない。context 内の serialization はこの process-wide boundary を代替せず、runtime や module instance が別でも coordinator を bypass しない。process-wide execution order は coordinator の admission order とし、Application が current Store replacement を適用する責任や Store history の意味を RN binding が取得することはない。
+
+runtime / module-registry scope は登録状態、runtime-local validity、結果の delivery 先および runtime-local teardown だけを所有する。logical consumer context は context 内の admission、ordering、reentrancy および request lifecycle を所有するが、C ABI / Core への直接 access、process-wide resource の破棄または別 context の順序変更を行わない。runtime A の teardown は A の新規 admission と A への result delivery を停止するだけであり、runtime B が生存中の process-wide resource を A が破棄することはできない。process-wide teardown は coordinator の lifecycle authority が、全 runtime registration と in-flight invocation の状態を考慮して行う別の状態遷移であり、単一 runtime の teardown と同一視しない。
+
+context-local failure、conversion failure、cancellation または stale completion は原則としてその runtime / context に閉じ込める。一方、shared native resource の load / initialization / integrity failureなど process-wide に安全な access を保証できない failure は、coordinator が全 RN domain の新規 admission を止め、影響する invocation を明示的に失敗させる。completion は process-wide lifecycle と runtime / context lifecycle の双方が有効な場合だけ delivery し、teardown、reload、module registry 再生成または cancellation 後の stale result を success として適用しない。Core invocation 開始後の強制 thread kill は行わず、temporary、native resource および authorization-capable state を各境界で cleanup する。
+
+authority の依存方向は process-wide coordination → runtime / module-registry → logical consumer context → C ABI → Core とし、下位が上位へ同期的に再入して相互待ちする構造を要求しない。teardown は invalidated context の callback / result delivery を待って完了させず、operation completion と cleanup の barrier を coordinator が管理する。exact queue、lock hierarchy、worker、atomic primitive、callback および lifecycle hook は下流へ委譲する。
 
 ### 12.4 Android / iOS artifact architecture
 
@@ -502,10 +525,13 @@ React Native version、Android API、iOS version、Browser baseline、ABI matrix
 | RN artifact を source / build / target / evidence / npm assembly に bind する | local artifact、runtime download、既存 C ABI artifact との同一視 | package inclusion と release evidence の追跡可能性 | unapproved / mismatched artifact を use / load しない | RN artifact は npm release ownership、既存 Node / WASM / C ABI release semantics は不変 | manifest、digest、attestation、CI / release verification |
 | RN binding は TurboModule / JSI hybrid とする | legacy bridge only、pure public JSI、RN 専用 Rust binding | New Architecture の将来性、sync facade、binary transfer、共通性 | adapter が Core authority にならず、conversion / load failure を fail-closed | New Architecture primary、legacy は user decision | spec、Codegen、JSI、JNI / ObjC++、threading |
 | RN-private adapter が existing public C ABI contract を内部再利用する | RN 専用 Rust surface、Application から C ABI FFI、根拠なしの adapted public ABI | semantics、ownership、release evidence の重複を避ける | crypto / authorization / Store logic の duplicate を防ぐ | existing C ABI consumer の意味と public ABI を変えず、RN artifact を npm chain に分離する | exact ABI、transport adaptation、artifact、loader |
+| process-wide RN binding coordination を全 RN context の authority とする | context 内だけの serialization、Core / C ABI thread-safety への依存、runtime ごとの独立 lifecycle | 複数 runtime / module registry 間の concurrent invocation、init / shutdown、ordering、stale result を一意に管理する | shared resource failure を隠さず、secret / Core security semantics を RN へ移転しない | 複数 RN context は同一 process-wide boundary 配下で利用し、Node / Browser / WASM routing は変更しない | coordinator の実装、queue、lock、generation、lifecycle hook |
 | single package 内 runtime 分離 | RN package、public backend selector、universal fallback | package / API parity と misrouting 防止 | Node addon / WASM への誤 fallback と artifact confusion を防ぐ | Node / Browser routing を維持 | exports、resolver、Metro |
 | sync と fail-closed を維持する | async API、WASM fallback、stale result | public compatibility と明示的 failure | infrastructure failure が弱い backend や部分 state へ変換されない | RN support は native setup を要求 | init timing、error mapping、buffer mechanics |
 
 本表の sync / fail-closed row は、`docs/design/bindings.md` §12.3、§12.11、§12.12 および DDR-RN-004、DDR-RN-009、DDR-RN-010 で具体化する。RN adapter が v1 の admission / serialization authority となり、sync baseline の safety evidence と artifact trust chain を満たさない場合は、user decision 前に public semantics を変更しない。
+
+process-wide RN binding coordination の authority、runtime / module-registry の local lifecycle、logical consumer context の ordering および Rust Core の security authority は、`docs/design/bindings.md` §12.11、DDR-RN-009 と `docs/design/security.md` §12.5 で同じ invariant として扱う。複数 context を許可する場合も、全 invocation が一つの process-wide admission boundary を通過することを Design の前提とする。
 
 ## 13. React Native Architecture の検証可能性
 
