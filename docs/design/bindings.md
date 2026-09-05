@@ -500,6 +500,8 @@ ABI は build / packaging で選択し、JavaScript が ABI を選択しない�
 
 Android の support matrix は arm64 device と x86_64 emulator を基本候補とし、armeabi-v7a は product requirement がない限り追加しない。minimum Android API level は RN と target application の互換性を合わせて別途決定する。
 
+Android の module initialization は RN adapter が一意に管理し、初期化完了前の operation admission を許可しない。Application の background / foreground 遷移は Profile state、current Store、password authorization または secret の永続化・継続保持を発生させない。teardown、runtime invalidation または process termination が発生した場合、新規 admission を停止し、in-flight operation は完了して検証済みの結果を返すか、失敗して temporary、native resource および authorization-capable state を cleanup する。Core invocation を thread kill で強制中断したことを成功とみなさず、復帰後は lifecycle が有効な adapter と native artifact の初期化境界から再開する。Android lifecycle callback、keep-alive、再初期化の具体方式は下流へ委譲する。
+
 ### 12.7 iOS integration
 
 iOS は package に同梱する、承認済み device / simulator slice を含む統合 native artifact を native layer が利用する論理構成とする。予測可能な load、link および application packaging のため、static linkage を第一候補とするが、exact archive / framework / XCFramework / pod / Swift Package boundary は下流へ委譲する。dynamic runtime download や JS による artifact 選択は行わない。
@@ -516,6 +518,8 @@ RN TypeScript facade
 device / simulator の slice は native build が選択する。RN native artifact は source revision、package version、iOS target / slice、digest および release provenance evidence と結び付いた approved package input でなければならない。iOS は static / integrated artifact の link input、framework / archive composition、package assembly および release evidence の段階で approved artifact だけを受け入れる。static linkage では Android のような runtime load 前 hash verification を要求せず、link / build 時の source・target・slice・package identity の検証を trust point とする。missing slice、unsupported device / simulator、link / load failure、ABI mismatch、initialization failure または invalid output は native infrastructure error として明示的に失敗させ、WASM / Node addon へ fallback しない。static / dynamic の最終形式、Xcode build setting、podspec、artifact filename、method signature、buffer release は下流へ委譲する。
 
 iOS の architecture 候補は arm64 device と arm64 simulator を基本とし、x86_64 simulator は product requirement がある場合だけ追加する。device / simulator の同一 artifact grouping を release evidence で検証できる構成にする。
+
+iOS の module initialization、device / simulator artifact の利用可能性および adapter lifecycle は一意に管理し、初期化・link 確認前の operation admission を許可しない。Application の background / foreground 遷移、scene の切替または native teardown は secret、authorization、Profile state または current Store の継続 owner を生じさせない。teardown、runtime invalidation または process termination では新規 admission を停止し、in-flight operation の成功は Core completion、output validation および replacement の完全性が確認できた場合だけ delivery する。それ以外は失敗として temporary、native resource および authorization-capable state を cleanup し、復帰後に stale result や partial replacement を再利用しない。iOS lifecycle callback、scene integration、再初期化および link boundary の具体方式は下流へ委譲する。
 
 ### 12.8 Byte buffer boundary と ownership
 
@@ -836,6 +840,18 @@ Implementation / CI の具体 command は固定せず、次の検証面を将来
 - exact malformed input detection、output validation、initialization retry、timeout、cancellation、error message および fixture
 
 sync baseline を維持できるかを判断する exact operation envelope、benchmark device、production-equivalent build definition、measurement threshold、resource budget および evidence format も下流へ委譲する。ただし、unsafe evidence が出た場合に async 化を自動採用せず `NEEDS USER DECISION` とする責任境界は本書で確定する。
+
+#### Design Review follow-up traceability
+
+次表は canonical Design における correction の所在を示すものであり、既存 review artifact の finding status を変更するものではない。正式な `Resolved` 判定は、更新後の Design に対する次の Design Review で行う。
+
+| Finding | Canonical Design における解消内容 | 主な位置 |
+| --- | --- | --- |
+| UF-RN-001 | Requirements `NFR-008`、`NFR-015` および `AC-061` を、operation 分類、実行コンテキスト、blocking / resource evidence、failure cleanup および async 化の future decision gate へ接続する | `bindings.md` §12.3、§12.9、§12.17; `architecture.md` §12.3; `security.md` §12.5 |
+| DR-RN-001 | public synchrony と Core の execution context を分離し、adapter-owned admission、worker + blocking wait の扱い、bounded baseline、benchmark gate、cancellation / interruption および automatic async fallback 禁止を一意に定める | `bindings.md` §12.3、§12.11、DDR-RN-004 |
+| DR-RN-002 | RN adapter を v1 の concurrency / serialization / ordering / reentrancy / initialization / shutdown authority とし、Core / C ABI の thread-safety を RN integration contract にしない | `bindings.md` §12.11、DDR-RN-009; `security.md` §12.5 |
+| DR-RN-003 | RN-private adapter が existing public C ABI contract を内部再利用し、RN Application には公開せず、RN artifact の release ownership を npm package assembly chain に置く。RN-specific public C ABI は追加しない | `bindings.md` §12.1、§12.2、§12.12、DDR-RN-002 |
+| DR-RN-004 | RN artifact を source revision から controlled build、target、digest / provenance、approved npm assembly、published package まで bind し、Android は package / release assembly、iOS は package / link / composition を verification point とする | `bindings.md` §12.6、§12.7、§12.12、DDR-RN-010; `security.md` §12.4 |
 
 ## 13. React Native 技術資料の参照位置
 

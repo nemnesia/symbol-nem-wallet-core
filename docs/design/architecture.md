@@ -474,6 +474,8 @@ Android の初期 support 候補は `arm64-v8a` device と `x86_64` emulator、i
 
 iOS は link / load の予測可能性と artifact provenance のため static linkage を第一候補とする。Android は package / release assembly が target / ABI、approved artifact および digest / provenance relationship を検証した後に loader input とし、runtime hash verification を毎回要求しない。iOS は package assembly、framework / archive composition、link input および release evidence の段階で target / slice、source、version および approved artifact の関係を検証する。missing、wrong target / ABI / slice、manifest mismatch、release evidence mismatch または unapproved artifact は load / link 前後を問わず fail closed とし、Node / WASM へ fallback しない。Android の library grouping、iOS の static archive / framework / XCFramework の具体形式、loader、Gradle / CMake、pod / Xcode、filename、slice 検証および artifact manifest は下流に委譲する。
 
+Android / iOS の application lifecycle は native integration boundary の責任であり、Core の state authority を変更しない。初期化完了前、teardown / invalidation 後および対象 artifact が利用不能な期間は新規 Core invocation を admission しない。background / foreground 遷移、scene 切替または process termination による中断は、partial Profile、partial Store replacement、stale result、継続 authorization または secret cache を成功状態として残さない。in-flight operation の結果は Core completion、output validation、temporary cleanup および result delivery の境界を通過したものだけを Application が適用し、その他は明示的 failure として扱う。OS callback、再初期化および resource keep-alive の具体方式は下流に委譲する。
+
 ### 12.5 Public API、binary および failure invariant
 
 RN の追加は、existing public 16-operation set、TypeScript DTO semantics、`Uint8Array` を中心とする binary model、Core error semantics、warning、replacement、processing-unit authentication、explicit export、handoff、signing approval または Store semantics を変更しない。RN 固有 API、backend selector、native object、async variant または追加の secret export は Design に追加しない。

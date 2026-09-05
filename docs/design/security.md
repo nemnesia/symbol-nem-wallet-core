@@ -489,6 +489,7 @@ RN 追加で明示的に threat model へ加える対象は次のとおりであ
 | error object、log、warning、crash-facing diagnostic | secret-safe error boundary。secret、plaintext Store および password を含めない |
 | secret copy、immutable object、GC、crash dump、debugger | operation-local ownership、不要 copy / cache 禁止、ただし host-wide erasure は guarantee 外と明示 |
 | native initialization race、concurrent invocation、same-Store mutation | RN adapter を admission / serialization authority とし、Core / C ABI の thread-safety を RN integration contract にしない。initialization、reentrancy および cleanup を adapter で検証し、current Store ordering は Application に残す |
+| Android / iOS の background / foreground、scene 切替、teardown、process termination | lifecycle invalidation 後の新規 admission を止め、in-flight operation は完全な Core result と cleanup の両方が成立した場合だけ delivery する。中断・終了を partial state、stale result、継続 authorization または secret cache の成功へ変換しない |
 
 RN artifact の trust chain は次で一意に定める。
 
