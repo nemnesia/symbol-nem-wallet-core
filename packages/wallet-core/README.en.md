@@ -367,6 +367,16 @@ At runtime on Node.js, `Buffer` may be accepted as a `Uint8Array`-compatible inp
 
 Input binary ownership remains with the caller; the facade does not retain it. Returned binary is a new copy owned by the caller. Do not copy Mnemonics, passwords, private keys, decrypted secret material, or signatures into logs, analytics, diagnostics, caches, long-lived state, or unnecessary storage. After handoff, export, or signing is complete, the caller should overwrite sensitive buffers and discard references.
 
+## React Native
+
+React Native Android and iOS use the same package root. The `react-native` conditional export selects a private native entry, which calls the same Rust Core / C ABI through a New Architecture TurboModule / JSI adapter. React Native never falls back to the Node addon or WASM.
+
+The supported window is stable React Native `0.86.x` / `0.87.x` (`0.87.x` is the primary validation line), New Architecture, Android API 24+ with `arm64-v8a` / `x86_64`, and iOS 15.1+ with an arm64 device or Apple Silicon simulator. Expo support is limited to SDK 57 with React Native `0.86.x` in a Development Build / Prebuild custom-native-module workflow. Expo Go is unsupported.
+
+Missing or unverifiable native artifacts, providers, or registration fail with `WalletCoreBackendInitializationError`. There is no runtime download, postinstall compilation, separate RN package, RN-specific WASM binary, or Legacy Architecture / bridge fallback. RN native builds use the package `codegenConfig` and the bundled platform source / artifact manifest.
+
+The 16 RN functions are synchronous and use `Uint8Array` for public binary values. Store, Pending Profile, Mnemonic, password, private key, payload, signature, and replacement-Store handling follow the same contracts as Node and Browser.
+
 ## Node / Browser backend behavior
 
 ### Node.js

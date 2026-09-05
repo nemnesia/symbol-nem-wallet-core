@@ -1,5 +1,7 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+
+import { validateReactNativeManifest } from "../packages/wallet-core/src/react-native-manifest.mjs";
 
 const STATIC_DIST_FILES = [
   "index.d.ts",
@@ -12,6 +14,8 @@ const STATIC_DIST_FILES = [
   "wasm/index.cjs",
   "wasm/symbol_nem_wallet_core_wasm_bg.wasm",
   "native/artifact-manifest.json",
+  "react-native/index.js",
+  "react-native/artifact-manifest.json",
 ];
 
 function contentsError() {
@@ -29,7 +33,7 @@ function allFiles(root, prefix = "") {
   });
 }
 
-export function validatePackageContents(packageRoot, manifest) {
+export function validatePackageContents(packageRoot, manifest, reactNativeManifest = undefined) {
   if (manifest === null || typeof manifest !== "object" || !Array.isArray(manifest.artifacts)) {
     contentsError();
   }
@@ -40,6 +44,15 @@ export function validatePackageContents(packageRoot, manifest) {
   }
 
   const distRoot = resolve(packageRoot, "dist");
+  const packageMeta = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
+  const rnManifest =
+    reactNativeManifest ??
+    JSON.parse(readFileSync(resolve(distRoot, "react-native/artifact-manifest.json"), "utf8"));
+  try {
+    validateReactNativeManifest(rnManifest, packageMeta);
+  } catch {
+    contentsError();
+  }
   const actual = allFiles(distRoot);
   const snippets = actual.filter((file) => file.startsWith("wasm/snippets/"));
   if (snippets.length === 0 || snippets.some((file) => !/^wasm\/snippets\/[^/]+\/.+\.js$/.test(file))) {
@@ -59,7 +72,11 @@ export function validatePackageContents(packageRoot, manifest) {
       }
       return artifact.relative_path.slice("dist/".length);
     }),
+    ...rnManifest.artifacts.map((artifact) => artifact.relative_path.slice("dist/".length)),
   ]);
+  if (rnManifest.artifacts.some((artifact) => artifact.platform === "ios")) {
+    expected.add("react-native/ios/SymbolNemWalletCoreRN.xcframework/Info.plist");
+  }
   if (actual.length !== expected.size || actual.some((file) => !expected.has(file))) {
     contentsError();
   }

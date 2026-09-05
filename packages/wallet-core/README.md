@@ -363,6 +363,16 @@ Node runtime では `Buffer` が `Uint8Array` compatible input として受理�
 
 入力 binary の ownership は caller にあり、facade は入力を保持しません。返却 binary は caller が所有する新しい copy です。Mnemonic、password、private key、decrypted secret material、signature を log、analytics、diagnostics、cache、長期 state、不要な storage へコピーしないでください。目的の handoff / export / signing が終わったら、caller が sensitive buffer を上書きし、参照を破棄してください。
 
+## React Native
+
+React Native Android / iOS は同じ package root から利用できます。RN の runtime resolver は `react-native` conditional export で private native entry を選び、New Architecture の TurboModule / JSI adapter から同じ Rust Core / C ABI を呼び出します。RN 側に Node addon や WASM の fallback はありません。
+
+対応範囲は stable React Native `0.86.x` / `0.87.x`（`0.87.x` を primary validation line）、New Architecture、Android API 24 以上の `arm64-v8a` / `x86_64`、iOS 15.1 以上の arm64 device / Apple Silicon simulator です。Expo は SDK 57 と React Native `0.86.x` の Development Build / Prebuild（custom native module workflow）を対象とし、Expo Go は対象外です。
+
+native artifact の integrity または provider / registration が確認できない場合は `WalletCoreBackendInitializationError` で失敗します。runtime download、postinstall compile、別 RN package、RN 用の別 WASM binary、Legacy Architecture / bridge fallback はありません。RN native build は package の `codegenConfig` と同梱の platform source / artifact manifest を使用します。
+
+RN の 16 関数もすべて同期 API で、public binary は `Uint8Array` です。Store、Pending Profile、Mnemonic、password、private key、payload、signature の扱いと、成功時に返る replacement Store の適用規則は Node / Browser と同じです。
+
 ## Node / Browser backend behavior
 
 ### Node.js

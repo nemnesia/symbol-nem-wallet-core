@@ -14,6 +14,7 @@ import {
   NATIVE_TARGETS,
   validateNativeManifest,
 } from "../packages/wallet-core/src/manifest.mjs";
+import { validateReactNativeManifest } from "../packages/wallet-core/src/react-native-manifest.mjs";
 import {
   cargoLockSha256,
   pnpmLockSha256,
@@ -341,7 +342,7 @@ function validateWasmBindgenEvidence(evidence) {
   return evidence;
 }
 
-function packageRuntimeManifest(packageRoot, metadata, source, nativeEntries) {
+function packageRuntimeManifest(packageRoot, metadata, source, nativeEntries, requireReactNativeComplete = false) {
   const manifestPath = resolve(packageRoot, "dist/native/artifact-manifest.json");
   const manifest = json(manifestPath, "runtime native artifact manifest");
   try {
@@ -371,6 +372,17 @@ function packageRuntimeManifest(packageRoot, metadata, source, nativeEntries) {
     if (!existsSync(artifactPath)) fail(`assembled native artifact is missing: ${targetId}`);
     if (sha256(artifactPath) !== evidence.artifact_sha256) fail(`assembled native artifact hash mismatch: ${targetId}`);
     if (fileSize(artifactPath) !== evidence.artifact_size) fail(`assembled native artifact size mismatch: ${targetId}`);
+  }
+  const reactNativeManifest = json(resolve(packageRoot, "dist/react-native/artifact-manifest.json"), "runtime React Native artifact manifest");
+  try {
+    validateReactNativeManifest(reactNativeManifest, metadata, { requireComplete: requireReactNativeComplete });
+  } catch {
+    fail("runtime React Native artifact manifest is invalid");
+  }
+  for (const artifact of reactNativeManifest.artifacts) {
+    const artifactPath = resolve(packageRoot, artifact.relative_path);
+    if (!existsSync(artifactPath)) fail(`assembled React Native artifact is missing: ${artifact.target_id}`);
+    if (sha256(artifactPath) !== artifact.sha256) fail(`assembled React Native artifact hash mismatch: ${artifact.target_id}`);
   }
   try {
     validatePackageContents(packageRoot, manifest);
@@ -688,7 +700,7 @@ function validateContext(manifest, input) {
     if (evidence.target_id === "linux-x64-gnu" && (artifact.glibc_version_runtime !== evidence.glibc_version_runtime || artifact.max_required_glibc_symbol !== evidence.max_required_glibc_symbol)) fail("Linux glibc evidence mismatch");
   }
 
-  const runtime = packageRuntimeManifest(input.packageRoot, metadata, source, native.entries);
+  const runtime = packageRuntimeManifest(input.packageRoot, metadata, source, native.entries, manifest.mode === "release");
   const wasmSummary = json(input.wasmSummaryPath, "WASM summary");
   validateWasmEvidence(wasmSummary, source, manifest.package_version, input.wasmSourcePath);
   const wasmEvidence = json(input.wasmEvidencePath, "WASM evidence");
@@ -738,7 +750,7 @@ export function createReleaseManifest({
   if (source.package_version !== metadata.version) fail("source and npm package versions differ");
   validateReleaseTag(mode, metadata.version, releaseTag);
   const native = readNativeEvidenceSet(nativeSummaryPath, nativeEvidenceRoot, source, metadata.version);
-  const runtime = packageRuntimeManifest(packageRoot, metadata, source, native.entries);
+  const runtime = packageRuntimeManifest(packageRoot, metadata, source, native.entries, mode === "release");
   const wasmSummary = json(wasmSummaryPath, "WASM summary");
   validateWasmEvidence(wasmSummary, source, metadata.version, wasmSourcePath);
   const wasmEvidence = json(wasmEvidencePath, "WASM evidence");

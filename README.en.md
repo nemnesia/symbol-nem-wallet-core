@@ -4,7 +4,7 @@
 
 The Japanese version is authoritative if there is any discrepancy.
 
-`symbol-nem-wallet-core` is a monorepo containing a Rust Wallet Core for Symbol / NEM secrets, its Native C ABI and WASM bindings, and the Node.js / Browser npm facade. The main distribution path is `@nemnesia/symbol-nem-wallet-core`.
+`symbol-nem-wallet-core` is a monorepo containing a Rust Wallet Core for Symbol / NEM secrets, its Native C ABI and WASM bindings, and the Node.js / Browser / React Native npm facade. The main distribution path is `@nemnesia/symbol-nem-wallet-core`.
 
 ## Project overview
 
@@ -80,6 +80,8 @@ console.log(account.value.address);
 The input Store is not mutated in place. After a successful mutation, always use `result.store` as the next current Store and atomically apply only replacements that were persisted successfully. Keep the previous committed Store on failure.
 
 Node.js prefers a package-local native artifact when the target is supported. `node --no-addons` and unsupported targets without a native artifact use package-local WASM. A missing, corrupt, unreadable, or initialization-failing declared native artifact fails closed and is not silently retried through WASM. Browser applications use the package-local canonical WASM and do not download remote assets.
+
+React Native Android / iOS use the `react-native` conditional export from the same npm package root and a New Architecture TurboModule / JSI binding. The 16 functions, DTOs, `Uint8Array` model, and synchronous contract are shared with the existing facade; there is no fallback to the Node addon or WASM. The supported scope is stable RN `0.86.x` / `0.87.x`, Android API 24+ with `arm64-v8a` / `x86_64`, and iOS 15.1+ with an arm64 device or Apple Silicon simulator. Expo Go is unsupported; Expo support is limited to the SDK 57 + RN `0.86.x` Development Build / Prebuild custom-native-module workflow.
 
 For the detailed 16 functions, types, requests, results, and export / signing flows, see the [npm package README](packages/wallet-core/README.en.md).
 
@@ -227,7 +229,7 @@ Symbol and NEM are not treated as one scheme for HD derivation, public keys, add
 
 ## Native C ABI
 
-The Native C ABI is not the npm public API. It is the native integration package `symbol-nem-wallet-core-native` and the [public header](crates/c-abi/include/symbol_nem_wallet_core.h). It is a different artifact from the Node-API `.node` artifact. Formal releases retain the archives and evidence for the four supported desktop targets as GitHub Release assets, separately from the npm package. Android / iOS C ABI support is deferred until MosaicLynx integration.
+The Native C ABI is not the npm public API. It is the native integration package `symbol-nem-wallet-core-native` and the [public header](crates/c-abi/include/symbol_nem_wallet_core.h). It is a different artifact from the Node-API `.node` artifact. Formal releases retain the archives and evidence for the four supported desktop targets as GitHub Release assets, separately from the npm package. Standalone Android / iOS C ABI artifact publication remains delegated to the MosaicLynx integration; React Native reuses the existing C ABI contract through a private adapter inside the npm package.
 
 ```bash
 cargo build --package symbol-nem-wallet-core-native --release --locked

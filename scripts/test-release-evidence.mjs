@@ -24,6 +24,7 @@ import {
   validateReleaseManifest,
 } from "./release-manifest.mjs";
 import { CANONICAL_TARGET_ORDER, NATIVE_TARGETS } from "../packages/wallet-core/src/manifest.mjs";
+import { REACT_NATIVE_TARGETS } from "../packages/wallet-core/src/react-native-manifest.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -65,6 +66,7 @@ function fixture() {
   const nativeEvidenceRoot = resolve(root, "native-evidence");
   const wasmRoot = resolve(root, "wasm-evidence");
   mkdirSync(resolve(packageRoot, "dist/native"), { recursive: true });
+  mkdirSync(resolve(packageRoot, "dist/react-native"), { recursive: true });
   mkdirSync(resolve(packageRoot, "dist/wasm/snippets/fixture"), { recursive: true });
   mkdirSync(nativeEvidenceRoot, { recursive: true });
   mkdirSync(wasmRoot, { recursive: true });
@@ -76,6 +78,7 @@ function fixture() {
     "dist/index.d.ts",
     "dist/node/index.mjs",
     "dist/node/index.cjs",
+    "dist/react-native/index.js",
     "dist/wasm/generated.mjs",
     "dist/wasm/generated.cjs",
     "dist/wasm/asset.mjs",
@@ -146,6 +149,34 @@ function fixture() {
     }),
   };
   writeJson(resolve(packageRoot, "dist/native/artifact-manifest.json"), runtimeManifest);
+
+  const reactNativeArtifacts = Object.entries(REACT_NATIVE_TARGETS).map(([targetId, target]) => {
+    const artifactBytes = Buffer.from(`react-native-${targetId}`);
+    const artifactPath = resolve(packageRoot, target.relativePath);
+    mkdirSync(resolve(artifactPath, ".."), { recursive: true });
+    writeFileSync(artifactPath, artifactBytes);
+    return {
+      target_id: targetId,
+      platform: target.platform,
+      environment: target.environment,
+      architecture: target.architecture,
+      relative_path: target.relativePath,
+      artifact_filename: target.artifactFilename,
+      sha256: sha256(artifactBytes),
+      toolchain_identifier: toolchainIdentifier,
+    };
+  });
+  writeJson(resolve(packageRoot, "dist/react-native/artifact-manifest.json"), {
+    schema_version: 1,
+    package_name: metadata.name,
+    package_version: metadata.version,
+    source_commit: sourceCommit,
+    artifacts: reactNativeArtifacts,
+  });
+  writeFileSync(
+    resolve(packageRoot, "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/Info.plist"),
+    "fixture XCFramework metadata",
+  );
 
   const wasmBytes = Buffer.from("raw Rust wasm input");
   const wasmSourcePath = resolve(wasmRoot, "symbol_nem_wallet_core_wasm.wasm");

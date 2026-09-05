@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { targetForRuntime, validateNativeManifest } from "../packages/wallet-core/src/manifest.mjs";
+import { validateReactNativeManifest } from "../packages/wallet-core/src/react-native-manifest.mjs";
 import { validateNpmPackageMetadata } from "./npm-repository.mjs";
 import { validatePackageContents } from "./package-contents.mjs";
 
@@ -103,6 +104,23 @@ function validateAssembledManifest(manifest, meta) {
     toolchains.add(artifact.toolchain_identifier);
   }
   if (toolchains.size !== 1) fail("assembled native artifacts do not share one toolchain identifier");
+}
+
+function validateAssembledReactNativeManifest(manifest, meta) {
+  try {
+    validateReactNativeManifest(manifest, meta, {
+      requireComplete: process.env.SNWC_REQUIRE_REACT_NATIVE_ARTIFACTS === "true",
+    });
+  } catch {
+    fail("assembled React Native artifact manifest is invalid");
+  }
+  for (const artifact of manifest.artifacts) {
+    const artifactPath = resolve(packageRoot, artifact.relative_path);
+    if (!existsSync(artifactPath) || sha256(bytes(artifactPath)) !== artifact.sha256) {
+      fail(`assembled React Native artifact hash mismatch: ${artifact.target_id}`);
+    }
+  }
+  return manifest;
 }
 
 function currentTarget() {
@@ -294,11 +312,33 @@ function validatePackedRepositoryMetadata(tarball, packageMetadata) {
 }
 
 function packageInventory(manifest, entry) {
+  const packageSources = [
+    "android/CMakeLists.txt",
+    "android/build.gradle",
+    "cpp/NativeSymbolNemWalletCore.cpp",
+    "cpp/NativeSymbolNemWalletCore.h",
+    "cpp/NativeSymbolNemWalletCoreProvider.cpp",
+    "cpp/NativeSymbolNemWalletCoreProvider.h",
+    "cpp/include/symbol_nem_wallet_core.h",
+    "ios/NativeSymbolNemWalletCoreProvider.h",
+    "ios/NativeSymbolNemWalletCoreProvider.mm",
+    "ios/SymbolNemWalletCoreRN.podspec",
+    "src/react-native/NativeSymbolNemWalletCore.ts",
+    "src/react-native/index.mjs",
+    "src/react-native/native-module.mjs",
+  ];
+  const reactNativeManifest = json(
+    resolve(packageRoot, "dist/react-native/artifact-manifest.json"),
+  );
   const expected = new Set([
     "LICENSE",
     "README.md",
     "README.en.md",
     "dist/index.d.ts",
+    ...packageSources,
+    "dist/react-native/index.js",
+    "dist/react-native/artifact-manifest.json",
+    ...reactNativeManifest.artifacts.map((artifact) => artifact.relative_path),
     "dist/native/artifact-manifest.json",
     ...manifest.artifacts.map((artifact) => artifact.relative_path),
     "dist/node/index.cjs",
@@ -314,6 +354,9 @@ function packageInventory(manifest, entry) {
       .map((file) => file.path.replace(/^package\//, ""))
       .filter((file) => file.startsWith("dist/wasm/snippets/")),
   ]);
+  if (reactNativeManifest.artifacts.some((artifact) => artifact.platform === "ios")) {
+    expected.add("dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/Info.plist");
+  }
   const actual = entry.files.map((file) => file.path.replace(/^package\//, ""));
   if (actual.length !== expected.size || actual.some((file) => !expected.has(file))) {
     const missing = [...expected].filter((file) => !actual.includes(file));
@@ -366,6 +409,8 @@ const repositoryMetadata = validatePackedRepositoryMetadata(packResult.tarball, 
 const manifest = json(resolve(packageRoot, "dist/native/artifact-manifest.json"));
 validateNativeManifest(manifest, meta);
 validateAssembledManifest(manifest, meta);
+const reactNativeManifest = json(resolve(packageRoot, "dist/react-native/artifact-manifest.json"));
+validateAssembledReactNativeManifest(reactNativeManifest, meta);
 validatePackageContents(packageRoot, manifest);
 if (manifest.artifacts.length !== 4) fail("final package must contain exactly four native artifacts");
 if (files(resolve(packageRoot, "dist")).filter((file) => file.endsWith(".wasm")).length !== 1) {

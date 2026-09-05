@@ -409,6 +409,8 @@ jobs:
             --native-artifact linux-x64-gnu=release-input/native/linux-x64-gnu.node
 
       - name: Run final package, clean-install, and fail-closed gates
+        env:
+          SNWC_REQUIRE_REACT_NATIVE_ARTIFACTS: ${{ (inputs.release_mode || 'candidate') == 'release' && 'true' || 'false' }}
         run: node scripts/test-npm-release.mjs
 
       - name: Write release candidate tarball

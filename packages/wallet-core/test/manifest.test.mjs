@@ -13,6 +13,13 @@ import {
   targetForRuntime,
   validateNativeManifest,
 } from "../src/manifest.mjs";
+import {
+  CANONICAL_REACT_NATIVE_TARGET_ORDER,
+  REACT_NATIVE_TARGETS,
+  assembleReactNativeManifest,
+  validateReactNativeArtifactInputs,
+  validateReactNativeManifest,
+} from "../src/react-native-manifest.mjs";
 
 const packageMeta = {
   name: "@nemnesia/symbol-nem-wallet-core",
@@ -122,6 +129,63 @@ test("native artifact preflight rejects unsafe or non-canonical inputs before as
     assert.throws(() =>
       validateNativeArtifactInputs([{ targetId: "linux-x64-gnu", path: directoryNamedAsNode }]),
     );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("React Native manifest keeps the four approved target identities and rejects extras", () => {
+  const manifest = {
+    schema_version: 1,
+    package_name: packageMeta.name,
+    package_version: packageMeta.version,
+    source_commit: sourceCommit,
+    artifacts: [],
+  };
+  assert.equal(validateReactNativeManifest(manifest, packageMeta), manifest);
+  assert.throws(() => validateReactNativeManifest(manifest, packageMeta, { requireComplete: true }));
+  assert.deepEqual(CANONICAL_REACT_NATIVE_TARGET_ORDER, [
+    "android-arm64-v8a",
+    "android-x86_64",
+    "ios-arm64",
+    "ios-simulator-arm64",
+  ]);
+  assert.equal(REACT_NATIVE_TARGETS["android-arm64-v8a"].architecture, "arm64-v8a");
+  assert.equal(REACT_NATIVE_TARGETS["ios-simulator-arm64"].architecture, "arm64");
+  assert.throws(() => validateReactNativeManifest({ ...manifest, unexpected: true }, packageMeta));
+  assert.throws(() => validateReactNativeManifest({ ...manifest, source_commit: sourceCommit.toUpperCase() }, packageMeta));
+  assert.throws(() => validateReactNativeManifest({ ...manifest, artifacts: [{ target_id: "android-x86" }] }, packageMeta));
+});
+
+test("React Native assembly hashes only supplied canonical artifacts and rejects partial release input", () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "snwc-react-native-manifest-"));
+  try {
+    const paths = Object.fromEntries(
+      Object.entries(REACT_NATIVE_TARGETS).map(([targetId, target]) => {
+        const path = resolve(directory, target.artifactFilename);
+        writeFileSync(path, Buffer.from(targetId));
+        return [targetId, path];
+      }),
+    );
+    assert.deepEqual(validateReactNativeArtifactInputs([]), []);
+    assert.throws(() => validateReactNativeArtifactInputs([
+      { targetId: "android-arm64-v8a", path: paths["android-arm64-v8a"] },
+    ], { requireComplete: true }));
+    const manifest = assembleReactNativeManifest({
+      packageVersion: packageMeta.version,
+      sourceCommit,
+      toolchainIdentifier: "test-toolchain",
+      requireComplete: true,
+      artifacts: Object.entries(paths).reverse().map(([targetId, path]) => ({ targetId, path })),
+    });
+    assert.deepEqual(
+      manifest.artifacts.map((artifact) => artifact.target_id),
+      CANONICAL_REACT_NATIVE_TARGET_ORDER,
+    );
+    assert.equal(manifest.artifacts.every((artifact) => artifact.sha256.length === 64), true);
+    assert.throws(() => validateReactNativeArtifactInputs([
+      { targetId: "android-arm64-v8a", path: resolve(directory, "wrong.node") },
+    ]));
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

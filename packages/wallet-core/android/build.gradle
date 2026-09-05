@@ -1,0 +1,16 @@
+apply plugin: "com.android.library"
+
+android {
+    namespace "com.nemnesia.symbolnemwalletcore"
+    compileSdkVersion rootProject.ext.has("compileSdkVersion") ? rootProject.ext.compileSdkVersion : 35
+
+    defaultConfig {
+        minSdkVersion 24
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ["../dist/react-native/android/jni"]
+        }
+    }
+}

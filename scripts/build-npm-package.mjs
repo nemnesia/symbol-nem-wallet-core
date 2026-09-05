@@ -8,6 +8,11 @@ import {
   assembleNativeManifest,
   validateNativeArtifactInputs,
 } from "./native-manifest.mjs";
+import {
+  assembleReactNativeManifest,
+  validateReactNativeArtifactInputs,
+  REACT_NATIVE_TARGETS,
+} from "../packages/wallet-core/src/react-native-manifest.mjs";
 import { validatePackageContents } from "./package-contents.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -17,13 +22,13 @@ const wasmFilename = "symbol_nem_wallet_core_wasm_bg.wasm";
 
 function usage() {
   console.error(
-    "usage: node scripts/build-npm-package.mjs [--native-artifact target_id=path]... [--wasm path] [--wasm-bindgen-bin path]",
+    "usage: node scripts/build-npm-package.mjs [--native-artifact target_id=path]... [--react-native-artifact target_id=path]... [--wasm path] [--wasm-bindgen-bin path]",
   );
   process.exitCode = 2;
 }
 
 function parseOptions(argv) {
-  const options = { nativeArtifacts: [] };
+  const options = { nativeArtifacts: [], reactNativeArtifacts: [] };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--native-artifact") {
@@ -34,6 +39,17 @@ function parseOptions(argv) {
         return null;
       }
       options.nativeArtifacts.push({
+        targetId: value.slice(0, separator),
+        path: resolve(repositoryRoot, value.slice(separator + 1)),
+      });
+    } else if (argument === "--react-native-artifact") {
+      const value = argv[++index];
+      const separator = value?.indexOf("=");
+      if (separator === undefined || separator < 1 || separator === value.length - 1) {
+        usage();
+        return null;
+      }
+      options.reactNativeArtifacts.push({
         targetId: value.slice(0, separator),
         path: resolve(repositoryRoot, value.slice(separator + 1)),
       });
@@ -58,7 +74,11 @@ function sourceCommit() {
       cwd: repositoryRoot,
       encoding: "utf8",
     }).trim();
-  } catch {
+  } catch (error) {
+    const output = typeof error?.stdout === "string" ? error.stdout.trim() : "";
+    if (/^[0-9a-f]{40}$/.test(output)) {
+      return output;
+    }
     throw new Error("unable to determine source commit; set SNWC_SOURCE_COMMIT");
   }
 }
@@ -108,6 +128,27 @@ function copyWasmGlue(sourceRoot, destinationRoot, outputName) {
   }
 }
 
+function inlineReactNativeRuntime(entryPath, runtimePaths) {
+  let source = readFileSync(entryPath, "utf8");
+  const replacements = [
+    {
+      importLine: 'import { createFacade } from "../facade-runtime.mjs";\n',
+      runtimePath: runtimePaths[0],
+    },
+    {
+      importLine: 'import { getReactNativeModule } from "./native-module.mjs";\n',
+      runtimePath: runtimePaths[1],
+    },
+  ];
+  for (const { importLine, runtimePath } of replacements) {
+    const runtime = readFileSync(runtimePath, "utf8")
+      .replace(/^export \{[^;]+;\n?/gm, "")
+      .replace(/^export /gm, "");
+    source = source.replace(importLine, runtime);
+  }
+  return source;
+}
+
 function inlineRuntime(entryPath, runtimePaths) {
   let source = readFileSync(entryPath, "utf8");
   for (const runtimePath of runtimePaths) {
@@ -132,11 +173,17 @@ function inlineRuntime(entryPath, runtimePaths) {
 
 function build(options) {
   const nativeArtifacts = validateNativeArtifactInputs(options.nativeArtifacts);
+  const reactNativeArtifacts = validateReactNativeArtifactInputs(options.reactNativeArtifacts, {
+    requireComplete: options.reactNativeArtifacts.length > 0,
+  });
   const packageMeta = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
+  const sourceRevision = sourceCommit();
+  const buildToolchain = toolchainIdentifier();
   rmSync(distRoot, { recursive: true, force: true });
   mkdirSync(resolve(distRoot, "node"), { recursive: true });
   mkdirSync(resolve(distRoot, "wasm"), { recursive: true });
   mkdirSync(resolve(distRoot, "native"), { recursive: true });
+  mkdirSync(resolve(distRoot, "react-native"), { recursive: true });
 
   cpSync(resolve(packageRoot, "src/index.d.ts"), resolve(distRoot, "index.d.ts"));
 
@@ -187,6 +234,14 @@ function build(options) {
     ]),
   );
 
+  writeFileSync(
+    resolve(distRoot, "react-native/index.js"),
+    inlineReactNativeRuntime(resolve(packageRoot, "src/react-native/index.mjs"), [
+      resolve(packageRoot, "src/facade-runtime.mjs"),
+      resolve(packageRoot, "src/react-native/native-module.mjs"),
+    ]),
+  );
+
   for (const item of nativeArtifacts) {
     const targetRoot = resolve(distRoot, "native", item.targetId);
     mkdirSync(targetRoot, { recursive: true });
@@ -198,15 +253,80 @@ function build(options) {
   }));
   const manifest = assembleNativeManifest({
     packageVersion: packageMeta.version,
-    sourceCommit: sourceCommit(),
+    sourceCommit: sourceRevision,
     artifacts: suppliedArtifacts,
-    toolchainIdentifier: toolchainIdentifier(),
+    toolchainIdentifier: buildToolchain,
   });
   writeFileSync(
     resolve(distRoot, "native/artifact-manifest.json"),
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
-  validatePackageContents(packageRoot, manifest);
+
+  for (const item of reactNativeArtifacts) {
+    const target = REACT_NATIVE_TARGETS[item.targetId];
+    const destination = target.platform === "android"
+      ? resolve(distRoot, target.relativePath.slice("dist/".length))
+      : resolve(distRoot, target.relativePath.slice("dist/".length));
+    mkdirSync(resolve(destination, ".."), { recursive: true });
+    cpSync(item.path, destination);
+  }
+  if (reactNativeArtifacts.some((item) => REACT_NATIVE_TARGETS[item.targetId].platform === "ios")) {
+    const xcframeworkRoot = resolve(
+      distRoot,
+      "react-native/ios/SymbolNemWalletCoreRN.xcframework",
+    );
+    writeFileSync(
+      resolve(xcframeworkRoot, "Info.plist"),
+      `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>AvailableLibraries</key>
+  <array>
+    <dict>
+      <key>LibraryIdentifier</key>
+      <string>ios-arm64</string>
+      <key>LibraryPath</key>
+      <string>libsymbol_nem_wallet_core_rn.a</string>
+      <key>SupportedArchitectures</key>
+      <array><string>arm64</string></array>
+      <key>SupportedPlatform</key>
+      <string>ios</string>
+    </dict>
+    <dict>
+      <key>LibraryIdentifier</key>
+      <string>ios-arm64-simulator</string>
+      <key>LibraryPath</key>
+      <string>libsymbol_nem_wallet_core_rn.a</string>
+      <key>SupportedArchitectures</key>
+      <array><string>arm64</string></array>
+      <key>SupportedPlatform</key>
+      <string>ios</string>
+      <key>SupportedPlatformVariant</key>
+      <string>simulator</string>
+    </dict>
+  </array>
+  <key>CFBundlePackageType</key>
+  <string>XFWK</string>
+  <key>XCFrameworkFormatVersion</key>
+  <string>1.0</string>
+</dict>
+</plist>
+`,
+    );
+  }
+  const reactNativeManifest = assembleReactNativeManifest({
+    packageVersion: packageMeta.version,
+    sourceCommit: sourceRevision,
+    artifacts: reactNativeArtifacts,
+    toolchainIdentifier: buildToolchain,
+    requireComplete: options.reactNativeArtifacts.length > 0,
+  });
+  writeFileSync(
+    resolve(distRoot, "react-native/artifact-manifest.json"),
+    `${JSON.stringify(reactNativeManifest, null, 2)}\n`,
+  );
+  validatePackageContents(packageRoot, manifest, reactNativeManifest);
 }
 
 const options = parseOptions(process.argv.slice(2));

@@ -48,6 +48,7 @@ test("package metadata keeps conditional export order and package-local allowlis
   assert.deepEqual(packageJson.exports, {
     ".": {
       types: "./dist/index.d.ts",
+      "react-native": "./dist/react-native/index.js",
       "node-addons": {
         import: "./dist/node/index.mjs",
         require: "./dist/node/index.cjs",
@@ -59,7 +60,7 @@ test("package metadata keeps conditional export order and package-local allowlis
     },
   });
   assert.deepEqual(Object.keys(packageJson.exports), ["."]);
-  assert.deepEqual(Object.keys(packageJson.exports["."]), ["types", "node-addons", "default"]);
+  assert.deepEqual(Object.keys(packageJson.exports["."]), ["types", "react-native", "node-addons", "default"]);
   assert.deepEqual(Object.keys(packageJson.exports["."]["node-addons"]), ["import", "require"]);
   assert.deepEqual(Object.keys(packageJson.exports["."]["default"]), ["import", "require"]);
   assert.equal(packageJson.type, "module");
@@ -68,6 +69,9 @@ test("package metadata keeps conditional export order and package-local allowlis
 
   const files = allFiles(resolve(packageRoot, "dist")).sort();
   const manifest = JSON.parse(readFileSync(resolve(packageRoot, "dist/native/artifact-manifest.json"), "utf8"));
+  const reactNativeManifest = JSON.parse(
+    readFileSync(resolve(packageRoot, "dist/react-native/artifact-manifest.json"), "utf8"),
+  );
   assert.equal(validatePackageContents(packageRoot, manifest), true);
   const snippetFiles = files.filter((file) => file.startsWith("wasm/snippets/"));
   assert.equal(snippetFiles.length, 1);
@@ -85,7 +89,13 @@ test("package metadata keeps conditional export order and package-local allowlis
     ...snippetFiles,
     "native/artifact-manifest.json",
     ...manifest.artifacts.map((artifact) => artifact.relative_path.replace(/^dist\//, "")),
+    "react-native/index.js",
+    "react-native/artifact-manifest.json",
+    ...reactNativeManifest.artifacts.map((artifact) => artifact.relative_path.replace(/^dist\//, "")),
   ]);
+  if (reactNativeManifest.artifacts.some((artifact) => artifact.platform === "ios")) {
+    allowed.add("react-native/ios/SymbolNemWalletCoreRN.xcframework/Info.plist");
+  }
   assert.deepEqual(files, [...allowed].sort());
   assert.equal(files.filter((file) => file.endsWith(".wasm")).length, 1);
   assert.equal(statSync(resolve(packageRoot, "dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm")).isFile(), true);
@@ -146,6 +156,9 @@ test("npm pack dry run contains only package metadata, README, license, and dist
     "dist/index.d.ts",
     "dist/native/artifact-manifest.json",
     ...JSON.parse(readFileSync(resolve(packageRoot, "dist/native/artifact-manifest.json"), "utf8")).artifacts.map((artifact) => artifact.relative_path),
+    "dist/react-native/artifact-manifest.json",
+    "dist/react-native/index.js",
+    ...JSON.parse(readFileSync(resolve(packageRoot, "dist/react-native/artifact-manifest.json"), "utf8")).artifacts.map((artifact) => artifact.relative_path),
     "dist/node/index.cjs",
     "dist/node/index.mjs",
     "dist/wasm/generated.cjs",
@@ -156,5 +169,18 @@ test("npm pack dry run contains only package metadata, README, license, and dist
     ...snippetFiles,
     "dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm",
     "package.json",
+    "android/CMakeLists.txt",
+    "android/build.gradle",
+    "cpp/NativeSymbolNemWalletCore.cpp",
+    "cpp/NativeSymbolNemWalletCore.h",
+    "cpp/NativeSymbolNemWalletCoreProvider.cpp",
+    "cpp/NativeSymbolNemWalletCoreProvider.h",
+    "cpp/include/symbol_nem_wallet_core.h",
+    "ios/NativeSymbolNemWalletCoreProvider.h",
+    "ios/NativeSymbolNemWalletCoreProvider.mm",
+    "ios/SymbolNemWalletCoreRN.podspec",
+    "src/react-native/NativeSymbolNemWalletCore.ts",
+    "src/react-native/index.mjs",
+    "src/react-native/native-module.mjs",
   ].sort());
 });
