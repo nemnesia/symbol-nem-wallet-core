@@ -850,6 +850,12 @@ third-party cryptographic library 内部、compiler、runtime、OS、browser、h
 
 Binding は型変換、byte buffer transfer、error / warning mapping、lifecycle / memory ownership の橋渡しだけを行う。Binding は user intent authority、assertion freshness authority または current Store authority ではなく、Application と Core の contract を忠実に伝達するだけである。
 
+React Native Android / iOS の private entry、TurboModule / JSI、process-wide coordination、runtime /
+module-registry identity、platform artifact、Expo および RN-specific lifecycle の詳細は
+[`react-native.md`](react-native.md) を canonical downstream specification とする。本節の Core、
+Native C ABI、secret ownership、error、binary および zeroization contract は RN 経路にも共通に適用し、
+RN binding は別の security meaning を持たない。
+
 Binding は、handoff / export / signing の status を生成せず、password の認証結果から補完せず、stale assertion を cache / retain して別 operation へ再利用せず、target、payload または AccountContext を書き換えない。Binding は Store history DB、rollback detector または current Store selector を持たず、Wallet Store を opaque のまま Application と Core の間で橋渡しする。current Store の選択、successful replacement の適用および stale / historical Store の再適用防止は Application / persistence layer の責任である。
 
 Binding に暗号化、password authentication、Mnemonic validation、key derivation、signing、duplicate detection を再実装しない。
@@ -1009,6 +1015,7 @@ target に未達した場合、verification record に少なくとも uncovered 
 | Current Store authority / historical rollback | FR-012, FR-017, SEC-005, SEC-018, AC-012, AC-018, AC-048                                           |
 | Assertion freshness / Core authorization      | FR-007, FR-009, SEC-002, SEC-007, SEC-014, SEC-021, SEC-022, AC-007, AC-009, AC-031, AC-050        |
 | Binding / Native C ABI / Node-API / WASM       | FR-019, NFR-001..004, SEC-011, SEC-012, SEC-017, SEC-020, AC-015..016, AC-021..024, AC-040, AC-043 |
+| React Native Binding / platform                 | NFR-006..015, SEC-011, SEC-012, SEC-017, AC-051..061。詳細は `docs/specifications/react-native.md` |
 | Initial Mnemonic handoff                      | FR-001, FR-019, SEC-010, SEC-017..018, AC-001, AC-034                                              |
 | Individual secret export                      | FR-022, FR-023, FR-019, SEC-010, SEC-015, SEC-017, SEC-020..021, AC-025..026, AC-041..043          |
 | Pending / failure / retry / restart           | FR-007, FR-019, SEC-003, SEC-005, SEC-017..019, AC-007, AC-037..039, AC-046                        |
@@ -1063,6 +1070,7 @@ target に未達した場合、verification record に少なくとも uncovered 
 - `docs/design/security.md`
 - `docs/design/bindings.md`
 - `docs/specifications/wallet-store-format-v1.md`
+- `docs/specifications/react-native.md`
 - RFC 8949: Concise Binary Object Representation (CBOR)
 - BIP39: Mnemonic code for generating deterministic keys
 - BIP44: Multi-Account Hierarchy for Deterministic Wallets
