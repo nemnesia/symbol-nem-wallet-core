@@ -70,6 +70,122 @@ function validPackageVersion(value) {
     /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value);
 }
 
+const REQUIRED_RN_SYMBOLS = Object.freeze([
+  "snwc_rn_module_identity",
+  "symbolNemWalletCoreCxxModuleProvider",
+]);
+
+function hasRequiredSymbols(bytes) {
+  return REQUIRED_RN_SYMBOLS.every((symbol) => bytes.includes(Buffer.from(symbol, "utf8")));
+}
+
+function inspectElf(bytes, target) {
+  if (bytes.length < 64 || bytes[0] !== 0x7f || bytes.toString("ascii", 1, 4) !== "ELF") {
+    assemblyError();
+  }
+  if (bytes[4] !== 2 || bytes[5] !== 1 || bytes.readUInt16LE(16) !== 3) {
+    assemblyError();
+  }
+  const machine = bytes.readUInt16LE(18);
+  const expectedMachine = target.architecture === "arm64-v8a" ? 183 : 62;
+  if (machine !== expectedMachine) assemblyError();
+  if (!hasRequiredSymbols(bytes)) assemblyError();
+  return {
+    format: "ELF64",
+    identity: {
+      format: "ELF64",
+      endian: "little",
+      type: "ET_DYN",
+      machine: target.architecture === "arm64-v8a" ? "AArch64" : "x86_64",
+      architecture: target.architecture,
+    },
+    requiredSymbols: [...REQUIRED_RN_SYMBOLS],
+  };
+}
+
+function machOIdentity(bytes, target) {
+  if (bytes.length < 32) return null;
+  const magic = bytes.readUInt32LE(0);
+  if (magic !== 0xfeedfacf) return null;
+  const cpuType = bytes.readUInt32LE(4);
+  const expectedCpuType = 0x0100000c;
+  if (cpuType !== expectedCpuType) assemblyError();
+  const commandCount = bytes.readUInt32LE(16);
+  const commandsSize = bytes.readUInt32LE(20);
+  if (commandCount === 0 || commandsSize > bytes.length - 32) assemblyError();
+  let offset = 32;
+  let platform;
+  for (let index = 0; index < commandCount; index += 1) {
+    if (offset + 8 > bytes.length) assemblyError();
+    const command = bytes.readUInt32LE(offset);
+    const commandSize = bytes.readUInt32LE(offset + 4);
+    if (commandSize < 8 || offset + commandSize > bytes.length) assemblyError();
+    if (command === 0x32) {
+      if (commandSize < 16) assemblyError();
+      platform = bytes.readUInt32LE(offset + 8);
+    }
+    offset += commandSize;
+  }
+  const expectedPlatform = target.environment === "simulator" ? 7 : 2;
+  if (platform !== expectedPlatform) assemblyError();
+  return {
+    format: "Mach-O-64",
+    architecture: "arm64",
+    platform: target.environment === "simulator" ? "ios-simulator" : "ios",
+  };
+}
+
+function inspectStaticArchive(bytes, target) {
+  if (bytes.length < 8 || bytes.toString("ascii", 0, 8) !== "!<arch>\n") assemblyError();
+  const identities = [];
+  let offset = 8;
+  while (offset < bytes.length) {
+    if (offset + 60 > bytes.length) assemblyError();
+    if (bytes[offset + 58] !== 0x60 || bytes[offset + 59] !== 0x0a) assemblyError();
+    const sizeText = bytes.toString("ascii", offset + 48, offset + 58).trim();
+    if (!/^\d+$/.test(sizeText)) assemblyError();
+    const memberSize = Number(sizeText);
+    const memberStart = offset + 60;
+    const memberEnd = memberStart + memberSize;
+    if (!Number.isSafeInteger(memberSize) || memberEnd > bytes.length) assemblyError();
+    const identity = machOIdentity(bytes.subarray(memberStart, memberEnd), target);
+    if (identity !== null) identities.push(identity);
+    offset = memberEnd + (memberSize % 2);
+  }
+  if (identities.length === 0 || !hasRequiredSymbols(bytes)) assemblyError();
+  const first = identities[0];
+  if (identities.some((identity) => JSON.stringify(identity) !== JSON.stringify(first))) assemblyError();
+  return {
+    format: "Mach-O-64-static-archive",
+    identity: { ...first, object_count: identities.length },
+    requiredSymbols: [...REQUIRED_RN_SYMBOLS],
+  };
+}
+
+export function inspectReactNativeArtifact(path, targetId) {
+  const target = REACT_NATIVE_TARGETS[targetId];
+  if (target === undefined || typeof path !== "string") assemblyError();
+  let bytes;
+  try {
+    bytes = readFileSync(path);
+    if (!statSync(path).isFile()) assemblyError();
+  } catch {
+    assemblyError();
+  }
+  const inspected = target.platform === "android"
+    ? inspectElf(bytes, target)
+    : inspectStaticArchive(bytes, target);
+  return {
+    targetId,
+    artifactFilename: target.artifactFilename,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    size: bytes.length,
+    binaryFormat: inspected.format,
+    binaryIdentity: inspected.identity,
+    requiredSymbols: inspected.requiredSymbols,
+  };
+}
+
 export function validateReactNativeManifest(manifest, packageMeta, { requireComplete = false } = {}) {
   if (!isPlainObject(manifest) || !isPlainObject(packageMeta)) {
     manifestError();
@@ -174,7 +290,7 @@ export function assembleReactNativeManifest({
           relative_path: target.relativePath,
           artifact_filename: target.artifactFilename,
           sha256: item.sha256,
-          toolchain_identifier: toolchainIdentifier,
+          toolchain_identifier: item.toolchainIdentifier ?? toolchainIdentifier,
         };
       }),
   };
@@ -212,22 +328,21 @@ export function validateReactNativeArtifactInputs(artifacts, { requireComplete =
     ) {
       assemblyError();
     }
-    let sourceBytes;
-    try {
-      sourceBytes = readFileSync(item.path);
-      if (!statSync(item.path).isFile()) {
-        assemblyError();
-      }
-    } catch {
-      assemblyError();
-    }
+    const inspected = inspectReactNativeArtifact(item.path, item.targetId);
     seen.add(item.targetId);
-    return {
+    const result = {
       targetId: item.targetId,
       path: item.path,
       artifactFilename: target.artifactFilename,
-      sha256: createHash("sha256").update(sourceBytes).digest("hex"),
+      sha256: inspected.sha256,
+      size: inspected.size,
+      toolchainIdentifier: typeof item.toolchainIdentifier === "string" ? item.toolchainIdentifier : undefined,
+      binaryFormat: inspected.binaryFormat,
+      binaryIdentity: inspected.binaryIdentity,
+      requiredSymbols: inspected.requiredSymbols,
     };
+    if (item.evidencePath !== undefined) result.evidencePath = item.evidencePath;
+    return result;
   });
   if (requireComplete && seen.size !== CANONICAL_REACT_NATIVE_TARGET_ORDER.length) {
     assemblyError();

@@ -13,6 +13,7 @@ import {
   validateReactNativeArtifactInputs,
   REACT_NATIVE_TARGETS,
 } from "../packages/wallet-core/src/react-native-manifest.mjs";
+import { validateReactNativeArtifactEvidence } from "./react-native-evidence.mjs";
 import { validatePackageContents } from "./package-contents.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -22,7 +23,7 @@ const wasmFilename = "symbol_nem_wallet_core_wasm_bg.wasm";
 
 function usage() {
   console.error(
-    "usage: node scripts/build-npm-package.mjs [--native-artifact target_id=path]... [--react-native-artifact target_id=path]... [--wasm path] [--wasm-bindgen-bin path]",
+    "usage: node scripts/build-npm-package.mjs [--native-artifact target_id=path]... [--react-native-artifact target_id=path --react-native-evidence target_id=path]... [--wasm path] [--wasm-bindgen-bin path]",
   );
   process.exitCode = 2;
 }
@@ -53,6 +54,20 @@ function parseOptions(argv) {
         targetId: value.slice(0, separator),
         path: resolve(repositoryRoot, value.slice(separator + 1)),
       });
+    } else if (argument === "--react-native-evidence") {
+      const value = argv[++index];
+      const separator = value?.indexOf("=");
+      if (separator === undefined || separator < 1 || separator === value.length - 1) {
+        usage();
+        return null;
+      }
+      const targetId = value.slice(0, separator);
+      const item = options.reactNativeArtifacts.find((artifact) => artifact.targetId === targetId);
+      if (item === undefined) {
+        usage();
+        return null;
+      }
+      item.evidencePath = resolve(repositoryRoot, value.slice(separator + 1));
     } else if (argument === "--wasm") {
       options.wasm = resolve(repositoryRoot, argv[++index] ?? "");
     } else if (argument === "--wasm-bindgen-bin") {
@@ -173,12 +188,31 @@ function inlineRuntime(entryPath, runtimePaths) {
 
 function build(options) {
   const nativeArtifacts = validateNativeArtifactInputs(options.nativeArtifacts);
-  const reactNativeArtifacts = validateReactNativeArtifactInputs(options.reactNativeArtifacts, {
-    requireComplete: options.reactNativeArtifacts.length > 0,
-  });
   const packageMeta = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
   const sourceRevision = sourceCommit();
   const buildToolchain = toolchainIdentifier();
+  const requireReactNative = process.env.SNWC_REQUIRE_REACT_NATIVE_ARTIFACTS === "true";
+  if (requireReactNative && options.reactNativeArtifacts.length !== 4) {
+    throw new Error("formal React Native assembly requires exactly four artifacts");
+  }
+  const reactNativeArtifacts = validateReactNativeArtifactInputs(options.reactNativeArtifacts, {
+    requireComplete: options.reactNativeArtifacts.length > 0 || requireReactNative,
+  }).map((item) => {
+    if (item.evidencePath === undefined) {
+      if (requireReactNative) throw new Error(`React Native evidence is missing: ${item.targetId}`);
+      return item;
+    }
+    let evidence;
+    try {
+      evidence = JSON.parse(readFileSync(item.evidencePath, "utf8"));
+    } catch {
+      throw new Error(`React Native evidence is unreadable: ${item.targetId}`);
+    }
+    validateReactNativeArtifactEvidence(evidence, item.path, sourceRevision, packageMeta.version, {
+      artifactInputFilename: evidence.artifact_input_filename,
+    });
+    return { ...item, toolchainIdentifier: evidence.toolchain_identifier };
+  });
   rmSync(distRoot, { recursive: true, force: true });
   mkdirSync(resolve(distRoot, "node"), { recursive: true });
   mkdirSync(resolve(distRoot, "wasm"), { recursive: true });
@@ -320,7 +354,7 @@ function build(options) {
     sourceCommit: sourceRevision,
     artifacts: reactNativeArtifacts,
     toolchainIdentifier: buildToolchain,
-    requireComplete: options.reactNativeArtifacts.length > 0,
+    requireComplete: options.reactNativeArtifacts.length > 0 || requireReactNative,
   });
   writeFileSync(
     resolve(distRoot, "react-native/artifact-manifest.json"),

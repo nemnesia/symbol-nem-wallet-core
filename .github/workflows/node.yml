@@ -12,6 +12,16 @@ on:
         description: "Formal release tag, supplied only for a tag-triggered release"
         required: false
         type: string
+      react_native_android_consumer_root:
+        description: "Absolute path to the pinned RN 0.87.x Android consumer build"
+        required: false
+        default: ""
+        type: string
+      react_native_ios_consumer_root:
+        description: "Absolute path to the pinned RN 0.87.x iOS consumer build"
+        required: false
+        default: ""
+        type: string
   push:
     branches:
       - main
@@ -39,6 +49,15 @@ on:
       - ".github/workflows/node.yml"
       - ".github/workflows/release-recovery.yml"
   workflow_dispatch:
+    inputs:
+      react_native_android_consumer_root:
+        description: "Absolute path to the pinned RN 0.87.x Android consumer build"
+        required: false
+        type: string
+      react_native_ios_consumer_root:
+        description: "Absolute path to the pinned RN 0.87.x iOS consumer build"
+        required: false
+        type: string
 
 concurrency:
   group: node-${{ github.ref }}
@@ -49,6 +68,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  SNWC_RN_ANDROID_CONSUMER_ROOT: ${{ inputs.react_native_android_consumer_root || vars.SNWC_RN_ANDROID_CONSUMER_ROOT || '' }}
+  SNWC_RN_IOS_CONSUMER_ROOT: ${{ inputs.react_native_ios_consumer_root || vars.SNWC_RN_IOS_CONSUMER_ROOT || '' }}
 
 jobs:
   source:
@@ -277,6 +298,150 @@ jobs:
           name: release-native-${{ matrix.target_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-native/
 
+  react-native:
+    name: ${{ matrix.target_id }} React Native New Architecture artifact
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target_id: android-arm64-v8a
+            platform: android
+            rust_target: aarch64-linux-android
+            runner: ubuntu-24.04
+            android_abi: arm64-v8a
+          - target_id: android-x86_64
+            platform: android
+            rust_target: x86_64-linux-android
+            runner: ubuntu-24.04
+            android_abi: x86_64
+          - target_id: ios-arm64
+            platform: ios
+            rust_target: aarch64-apple-ios
+            runner: macos-15
+            xcode_sdk: iphoneos
+          - target_id: ios-simulator-arm64
+            platform: ios
+            rust_target: aarch64-apple-ios-sim
+            runner: macos-15
+            xcode_sdk: iphonesimulator
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.x"
+
+      - name: Install pinned Rust toolchain for the existing C ABI
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust_target }}
+
+      - name: Install the configured React Native 0.87.x Android consumer dependencies
+        if: matrix.platform == 'android'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SNWC_RN_ANDROID_CONSUMER_ROOT"
+          test -f "$SNWC_RN_ANDROID_CONSUMER_ROOT/package.json"
+          (cd "$SNWC_RN_ANDROID_CONSUMER_ROOT" && corepack pnpm install --frozen-lockfile --ignore-scripts)
+
+      - name: Install the configured React Native 0.87.x iOS consumer dependencies
+        if: matrix.platform == 'ios'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SNWC_RN_IOS_CONSUMER_ROOT"
+          test -f "$SNWC_RN_IOS_CONSUMER_ROOT/package.json"
+          (cd "$SNWC_RN_IOS_CONSUMER_ROOT" && corepack pnpm install --frozen-lockfile --ignore-scripts)
+
+      - name: Build the existing C ABI for the RN target
+        run: cargo build --package symbol-nem-wallet-core-native --target ${{ matrix.rust_target }} --release --locked
+
+      - name: Build Android appmodules and register the C++ provider
+        if: matrix.platform == 'android'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_HOME:-}"
+          test -f packages/wallet-core/android/CMakeLists.txt
+          test -f packages/wallet-core/android/OnLoad.cpp
+          grep -q 'target_sources(\${CMAKE_PROJECT_NAME}' packages/wallet-core/android/CMakeLists.txt
+          grep -q 'symbolNemWalletCoreCxxModuleProvider' packages/wallet-core/android/OnLoad.cpp
+          # The RN 0.87.x consumer application supplies REACT_ANDROID_DIR and
+          # invokes this package CMake entry point for its appmodules target.
+          test -n "${SNWC_RN_ANDROID_CONSUMER_ROOT:-}"
+          test -x "$SNWC_RN_ANDROID_CONSUMER_ROOT/gradlew"
+          test -f "$SNWC_RN_ANDROID_CONSUMER_ROOT/package.json"
+          test -d "$SNWC_RN_ANDROID_CONSUMER_ROOT/node_modules/react-native/ReactAndroid"
+          "${SNWC_RN_ANDROID_CONSUMER_ROOT}/gradlew" \
+            --no-daemon \
+            :app:assembleRelease \
+            -PnewArchEnabled=true \
+            -PsnwcReactAndroidDir="$SNWC_RN_ANDROID_CONSUMER_ROOT/node_modules/react-native/ReactAndroid" \
+            -PsnwcCAbiLibrary="$GITHUB_WORKSPACE/target/${{ matrix.rust_target }}/release/libsymbol_nem_wallet_core_native.a" \
+            -PsnwcAndroidAbi="${{ matrix.android_abi }}"
+          find "${SNWC_RN_ANDROID_CONSUMER_ROOT}/android/app/build" -type f \
+            -path "*/${{ matrix.android_abi }}/libappmodules.so" -print -quit \
+            > "$RUNNER_TEMP/snwc-rn-artifact-path"
+          test -s "$RUNNER_TEMP/snwc-rn-artifact-path"
+
+      - name: Build iOS static archive for the approved slice
+        if: matrix.platform == 'ios'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SNWC_RN_IOS_CONSUMER_ROOT:-}"
+          test -f "$SNWC_RN_IOS_CONSUMER_ROOT/SnwcRnBuild.xcworkspace/contents.xcworkspacedata"
+          test -f "$SNWC_RN_IOS_CONSUMER_ROOT/Podfile"
+          (cd "$SNWC_RN_IOS_CONSUMER_ROOT" && bundle exec pod install)
+          xcodebuild \
+            -workspace "$SNWC_RN_IOS_CONSUMER_ROOT/SnwcRnBuild.xcworkspace" \
+            -scheme SnwcRnBuild \
+            -sdk "${{ matrix.xcode_sdk }}" \
+            -configuration Release \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+            CODE_SIGNING_ALLOWED=NO
+          find "$SNWC_RN_IOS_CONSUMER_ROOT" -type f \
+            -name libsymbol_nem_wallet_core_rn.a -print -quit \
+            > "$RUNNER_TEMP/snwc-rn-artifact-path"
+          test -s "$RUNNER_TEMP/snwc-rn-artifact-path"
+
+      - name: Normalize and record RN artifact identity/provenance
+        shell: bash
+        env:
+          SNWC_RN_RUNNER: ${{ matrix.runner }}
+          SNWC_RN_TOOLCHAIN: "RN-0.87.x-${{ matrix.platform }}-${{ matrix.target_id }}"
+        run: |
+          set -euo pipefail
+          artifact_path="$(cat "$RUNNER_TEMP/snwc-rn-artifact-path")"
+          artifact_dir="release-react-native/${{ matrix.target_id }}"
+          mkdir -p "$artifact_dir"
+          cp "$artifact_path" "$artifact_dir/${{ matrix.platform == 'android' && 'libsymbol_nem_wallet_core_rn.so' || 'libsymbol_nem_wallet_core_rn.a' }}"
+          node scripts/react-native-evidence.mjs artifact \
+            --target-id "${{ matrix.target_id }}" \
+            --artifact "$artifact_dir/${{ matrix.platform == 'android' && 'libsymbol_nem_wallet_core_rn.so' || 'libsymbol_nem_wallet_core_rn.a' }}" \
+            --artifact-input-filename "${{ matrix.target_id }}/${{ matrix.platform == 'android' && 'libsymbol_nem_wallet_core_rn.so' || 'libsymbol_nem_wallet_core_rn.a' }}" \
+            --source-commit "$GITHUB_SHA" \
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
+            --toolchain-identifier "$SNWC_RN_TOOLCHAIN" \
+            --runner "$SNWC_RN_RUNNER" \
+            --output "$artifact_dir/${{ matrix.target_id }}.json"
+
+      - name: Upload RN target artifact and evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-react-native-${{ matrix.target_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: release-react-native/
+
   parity-regression:
     name: Native / WASM / npm parity regression
     runs-on: ubuntu-24.04
@@ -319,7 +484,7 @@ jobs:
     name: Final npm release candidate assembly
     runs-on: ubuntu-24.04
     timeout-minutes: 40
-    needs: [source, core-c-abi, wasm, native, parity-regression]
+    needs: [source, core-c-abi, wasm, native, react-native, parity-regression]
     steps:
       - name: Check out release source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -368,6 +533,13 @@ jobs:
           name: release-wasm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-input/wasm
 
+      - name: Download all React Native target artifacts and evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-react-native-*
+          path: release-input/react-native
+          merge-multiple: true
+
       - name: Validate all artifact evidence before assembly
         shell: bash
         run: |
@@ -384,6 +556,18 @@ jobs:
             --source-commit "$GITHUB_SHA" \
             --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
             --output release-input/wasm-summary.json
+          mkdir -p release-input/react-native/artifacts
+          for target in android-arm64-v8a android-x86_64 ios-arm64 ios-simulator-arm64; do
+            test -f "release-input/react-native/$target/$target.json"
+            cp "release-input/react-native/$target/$target.json" "release-input/react-native/$target.json"
+            mkdir -p "release-input/react-native/artifacts/$target"
+            cp "release-input/react-native/$target/"libsymbol_nem_wallet_core_rn.* "release-input/react-native/artifacts/$target/"
+          done
+          node scripts/react-native-evidence.mjs summary \
+            --evidence-root release-input/react-native \
+            --source-commit "$GITHUB_SHA" \
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
+            --output release-input/react-native-summary.json
 
       - name: Install and verify the lockfile-matched wasm-bindgen CLI
         shell: bash
@@ -406,11 +590,19 @@ jobs:
             --native-artifact win32-x64-msvc=release-input/native/win32-x64-msvc.node \
             --native-artifact darwin-x64=release-input/native/darwin-x64.node \
             --native-artifact darwin-arm64=release-input/native/darwin-arm64.node \
-            --native-artifact linux-x64-gnu=release-input/native/linux-x64-gnu.node
+            --native-artifact linux-x64-gnu=release-input/native/linux-x64-gnu.node \
+            --react-native-artifact android-arm64-v8a=release-input/react-native/artifacts/android-arm64-v8a/libsymbol_nem_wallet_core_rn.so \
+            --react-native-evidence android-arm64-v8a=release-input/react-native/android-arm64-v8a.json \
+            --react-native-artifact android-x86_64=release-input/react-native/artifacts/android-x86_64/libsymbol_nem_wallet_core_rn.so \
+            --react-native-evidence android-x86_64=release-input/react-native/android-x86_64.json \
+            --react-native-artifact ios-arm64=release-input/react-native/artifacts/ios-arm64/libsymbol_nem_wallet_core_rn.a \
+            --react-native-evidence ios-arm64=release-input/react-native/ios-arm64.json \
+            --react-native-artifact ios-simulator-arm64=release-input/react-native/artifacts/ios-simulator-arm64/libsymbol_nem_wallet_core_rn.a \
+            --react-native-evidence ios-simulator-arm64=release-input/react-native/ios-simulator-arm64.json
 
       - name: Run final package, clean-install, and fail-closed gates
         env:
-          SNWC_REQUIRE_REACT_NATIVE_ARTIFACTS: ${{ (inputs.release_mode || 'candidate') == 'release' && 'true' || 'false' }}
+          SNWC_REQUIRE_REACT_NATIVE_ARTIFACTS: "true"
         run: node scripts/test-npm-release.mjs
 
       - name: Write release candidate tarball
@@ -437,6 +629,9 @@ jobs:
             --source-evidence release-input/source/release-source.json \
             --native-summary release-input/native-summary.json \
             --native-evidence-root release-input/native \
+            --react-native-summary release-input/react-native-summary.json \
+            --react-native-evidence-root release-input/react-native \
+            --react-native-artifact-root release-input/react-native/artifacts \
             --wasm-summary release-input/wasm-summary.json \
             --wasm-evidence release-input/wasm/wasm-evidence.json \
             --wasm-bindgen-evidence release-input/wasm/wasm-bindgen-version.json \
@@ -498,6 +693,9 @@ jobs:
             --source-evidence release-input/source/release-source.json \
             --native-summary release-input/native-summary.json \
             --native-evidence-root release-input/native \
+            --react-native-summary release-input/react-native-summary.json \
+            --react-native-evidence-root release-input/react-native \
+            --react-native-artifact-root release-input/react-native/artifacts \
             --wasm-summary release-input/wasm-summary.json \
             --wasm-evidence release-input/wasm/wasm-evidence.json \
             --wasm-bindgen-evidence release-input/wasm/wasm-bindgen-version.json \
@@ -561,6 +759,13 @@ jobs:
           cp release-input/wasm-summary.json release-output/wasm-summary.json
           cp release-input/wasm/wasm-evidence.json release-output/wasm-evidence.json
           cp release-input/wasm/wasm-bindgen-version.json release-output/wasm-bindgen-version.json
+          cp release-input/react-native-summary.json release-output/react-native-summary.json
+          cp release-input/react-native/*.json release-output/
+          cp packages/wallet-core/dist/react-native/artifact-manifest.json release-output/react-native-artifact-manifest.json
+          cp release-input/react-native/artifacts/android-arm64-v8a/libsymbol_nem_wallet_core_rn.so release-output/android-arm64-v8a.so
+          cp release-input/react-native/artifacts/android-x86_64/libsymbol_nem_wallet_core_rn.so release-output/android-x86_64.so
+          cp release-input/react-native/artifacts/ios-arm64/libsymbol_nem_wallet_core_rn.a release-output/ios-arm64.a
+          cp release-input/react-native/artifacts/ios-simulator-arm64/libsymbol_nem_wallet_core_rn.a release-output/ios-simulator-arm64.a
 
       - name: Re-validate final release manifest and SHA-256 digest set
         if: always()
@@ -573,6 +778,9 @@ jobs:
             --source-evidence release-output/release-source.json \
             --native-summary release-output/native-summary.json \
             --native-evidence-root release-output \
+            --react-native-summary release-output/react-native-summary.json \
+            --react-native-evidence-root release-output \
+            --react-native-artifact-root release-input/react-native/artifacts \
             --wasm-summary release-output/wasm-summary.json \
             --wasm-evidence release-output/wasm-evidence.json \
             --wasm-bindgen-evidence release-output/wasm-bindgen-version.json \
@@ -594,6 +802,9 @@ jobs:
             --source-evidence release-output/release-source.json \
             --native-summary release-output/native-summary.json \
             --native-evidence-root release-output \
+            --react-native-summary release-output/react-native-summary.json \
+            --react-native-evidence-root release-output \
+            --react-native-artifact-root release-input/react-native/artifacts \
             --wasm-summary release-output/wasm-summary.json \
             --wasm-evidence release-output/wasm-evidence.json \
             --wasm-bindgen-evidence release-output/wasm-bindgen-version.json \

@@ -5,6 +5,7 @@ import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CANONICAL_TARGET_ORDER, NATIVE_TARGETS } from "../packages/wallet-core/src/manifest.mjs";
+import { CANONICAL_REACT_NATIVE_TARGET_ORDER } from "../packages/wallet-core/src/react-native-manifest.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageRoot = resolve(repositoryRoot, "packages/wallet-core");
@@ -318,6 +319,7 @@ function sourceMetadata() {
     cargo_lock_sha256: cargoLockSha256(),
     pnpm_lock_sha256: pnpmLockSha256(),
     required_native_targets: REQUIRED_TARGETS,
+    required_react_native_targets: [...CANONICAL_REACT_NATIVE_TARGET_ORDER],
   };
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

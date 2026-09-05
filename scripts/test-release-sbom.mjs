@@ -22,6 +22,12 @@ const PNPM_LOCK = "c".repeat(64);
 const NPM_TARBALL = "d".repeat(64);
 const CREATED = "2026-01-02T03:04:05.000Z";
 const REGISTRY = "registry+https://github.com/rust-lang/crates.io-index";
+const REACT_NATIVE_TARGETS = [
+  ["android-arm64-v8a", "dist/react-native/android/jni/arm64-v8a/libsymbol_nem_wallet_core_rn.so"],
+  ["android-x86_64", "dist/react-native/android/jni/x86_64/libsymbol_nem_wallet_core_rn.so"],
+  ["ios-arm64", "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64/libsymbol_nem_wallet_core_rn.a"],
+  ["ios-simulator-arm64", "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a"],
+];
 
 function component(fields) {
   const value = {
@@ -101,6 +107,17 @@ function fixtureContext() {
       { source: core.identity, target: dependency.identity },
     ],
     excludedCargoPackages: [],
+    reactNativeArtifactManifest: {
+      relative_path: "dist/react-native/artifact-manifest.json",
+      sha256: "1".repeat(64),
+      size: 100,
+    },
+    reactNativeArtifacts: REACT_NATIVE_TARGETS.map(([targetId, relative_path], index) => ({
+      target_id: targetId,
+      relative_path,
+      sha256: String(index + 2).repeat(64),
+      size: 200 + index,
+    })),
     creationTimestamp: CREATED,
   };
 }
@@ -122,9 +139,11 @@ const inventory = createLicenseInventory(context);
 assert.equal(document.spdxVersion, "SPDX-2.3");
 assert.equal(document.SPDXID, "SPDXRef-DOCUMENT");
 assert.equal(document.dataLicense, "CC0-1.0");
+assert.equal(document.files.length, 5);
 assert.equal(document.packages.length, 5);
 assert.equal(inventory.components.length, 5);
 assert.equal(inventory.schema_version, 2);
+assert.equal(inventory.react_native_artifacts.length, 4);
 assert.equal(inventory.npm_runtime_dependency_count, 0);
 assert.equal(inventory.rust_dependency_package_count, 1);
 assert.equal(inventory.components.find((entry) => entry.ecosystem === "cargo" && entry.name === "example-dependency").license_expression, "MIT OR Apache-2.0");

@@ -170,6 +170,7 @@ test("npm pack dry run contains only package metadata, README, license, and dist
     "dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm",
     "package.json",
     "android/CMakeLists.txt",
+    "android/OnLoad.cpp",
     "android/build.gradle",
     "cpp/NativeSymbolNemWalletCore.cpp",
     "cpp/NativeSymbolNemWalletCore.h",

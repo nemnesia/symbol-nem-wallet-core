@@ -314,6 +314,7 @@ function validatePackedRepositoryMetadata(tarball, packageMetadata) {
 function packageInventory(manifest, entry) {
   const packageSources = [
     "android/CMakeLists.txt",
+    "android/OnLoad.cpp",
     "android/build.gradle",
     "cpp/NativeSymbolNemWalletCore.cpp",
     "cpp/NativeSymbolNemWalletCore.h",

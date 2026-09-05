@@ -277,10 +277,10 @@ try {
   validateReleaseRecord({ npmDir, cAbiDir, outputDir: publishedRecordDir, mode: "release", tag: `v${VERSION}`, sourceCommit: COMMIT, provenanceStatus: "published" });
   const publicationDir = resolve(root, "github-release-assets");
   const publication = assemblePublicationAssets({ npmDir, cAbiDir, recordDir: publishedRecordDir, outputDir: publicationDir, tag: `v${VERSION}`, sourceCommit: COMMIT });
-  assert.equal(publication.npm_asset_count, 24);
+  assert.equal(publication.npm_asset_count, 34);
   assert.equal(publication.c_abi_asset_count, 16);
   assert.equal(publication.shared_asset_count, 2);
-  assert.equal(publication.asset_count, 42);
+  assert.equal(publication.asset_count, 52);
   assert.equal(readdirSync(publicationDir).length, publication.asset_count);
 
   const recoveryManifest = JSON.parse(readFileSync(resolve(npmDir, "release-manifest.json"), "utf8"));

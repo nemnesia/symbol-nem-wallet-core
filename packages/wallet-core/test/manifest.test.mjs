@@ -27,6 +27,52 @@ const packageMeta = {
 };
 const sourceCommit = "ca270941a53f3517255d37ae51501c8c13cfcd16";
 
+function syntheticElf(machine) {
+  const bytes = Buffer.alloc(64);
+  bytes.writeUInt8(0x7f, 0);
+  bytes.write("ELF", 1, "ascii");
+  bytes.writeUInt8(2, 4);
+  bytes.writeUInt8(1, 5);
+  bytes.writeUInt16LE(3, 16);
+  bytes.writeUInt16LE(machine, 18);
+  return Buffer.concat([bytes, Buffer.from("snwc_rn_module_identity symbolNemWalletCoreCxxModuleProvider")]);
+}
+
+function syntheticMachO(platform) {
+  const bytes = Buffer.alloc(48);
+  bytes.writeUInt32LE(0xfeedfacf, 0);
+  bytes.writeUInt32LE(0x0100000c, 4);
+  bytes.writeUInt32LE(1, 16);
+  bytes.writeUInt32LE(16, 20);
+  bytes.writeUInt32LE(0x32, 32);
+  bytes.writeUInt32LE(16, 36);
+  bytes.writeUInt32LE(platform, 40);
+  return Buffer.concat([bytes, Buffer.from("snwc_rn_module_identity symbolNemWalletCoreCxxModuleProvider")]);
+}
+
+function syntheticArchive(platform) {
+  return syntheticArchiveMembers([platform]);
+}
+
+function syntheticArchiveMembers(platforms) {
+  const members = platforms.map((platform, index) => {
+    const content = syntheticMachO(platform);
+    const header = Buffer.alloc(60, " ");
+    header.write(`snwc${index}.o/`, 0, "ascii");
+    header.write(String(content.length).padEnd(10, " "), 48, "ascii");
+    header.write("`\n", 58, "ascii");
+    return Buffer.concat([header, content, content.length % 2 === 1 ? Buffer.from("\n") : Buffer.alloc(0)]);
+  });
+  return Buffer.concat([Buffer.from("!<arch>\n"), ...members]);
+}
+
+function syntheticReactNativeArtifact(targetId) {
+  if (targetId === "android-arm64-v8a") return syntheticElf(183);
+  if (targetId === "android-x86_64") return syntheticElf(62);
+  if (targetId === "ios-arm64") return syntheticArchive(2);
+  return syntheticArchive(7);
+}
+
 test("native target lookup follows the fixed platform and glibc contract", () => {
   assert.equal(targetForRuntime("win32", "x64", undefined), "win32-x64-msvc");
   assert.equal(targetForRuntime("darwin", "x64", undefined), "darwin-x64");
@@ -162,8 +208,9 @@ test("React Native assembly hashes only supplied canonical artifacts and rejects
   try {
     const paths = Object.fromEntries(
       Object.entries(REACT_NATIVE_TARGETS).map(([targetId, target]) => {
-        const path = resolve(directory, target.artifactFilename);
-        writeFileSync(path, Buffer.from(targetId));
+        const path = resolve(directory, targetId, target.artifactFilename);
+        mkdirSync(resolve(directory, targetId), { recursive: true });
+        writeFileSync(path, syntheticReactNativeArtifact(targetId));
         return [targetId, path];
       }),
     );
@@ -185,6 +232,28 @@ test("React Native assembly hashes only supplied canonical artifacts and rejects
     assert.equal(manifest.artifacts.every((artifact) => artifact.sha256.length === 64), true);
     assert.throws(() => validateReactNativeArtifactInputs([
       { targetId: "android-arm64-v8a", path: resolve(directory, "wrong.node") },
+    ]));
+    const textPath = resolve(directory, "text", REACT_NATIVE_TARGETS["android-arm64-v8a"].artifactFilename);
+    const wrongElfPath = resolve(directory, "android-arm64-v8a", REACT_NATIVE_TARGETS["android-arm64-v8a"].artifactFilename);
+    const wrongMachOPath = resolve(directory, "ios-arm64", REACT_NATIVE_TARGETS["ios-arm64"].artifactFilename);
+    const extraMachOPath = resolve(directory, "ios-extra", REACT_NATIVE_TARGETS["ios-arm64"].artifactFilename);
+    mkdirSync(resolve(directory, "text"), { recursive: true });
+    mkdirSync(resolve(directory, "ios-extra"), { recursive: true });
+    writeFileSync(textPath, Buffer.from("not an ELF"));
+    writeFileSync(wrongElfPath, syntheticElf(62));
+    writeFileSync(wrongMachOPath, syntheticArchive(7));
+    writeFileSync(extraMachOPath, syntheticArchiveMembers([2, 7]));
+    assert.throws(() => validateReactNativeArtifactInputs([
+      { targetId: "android-arm64-v8a", path: textPath },
+    ]));
+    assert.throws(() => validateReactNativeArtifactInputs([
+      { targetId: "android-arm64-v8a", path: wrongElfPath },
+    ]));
+    assert.throws(() => validateReactNativeArtifactInputs([
+      { targetId: "ios-arm64", path: wrongMachOPath },
+    ]));
+    assert.throws(() => validateReactNativeArtifactInputs([
+      { targetId: "ios-arm64", path: extraMachOPath },
     ]));
   } finally {
     rmSync(directory, { recursive: true, force: true });

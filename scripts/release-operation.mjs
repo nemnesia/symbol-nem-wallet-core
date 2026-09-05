@@ -14,6 +14,11 @@ import { validateNpmRepositoryMetadata } from "./npm-repository.mjs";
 import { REPOSITORY, validateNpmProvenanceEvidence } from "./npm-provenance.mjs";
 import { validatePublishedRecoveryEvidence } from "./release-recovery.mjs";
 import { validateNativeManifest } from "../packages/wallet-core/src/manifest.mjs";
+import {
+  CANONICAL_REACT_NATIVE_TARGET_ORDER,
+  REACT_NATIVE_TARGETS,
+  inspectReactNativeArtifact,
+} from "../packages/wallet-core/src/react-native-manifest.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
@@ -30,6 +35,8 @@ const REQUIRED_NATIVE_TARGETS = [
   "darwin-arm64",
   "linux-x64-gnu",
 ];
+const REQUIRED_REACT_NATIVE_TARGETS = [...CANONICAL_REACT_NATIVE_TARGET_ORDER];
+const REQUIRED_RN_SYMBOLS = ["snwc_rn_module_identity", "symbolNemWalletCoreCxxModuleProvider"];
 
 function fail(message) {
   throw new Error(`Release operation gate failed: ${message}`);
@@ -190,9 +197,10 @@ export function validateSpdxReleaseIdentity(sbom, manifest) {
   ) {
     fail("SPDX document namespace differs from the release manifest");
   }
+  const describedCount = Array.isArray(sbom.files) && sbom.files.length > 0 ? sbom.files.length + 1 : 1;
   if (
     !Array.isArray(sbom.documentDescribes) ||
-    sbom.documentDescribes.length !== 1 ||
+    sbom.documentDescribes.length !== describedCount ||
     typeof sbom.documentDescribes[0] !== "string"
   ) {
     fail("SPDX document root package identity is invalid");
@@ -333,6 +341,7 @@ function validateSourceEvidence(source, manifest) {
   validCommit(source.source_commit, "source evidence commit");
   validHash(source.cargo_lock_sha256, "source evidence Cargo.lock digest");
   validHash(source.pnpm_lock_sha256, "source evidence pnpm-lock.yaml digest");
+  if (JSON.stringify(source.required_react_native_targets) !== JSON.stringify(REQUIRED_REACT_NATIVE_TARGETS)) fail("source React Native target evidence is invalid");
 }
 
 function validateReleaseManifestIdentity(manifest, tag, sourceCommit) {
@@ -408,6 +417,65 @@ function validateNativeEvidence(releaseDir, manifest, sourceCommit) {
   }
 }
 
+function validateReactNativeEvidence(releaseDir, manifest, sourceCommit) {
+  const reactNative = manifest.react_native;
+  if (!isPlainObject(reactNative) || !isPlainObject(reactNative.artifact_manifest) || !Array.isArray(reactNative.artifacts) || reactNative.artifacts.length !== REQUIRED_REACT_NATIVE_TARGETS.length) {
+    fail("release manifest React Native artifact evidence is incomplete");
+  }
+  const manifestPath = requiredFile(releaseDir, "react-native-artifact-manifest.json", "React Native artifact manifest evidence");
+  if (sha256File(manifestPath, "React Native artifact manifest evidence") !== reactNative.artifact_manifest.sha256 || fileSize(manifestPath, "React Native artifact manifest evidence") !== reactNative.artifact_manifest.size) {
+    fail("React Native artifact manifest evidence differs from the release manifest");
+  }
+  for (const [index, targetId] of REQUIRED_REACT_NATIVE_TARGETS.entries()) {
+    const artifact = reactNative.artifacts[index];
+    const evidence = json(requiredFile(releaseDir, `${targetId}.json`, `React Native evidence ${targetId}`), `React Native evidence ${targetId}`);
+    const artifactFilename = REACT_NATIVE_TARGETS[targetId].platform === "android" ? `${targetId}.so` : `${targetId}.a`;
+    const artifactPath = requiredFile(releaseDir, artifactFilename, `React Native artifact ${targetId}`);
+    let inspected;
+    try {
+      inspected = inspectReactNativeArtifact(artifactPath, targetId);
+    } catch {
+      fail(`React Native artifact identity is invalid: ${targetId}`);
+    }
+    if (
+      evidence.target_id !== targetId ||
+      evidence.source_commit !== sourceCommit ||
+      evidence.package_version !== manifest.package_version ||
+      evidence.platform !== REACT_NATIVE_TARGETS[targetId].platform ||
+      evidence.environment !== REACT_NATIVE_TARGETS[targetId].environment ||
+      evidence.architecture !== REACT_NATIVE_TARGETS[targetId].architecture ||
+      evidence.artifact_filename !== REACT_NATIVE_TARGETS[targetId].artifactFilename ||
+      typeof evidence.artifact_input_filename !== "string" ||
+      evidence.artifact_input_filename.length === 0 ||
+      evidence.artifact_input_filename.includes("\\") ||
+      evidence.artifact_input_filename.split("/").some((part) => part === "" || part === "." || part === "..") ||
+      evidence.artifact_sha256 !== artifact.sha256 ||
+      evidence.artifact_sha256 !== sha256File(artifactPath, `React Native artifact ${targetId}`) ||
+      evidence.artifact_size !== fileSize(artifactPath, `React Native artifact ${targetId}`) ||
+      evidence.binary_format !== inspected.binaryFormat ||
+      JSON.stringify(evidence.binary_identity) !== JSON.stringify(inspected.binaryIdentity) ||
+      JSON.stringify(evidence.required_symbols) !== JSON.stringify(REQUIRED_RN_SYMBOLS) ||
+      JSON.stringify(evidence.required_symbols) !== JSON.stringify(inspected.requiredSymbols) ||
+      artifact.binary_format !== inspected.binaryFormat ||
+      JSON.stringify(artifact.binary_identity) !== JSON.stringify(inspected.binaryIdentity) ||
+      JSON.stringify(artifact.required_symbols) !== JSON.stringify(inspected.requiredSymbols) ||
+      JSON.stringify(artifact.controlled_build) !== JSON.stringify(evidence.controlled_build) ||
+      !isPlainObject(evidence.controlled_build) ||
+      evidence.controlled_build.workflow !== "react-native-controlled-build" ||
+      typeof evidence.controlled_build.runner !== "string" ||
+      evidence.controlled_build.runner.length === 0 ||
+      evidence.controlled_build.build_mode !== "release" ||
+      evidence.controlled_build.source_commit !== sourceCommit ||
+      evidence.controlled_build.package_version !== manifest.package_version ||
+      evidence.controlled_build.target_id !== targetId ||
+      evidence.controlled_build.toolchain_identifier !== evidence.toolchain_identifier ||
+      evidence.toolchain_identifier !== artifact.toolchain_identifier
+    ) {
+      fail(`React Native release evidence identity mismatch: ${targetId}`);
+    }
+  }
+}
+
 function validateWasmEvidence(releaseDir, manifest, sourceCommit) {
   const evidence = json(requiredFile(releaseDir, "wasm-evidence.json", "WASM evidence"), "WASM evidence");
   const source = manifest.wasm.source_artifact;
@@ -463,6 +531,29 @@ function validateTarball(releaseDir, manifest, recovery) {
       if (!isPlainObject(expectedArtifact) || runtime.relative_path !== expectedArtifact.relative_path || runtime.sha256 !== expectedArtifact.sha256 || artifactBytes.length !== expectedArtifact.size) fail(`native artifact in npm tarball differs from the release manifest: ${artifact.target_id}`);
     }
   }
+  let reactNativeManifest;
+  let reactNativeManifestBytes;
+  try {
+    reactNativeManifestBytes = readTarEntry(tarballPath, "package/dist/react-native/artifact-manifest.json");
+    reactNativeManifest = JSON.parse(reactNativeManifestBytes.toString("utf8"));
+    validateReactNativeManifest(reactNativeManifest, metadata, { requireComplete: true });
+  } catch {
+    fail("npm tarball React Native artifact manifest is invalid");
+  }
+  if (sha256(reactNativeManifestBytes, "React Native artifact manifest in npm tarball") !== manifest.react_native.artifact_manifest.sha256) {
+    fail("npm tarball React Native artifact manifest differs from the release manifest");
+  }
+  for (const [index, targetId] of REQUIRED_REACT_NATIVE_TARGETS.entries()) {
+    const artifact = reactNativeManifest.artifacts[index];
+    const expected = manifest.react_native.artifacts[index];
+    if (!artifact || artifact.target_id !== targetId || artifact.relative_path !== expected.relative_path || artifact.sha256 !== expected.sha256) {
+      fail(`React Native artifact in npm tarball differs from the release manifest: ${targetId}`);
+    }
+    const artifactBytes = readTarEntry(tarballPath, `package/${artifact.relative_path}`);
+    if (sha256(artifactBytes, `React Native artifact in npm tarball ${targetId}`) !== artifact.sha256) {
+      fail(`React Native artifact bytes in npm tarball differ from its runtime manifest: ${targetId}`);
+    }
+  }
   const wasmPath = recovery ? "package/dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm" : `package/${manifest.wasm.canonical_artifact.relative_path}`;
   const wasmBytes = readTarEntry(tarballPath, wasmPath);
   if (wasmBytes.length === 0) fail("canonical WASM in npm tarball is empty");
@@ -483,6 +574,17 @@ function validateReleaseDigests(releaseDir, manifest, tarball, recovery) {
     hash: sha256File(requiredFile(releaseDir, artifact.artifact_filename), artifact.artifact_filename),
     path: artifact.relative_path,
   }));
+  expected.push({
+    hash: manifest.react_native.artifact_manifest.sha256,
+    path: manifest.react_native.artifact_manifest.relative_path,
+  });
+  for (const artifact of manifest.react_native.artifacts) {
+    const filename = REACT_NATIVE_TARGETS[artifact.target_id].platform === "android" ? `${artifact.target_id}.so` : `${artifact.target_id}.a`;
+    expected.push({
+      hash: sha256File(requiredFile(releaseDir, filename, `React Native artifact ${artifact.target_id}`), `React Native artifact ${artifact.target_id}`),
+      path: artifact.relative_path,
+    });
+  }
   expected.push({
     hash: recovery ? manifest.wasm.canonical_artifact.sha256 : sha256(tarball.wasmBytes, "canonical WASM in npm tarball"),
     path: manifest.wasm.canonical_artifact.relative_path,
@@ -551,6 +653,7 @@ export function validateReleaseBundle({ releaseDir, identityPath, tag, sourceCom
   const operationIdentity = validateIdentityArtifact(identity, tag, sourceCommit, manifest.package_version, environment);
   validateSourceEvidence(json(requiredFile(releaseDir, "release-source.json", "source evidence"), "source evidence"), manifest);
   validateNativeEvidence(releaseDir, manifest, sourceCommit);
+  validateReactNativeEvidence(releaseDir, manifest, sourceCommit);
   validateWasmEvidence(releaseDir, manifest, sourceCommit);
   const tarball = validateTarball(releaseDir, manifest, false);
   validateReleaseDigests(releaseDir, manifest, tarball, false);

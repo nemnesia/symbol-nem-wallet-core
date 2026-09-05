@@ -25,6 +25,11 @@ import {
 } from "./release-manifest.mjs";
 import { CANONICAL_TARGET_ORDER, NATIVE_TARGETS } from "../packages/wallet-core/src/manifest.mjs";
 import { REACT_NATIVE_TARGETS } from "../packages/wallet-core/src/react-native-manifest.mjs";
+import {
+  createReactNativeArtifactEvidence,
+  createReactNativeSummary,
+  writeReactNativeEvidence,
+} from "./react-native-evidence.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -60,15 +65,54 @@ function createTarball(root, metadata, name = "nemnesia-symbol-nem-wallet-core-0
   return tarball;
 }
 
+function syntheticElf(machine) {
+  const bytes = Buffer.alloc(64);
+  bytes.writeUInt8(0x7f, 0);
+  bytes.write("ELF", 1, "ascii");
+  bytes.writeUInt8(2, 4);
+  bytes.writeUInt8(1, 5);
+  bytes.writeUInt16LE(3, 16);
+  bytes.writeUInt16LE(machine, 18);
+  return Buffer.concat([bytes, Buffer.from("snwc_rn_module_identity symbolNemWalletCoreCxxModuleProvider")]);
+}
+
+function syntheticArchive(platform) {
+  const content = Buffer.alloc(48);
+  content.writeUInt32LE(0xfeedfacf, 0);
+  content.writeUInt32LE(0x0100000c, 4);
+  content.writeUInt32LE(1, 16);
+  content.writeUInt32LE(16, 20);
+  content.writeUInt32LE(0x32, 32);
+  content.writeUInt32LE(16, 36);
+  content.writeUInt32LE(platform, 40);
+  const payload = Buffer.concat([content, Buffer.from("snwc_rn_module_identity symbolNemWalletCoreCxxModuleProvider")]);
+  const header = Buffer.alloc(60, " ");
+  header.write("snwc.o/", 0, "ascii");
+  header.write(String(payload.length).padEnd(10, " "), 48, "ascii");
+  header.write("`\n", 58, "ascii");
+  return Buffer.concat([Buffer.from("!<arch>\n"), header, payload, payload.length % 2 === 1 ? Buffer.from("\n") : Buffer.alloc(0)]);
+}
+
+function syntheticReactNativeArtifact(targetId) {
+  if (targetId === "android-arm64-v8a") return syntheticElf(183);
+  if (targetId === "android-x86_64") return syntheticElf(62);
+  if (targetId === "ios-arm64") return syntheticArchive(2);
+  return syntheticArchive(7);
+}
+
 function fixture() {
   const root = mkdtempSync(resolve(tmpdir(), "snwc-release-manifest-test-"));
   const packageRoot = resolve(root, "package");
   const nativeEvidenceRoot = resolve(root, "native-evidence");
+  const reactNativeEvidenceRoot = resolve(root, "react-native-evidence");
+  const reactNativeArtifactRoot = resolve(root, "react-native-artifacts");
   const wasmRoot = resolve(root, "wasm-evidence");
   mkdirSync(resolve(packageRoot, "dist/native"), { recursive: true });
   mkdirSync(resolve(packageRoot, "dist/react-native"), { recursive: true });
   mkdirSync(resolve(packageRoot, "dist/wasm/snippets/fixture"), { recursive: true });
   mkdirSync(nativeEvidenceRoot, { recursive: true });
+  mkdirSync(reactNativeEvidenceRoot, { recursive: true });
+  mkdirSync(reactNativeArtifactRoot, { recursive: true });
   mkdirSync(wasmRoot, { recursive: true });
 
   const metadata = JSON.parse(readFileSync(resolve(repositoryRoot, "packages/wallet-core/package.json"), "utf8"));
@@ -151,10 +195,24 @@ function fixture() {
   writeJson(resolve(packageRoot, "dist/native/artifact-manifest.json"), runtimeManifest);
 
   const reactNativeArtifacts = Object.entries(REACT_NATIVE_TARGETS).map(([targetId, target]) => {
-    const artifactBytes = Buffer.from(`react-native-${targetId}`);
+    const artifactBytes = syntheticReactNativeArtifact(targetId);
     const artifactPath = resolve(packageRoot, target.relativePath);
     mkdirSync(resolve(artifactPath, ".."), { recursive: true });
     writeFileSync(artifactPath, artifactBytes);
+    const artifactInputPath = resolve(reactNativeArtifactRoot, targetId, target.artifactFilename);
+    mkdirSync(resolve(artifactInputPath, ".."), { recursive: true });
+    writeFileSync(artifactInputPath, artifactBytes);
+    const toolchain = target.platform === "android" ? "Android NDK fixture" : "Xcode fixture";
+    const evidence = createReactNativeArtifactEvidence({
+      targetId,
+      artifactPath: artifactInputPath,
+      artifactInputFilename: `${targetId}/${target.artifactFilename}`,
+      sourceCommit,
+      packageVersion: metadata.version,
+      toolchainIdentifier: toolchain,
+      runner: "fixture-runner",
+    });
+    writeReactNativeEvidence(resolve(reactNativeEvidenceRoot, `${targetId}.json`), evidence);
     return {
       target_id: targetId,
       platform: target.platform,
@@ -163,9 +221,20 @@ function fixture() {
       relative_path: target.relativePath,
       artifact_filename: target.artifactFilename,
       sha256: sha256(artifactBytes),
-      toolchain_identifier: toolchainIdentifier,
+      toolchain_identifier: toolchain,
     };
   });
+  const reactNativeEvidence = Object.fromEntries(
+    Object.keys(REACT_NATIVE_TARGETS).map((targetId) => [
+      targetId,
+      JSON.parse(readFileSync(resolve(reactNativeEvidenceRoot, `${targetId}.json`), "utf8")),
+    ]),
+  );
+  writeJson(resolve(reactNativeEvidenceRoot, "react-native-summary.json"), createReactNativeSummary(
+    Object.values(reactNativeEvidence),
+    sourceCommit,
+    metadata.version,
+  ));
   writeJson(resolve(packageRoot, "dist/react-native/artifact-manifest.json"), {
     schema_version: 1,
     package_name: metadata.name,
@@ -210,6 +279,7 @@ function fixture() {
     cargo_lock_sha256: cargoLockSha256(),
     pnpm_lock_sha256: pnpmLockSha256(),
     required_native_targets: [...CANONICAL_TARGET_ORDER],
+    required_react_native_targets: Object.keys(REACT_NATIVE_TARGETS),
   });
   const nativeSummaryPath = resolve(root, "native-summary.json");
   writeJson(nativeSummaryPath, {
@@ -225,6 +295,9 @@ function fixture() {
     sourceEvidencePath,
     nativeSummaryPath,
     nativeEvidenceRoot,
+    reactNativeSummaryPath: resolve(reactNativeEvidenceRoot, "react-native-summary.json"),
+    reactNativeEvidenceRoot,
+    reactNativeArtifactRoot,
     wasmSummaryPath: resolve(wasmRoot, "wasm-summary.json"),
     wasmEvidencePath: resolve(wasmRoot, "wasm-evidence.json"),
     wasmBindgenEvidencePath: resolve(wasmRoot, "wasm-bindgen-version.json"),
@@ -238,6 +311,9 @@ function fixture() {
     npm: { version: "11.0.0" },
     pnpm: { version: "11.18.0" },
     wasm_bindgen: { cargo_lock_version: wasmBindgenVersion(), cli_version: wasmBindgenVersion() },
+    react_native: Object.fromEntries(
+      Object.values(reactNativeEvidence).map((evidence) => [evidence.target_id, { identifier: evidence.toolchain_identifier }]),
+    ),
   };
   const manifestPath = resolve(root, "release-manifest.json");
   const sha256sumsPath = resolve(root, "SHA256SUMS");
@@ -299,6 +375,9 @@ try {
     sourceEvidencePath: fixtureData.sourceEvidencePath,
     nativeSummaryPath: fixtureData.nativeSummaryPath,
     nativeEvidenceRoot: fixtureData.nativeEvidenceRoot,
+    reactNativeSummaryPath: fixtureData.reactNativeSummaryPath,
+    reactNativeEvidenceRoot: fixtureData.reactNativeEvidenceRoot,
+    reactNativeArtifactRoot: fixtureData.reactNativeArtifactRoot,
     wasmSummaryPath: fixtureData.wasmSummaryPath,
     wasmEvidencePath: fixtureData.wasmEvidencePath,
     wasmBindgenEvidencePath: fixtureData.wasmBindgenEvidencePath,
@@ -314,6 +393,9 @@ try {
     sourceEvidencePath: fixtureData.sourceEvidencePath,
     nativeSummaryPath: fixtureData.nativeSummaryPath,
     nativeEvidenceRoot: fixtureData.nativeEvidenceRoot,
+    reactNativeSummaryPath: fixtureData.reactNativeSummaryPath,
+    reactNativeEvidenceRoot: fixtureData.reactNativeEvidenceRoot,
+    reactNativeArtifactRoot: fixtureData.reactNativeArtifactRoot,
     wasmSummaryPath: fixtureData.wasmSummaryPath,
     wasmEvidencePath: fixtureData.wasmEvidencePath,
     wasmBindgenEvidencePath: fixtureData.wasmBindgenEvidencePath,
@@ -369,6 +451,9 @@ try {
     sourceEvidencePath: fixtureData.sourceEvidencePath,
     nativeSummaryPath: fixtureData.nativeSummaryPath,
     nativeEvidenceRoot: fixtureData.nativeEvidenceRoot,
+    reactNativeSummaryPath: fixtureData.reactNativeSummaryPath,
+    reactNativeEvidenceRoot: fixtureData.reactNativeEvidenceRoot,
+    reactNativeArtifactRoot: fixtureData.reactNativeArtifactRoot,
     wasmSummaryPath: fixtureData.wasmSummaryPath,
     wasmEvidencePath: fixtureData.wasmEvidencePath,
     wasmBindgenEvidencePath: fixtureData.wasmBindgenEvidencePath,
@@ -383,6 +468,9 @@ try {
     sourceEvidencePath: fixtureData.sourceEvidencePath,
     nativeSummaryPath: fixtureData.nativeSummaryPath,
     nativeEvidenceRoot: fixtureData.nativeEvidenceRoot,
+    reactNativeSummaryPath: fixtureData.reactNativeSummaryPath,
+    reactNativeEvidenceRoot: fixtureData.reactNativeEvidenceRoot,
+    reactNativeArtifactRoot: fixtureData.reactNativeArtifactRoot,
     wasmSummaryPath: fixtureData.wasmSummaryPath,
     wasmEvidencePath: fixtureData.wasmEvidencePath,
     wasmBindgenEvidencePath: fixtureData.wasmBindgenEvidencePath,

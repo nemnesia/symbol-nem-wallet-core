@@ -1,12 +1,35 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+test("React Native native integration registers appmodules and gates JSI delivery on lifecycle validity", () => {
+  const cmake = readFileSync(resolve(packageRoot, "android/CMakeLists.txt"), "utf8");
+  const gradle = readFileSync(resolve(packageRoot, "android/build.gradle"), "utf8");
+  const onLoad = readFileSync(resolve(packageRoot, "android/OnLoad.cpp"), "utf8");
+  const nativeSource = readFileSync(resolve(packageRoot, "cpp/NativeSymbolNemWalletCore.cpp"), "utf8");
+
+  assert.match(cmake, /project\(appmodules\)/);
+  assert.match(cmake, /ReactNative-application\.cmake/);
+  assert.match(cmake, /target_sources\(\$\{CMAKE_PROJECT_NAME\}/);
+  assert.match(cmake, /target_link_libraries\(\$\{CMAKE_PROJECT_NAME\} PRIVATE "\$\{SNWC_C_ABI_LIBRARY\}"\)/);
+  assert.match(gradle, /externalNativeBuild\s*\{/);
+  assert.match(gradle, /path file\("CMakeLists\.txt"\)/);
+  assert.match(gradle, /REACT_ANDROID_DIR=\$\{reactAndroidDir\}/);
+  assert.match(onLoad, /DefaultTurboModuleManagerDelegate::cxxModuleProvider/);
+  assert.match(onLoad, /symbolNemWalletCoreCxxModuleProvider/);
+  assert.match(onLoad, /autolinking_cxxModuleProvider/);
+  assert.match(nativeSource, /std::unique_lock<std::shared_mutex> lifecycleLock/);
+  assert.match(nativeSource, /std::shared_lock<std::shared_mutex> deliveryLock/);
+  assert.match(nativeSource, /std::atomic_uint64_t nextRequestIdentity\{0\}/);
+  assert.ok((nativeSource.match(/return ticket\.deliver\(\[&\]\(\) \{/g) ?? []).length >= 10);
+  assert.doesNotMatch(nativeSource, /ticket\.ensureLive\(\);/);
+});
 
 test("React Native entry uses the private synchronous TurboModule and preserves facade outputs", async () => {
   const directory = mkdtempSync(resolve(tmpdir(), "snwc-react-native-entry-"));

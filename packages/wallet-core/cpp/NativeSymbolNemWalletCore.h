@@ -9,7 +9,9 @@
 #endif
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
+#include <shared_mutex>
 
 namespace facebook::react {
 
@@ -23,6 +25,11 @@ class NativeSymbolNemWalletCore final
 
  private:
   std::atomic_bool valid_{true};
+  mutable std::shared_mutex lifecycleMutex_;
+  std::atomic_uintptr_t runtimeIdentity_{0};
+  const uintptr_t registryIdentity_;
+  const uintptr_t contextIdentity_;
+  const uint64_t processGeneration_ = 1;
 };
 
 } // namespace facebook::react

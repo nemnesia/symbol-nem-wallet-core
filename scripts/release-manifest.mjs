@@ -14,7 +14,12 @@ import {
   NATIVE_TARGETS,
   validateNativeManifest,
 } from "../packages/wallet-core/src/manifest.mjs";
-import { validateReactNativeManifest } from "../packages/wallet-core/src/react-native-manifest.mjs";
+import {
+  CANONICAL_REACT_NATIVE_TARGET_ORDER,
+  REACT_NATIVE_TARGETS,
+  validateReactNativeManifest,
+} from "../packages/wallet-core/src/react-native-manifest.mjs";
+import { validateReactNativeEvidenceSet } from "./react-native-evidence.mjs";
 import {
   cargoLockSha256,
   pnpmLockSha256,
@@ -31,6 +36,7 @@ const WASM_FILENAME = "symbol_nem_wallet_core_wasm_bg.wasm";
 const MANIFEST_FILENAME = "release-manifest.json";
 const DIGEST_FILENAME = "SHA256SUMS";
 const REQUIRED_TARGETS = [...CANONICAL_TARGET_ORDER];
+const REQUIRED_REACT_NATIVE_TARGETS = [...CANONICAL_REACT_NATIVE_TARGET_ORDER];
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 const VERSION_PATTERN = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -39,6 +45,10 @@ const npmAssemblyCommand = [
   "--wasm <canonical-wasm-source>",
   "--wasm-bindgen-bin <lockfile-matched-wasm-bindgen>",
   ...REQUIRED_TARGETS.map((targetId) => `--native-artifact ${targetId}=<normalized-native-artifact>`),
+  ...REQUIRED_REACT_NATIVE_TARGETS.flatMap((targetId) => [
+    `--react-native-artifact ${targetId}=<normalized-react-native-artifact>`,
+    `--react-native-evidence ${targetId}=<react-native-evidence>`,
+  ]),
 ].join(" ");
 
 export const CANONICAL_BUILD_STEPS = Object.freeze([
@@ -49,6 +59,10 @@ export const CANONICAL_BUILD_STEPS = Object.freeze([
   Object.freeze({
     id: "wasm",
     command: "cargo build --package symbol-nem-wallet-core-wasm --target wasm32-unknown-unknown --release --locked",
+  }),
+  Object.freeze({
+    id: "react-native",
+    command: "controlled Android/iOS React Native 0.87.x New Architecture build for arm64-v8a, x86_64, ios-arm64, ios-arm64-simulator",
   }),
   Object.freeze({
     id: "workspace-install",
@@ -176,6 +190,7 @@ function readSourceEvidence(path) {
     "cargo_lock_sha256",
     "pnpm_lock_sha256",
     "required_native_targets",
+    "required_react_native_targets",
   ], "source evidence");
   validCommit(source.source_commit, "source evidence source commit");
   if (source.package_name !== packageName) fail("source evidence package name differs");
@@ -188,6 +203,13 @@ function readSourceEvidence(path) {
     source.required_native_targets.some((target, index) => target !== REQUIRED_TARGETS[index])
   ) {
     fail("source evidence native target order is invalid");
+  }
+  if (
+    !Array.isArray(source.required_react_native_targets) ||
+    source.required_react_native_targets.length !== REQUIRED_REACT_NATIVE_TARGETS.length ||
+    source.required_react_native_targets.some((target, index) => target !== REQUIRED_REACT_NATIVE_TARGETS[index])
+  ) {
+    fail("source evidence React Native target order is invalid");
   }
   if (source.cargo_lock_sha256 !== cargoLockSha256()) fail("source evidence Cargo.lock digest differs from canonical source");
   if (source.pnpm_lock_sha256 !== pnpmLockSha256()) fail("source evidence pnpm-lock.yaml digest differs from canonical source");
@@ -342,7 +364,7 @@ function validateWasmBindgenEvidence(evidence) {
   return evidence;
 }
 
-function packageRuntimeManifest(packageRoot, metadata, source, nativeEntries, requireReactNativeComplete = false) {
+function packageRuntimeManifest(packageRoot, metadata, source, nativeEntries, reactNativeEvidence) {
   const manifestPath = resolve(packageRoot, "dist/native/artifact-manifest.json");
   const manifest = json(manifestPath, "runtime native artifact manifest");
   try {
@@ -373,23 +395,57 @@ function packageRuntimeManifest(packageRoot, metadata, source, nativeEntries, re
     if (sha256(artifactPath) !== evidence.artifact_sha256) fail(`assembled native artifact hash mismatch: ${targetId}`);
     if (fileSize(artifactPath) !== evidence.artifact_size) fail(`assembled native artifact size mismatch: ${targetId}`);
   }
-  const reactNativeManifest = json(resolve(packageRoot, "dist/react-native/artifact-manifest.json"), "runtime React Native artifact manifest");
+  const reactNativeManifestPath = resolve(packageRoot, "dist/react-native/artifact-manifest.json");
+  const reactNativeManifest = json(reactNativeManifestPath, "runtime React Native artifact manifest");
   try {
-    validateReactNativeManifest(reactNativeManifest, metadata, { requireComplete: requireReactNativeComplete });
+    validateReactNativeManifest(reactNativeManifest, metadata, { requireComplete: true });
   } catch {
     fail("runtime React Native artifact manifest is invalid");
   }
-  for (const artifact of reactNativeManifest.artifacts) {
+  if (reactNativeManifest.artifacts.length !== REQUIRED_REACT_NATIVE_TARGETS.length) {
+    fail("runtime React Native artifact count is not exactly four");
+  }
+  for (const [index, targetId] of REQUIRED_REACT_NATIVE_TARGETS.entries()) {
+    const artifact = reactNativeManifest.artifacts[index];
+    const evidence = reactNativeEvidence.entries[index];
     const artifactPath = resolve(packageRoot, artifact.relative_path);
-    if (!existsSync(artifactPath)) fail(`assembled React Native artifact is missing: ${artifact.target_id}`);
-    if (sha256(artifactPath) !== artifact.sha256) fail(`assembled React Native artifact hash mismatch: ${artifact.target_id}`);
+    if (
+      artifact.target_id !== targetId ||
+      artifact.platform !== REACT_NATIVE_TARGETS[targetId].platform ||
+      artifact.environment !== REACT_NATIVE_TARGETS[targetId].environment ||
+      artifact.architecture !== REACT_NATIVE_TARGETS[targetId].architecture ||
+      artifact.relative_path !== REACT_NATIVE_TARGETS[targetId].relativePath ||
+      artifact.artifact_filename !== REACT_NATIVE_TARGETS[targetId].artifactFilename ||
+      artifact.sha256 !== evidence.artifact_sha256 ||
+      artifact.toolchain_identifier !== evidence.toolchain_identifier
+    ) {
+      fail(`assembled React Native artifact identity mismatch: ${targetId}`);
+    }
+    if (!existsSync(artifactPath)) fail(`assembled React Native artifact is missing: ${targetId}`);
+    if (sha256(artifactPath) !== evidence.artifact_sha256) fail(`assembled React Native artifact hash mismatch: ${targetId}`);
+    if (fileSize(artifactPath) !== evidence.artifact_size) fail(`assembled React Native artifact size mismatch: ${targetId}`);
   }
   try {
     validatePackageContents(packageRoot, manifest);
   } catch {
     fail("assembled npm package contents are invalid");
   }
-  return manifest;
+  return { manifest, reactNativeManifest, reactNativeManifestPath };
+}
+
+function readReactNativeEvidence(summaryPath, evidenceRoot, artifactRoot, source, packageVersion) {
+  try {
+    return validateReactNativeEvidenceSet({
+      summaryPath,
+      evidenceRoot,
+      artifactRoot,
+      sourceCommit: source.source_commit,
+      packageVersion,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("React Native release evidence failed:")) throw error;
+    fail("React Native release evidence is invalid");
+  }
 }
 
 function tarballMetadata(tarballPath) {
@@ -440,8 +496,11 @@ function actualToolVersion(command, args, label) {
   }
 }
 
-export function actualToolchains(wasmBindgenEvidence) {
+export function actualToolchains(wasmBindgenEvidence, reactNativeSummary) {
   validateWasmBindgenEvidence(wasmBindgenEvidence);
+  if (!reactNativeSummary || !Array.isArray(reactNativeSummary.targets)) {
+    fail("React Native toolchain evidence is unavailable");
+  }
   return {
     rust: { identifier: undefined },
     node: { version: process.version },
@@ -451,16 +510,24 @@ export function actualToolchains(wasmBindgenEvidence) {
       cargo_lock_version: wasmBindgenEvidence.cargo_lock_version,
       cli_version: wasmBindgenEvidence.cli_version,
     },
+    react_native: Object.fromEntries(
+      reactNativeSummary.targets.map((target) => [target.target_id, { identifier: target.toolchain_identifier }]),
+    ),
   };
 }
 
-function validateToolchains(toolchains, nativeSummary, wasmSummary, wasmBindgen) {
-  exactKeys(toolchains, ["rust", "node", "npm", "pnpm", "wasm_bindgen"], "toolchains");
+function validateToolchains(toolchains, nativeSummary, wasmSummary, wasmBindgen, reactNativeSummary) {
+  exactKeys(toolchains, ["rust", "node", "npm", "pnpm", "wasm_bindgen", "react_native"], "toolchains");
   exactKeys(toolchains.rust, ["identifier"], "Rust toolchain");
   exactKeys(toolchains.node, ["version"], "Node.js toolchain");
   exactKeys(toolchains.npm, ["version"], "npm toolchain");
   exactKeys(toolchains.pnpm, ["version"], "pnpm toolchain");
   exactKeys(toolchains.wasm_bindgen, ["cargo_lock_version", "cli_version"], "wasm-bindgen toolchain");
+  exactKeys(toolchains.react_native, REQUIRED_REACT_NATIVE_TARGETS, "React Native toolchains");
+  for (const targetId of REQUIRED_REACT_NATIVE_TARGETS) {
+    exactKeys(toolchains.react_native[targetId], ["identifier"], `React Native toolchain ${targetId}`);
+    requiredString(toolchains.react_native[targetId].identifier, `React Native toolchain ${targetId}`);
+  }
   requiredString(toolchains.rust.identifier, "Rust toolchain identifier");
   if (toolchains.rust.identifier !== nativeSummary.toolchain_identifier || toolchains.rust.identifier !== wasmSummary.toolchain_identifier) {
     fail("Rust toolchain differs between native and WASM evidence");
@@ -473,6 +540,11 @@ function validateToolchains(toolchains, nativeSummary, wasmSummary, wasmBindgen)
     toolchains.wasm_bindgen.cli_version !== wasmBindgen.cli_version
   ) {
     fail("wasm-bindgen toolchain summary differs from evidence");
+  }
+  for (const target of reactNativeSummary.targets) {
+    if (toolchains.react_native[target.target_id].identifier !== target.toolchain_identifier) {
+      fail(`React Native toolchain differs from evidence: ${target.target_id}`);
+    }
   }
 }
 
@@ -490,15 +562,18 @@ function validateBuildSteps(buildSteps) {
 }
 
 function validateEvidenceReferences(evidence) {
-  exactKeys(evidence, ["source", "native_summary", "native_artifacts", "wasm_summary", "wasm_artifact", "wasm_bindgen"], "evidence references");
-  for (const key of ["source", "native_summary", "wasm_summary", "wasm_artifact", "wasm_bindgen"]) {
+  exactKeys(evidence, ["source", "native_summary", "native_artifacts", "react_native_summary", "react_native_artifacts", "wasm_summary", "wasm_artifact", "wasm_bindgen"], "evidence references");
+  for (const key of ["source", "native_summary", "react_native_summary", "wasm_summary", "wasm_artifact", "wasm_bindgen"]) {
     safeRelativePath(evidence[key], `evidence reference ${key}`);
   }
   exactKeys(evidence.native_artifacts, REQUIRED_TARGETS, "native evidence references");
   for (const targetId of REQUIRED_TARGETS) safeRelativePath(evidence.native_artifacts[targetId], `native evidence reference ${targetId}`);
+  exactKeys(evidence.react_native_artifacts, REQUIRED_REACT_NATIVE_TARGETS, "React Native evidence references");
+  for (const targetId of REQUIRED_REACT_NATIVE_TARGETS) safeRelativePath(evidence.react_native_artifacts[targetId], `React Native evidence reference ${targetId}`);
   if (
     evidence.source !== "release-source.json" ||
     evidence.native_summary !== "native-summary.json" ||
+    evidence.react_native_summary !== "react-native-summary.json" ||
     evidence.wasm_summary !== "wasm-summary.json" ||
     evidence.wasm_artifact !== "wasm-evidence.json" ||
     evidence.wasm_bindgen !== "wasm-bindgen-version.json"
@@ -507,6 +582,109 @@ function validateEvidenceReferences(evidence) {
   }
   for (const targetId of REQUIRED_TARGETS) {
     if (evidence.native_artifacts[targetId] !== `${targetId}.json`) fail(`native evidence reference is not canonical: ${targetId}`);
+  }
+  for (const targetId of REQUIRED_REACT_NATIVE_TARGETS) {
+    if (evidence.react_native_artifacts[targetId] !== `${targetId}.json`) fail(`React Native evidence reference is not canonical: ${targetId}`);
+  }
+}
+
+function validateReactNativeReleaseIdentity(reactNative, manifest) {
+  exactKeys(reactNative, ["artifact_manifest", "artifacts"], "release React Native identity");
+  exactKeys(
+    reactNative.artifact_manifest,
+    ["relative_path", "sha256", "size", "source_commit", "package_version"],
+    "React Native artifact manifest identity",
+  );
+  if (
+    reactNative.artifact_manifest.relative_path !== "dist/react-native/artifact-manifest.json" ||
+    reactNative.artifact_manifest.source_commit !== manifest.source_commit ||
+    reactNative.artifact_manifest.package_version !== manifest.package_version
+  ) {
+    fail("React Native artifact manifest identity mismatch");
+  }
+  safeRelativePath(reactNative.artifact_manifest.relative_path, "React Native artifact manifest path");
+  validHash(reactNative.artifact_manifest.sha256, "React Native artifact manifest hash");
+  validSize(reactNative.artifact_manifest.size, "React Native artifact manifest size");
+  if (!Array.isArray(reactNative.artifacts) || reactNative.artifacts.length !== REQUIRED_REACT_NATIVE_TARGETS.length) {
+    fail("release React Native artifact count is not exactly four");
+  }
+  const paths = new Set();
+  for (const [index, targetId] of REQUIRED_REACT_NATIVE_TARGETS.entries()) {
+    const target = REACT_NATIVE_TARGETS[targetId];
+    const artifact = reactNative.artifacts[index];
+    exactKeys(artifact, [
+      "target_id", "platform", "environment", "architecture", "artifact_filename", "relative_path",
+      "sha256", "size", "source_commit", "package_version", "toolchain_identifier", "binary_format",
+      "binary_identity", "required_symbols", "controlled_build",
+    ], `release React Native artifact ${targetId}`);
+    if (
+      artifact.target_id !== targetId ||
+      artifact.platform !== target.platform ||
+      artifact.environment !== target.environment ||
+      artifact.architecture !== target.architecture ||
+      artifact.artifact_filename !== target.artifactFilename ||
+      artifact.relative_path !== target.relativePath ||
+      artifact.source_commit !== manifest.source_commit ||
+      artifact.package_version !== manifest.package_version ||
+      typeof artifact.toolchain_identifier !== "string" ||
+      artifact.toolchain_identifier.length === 0 ||
+      artifact.binary_format !== (target.platform === "android" ? "ELF64" : "Mach-O-64-static-archive") ||
+      !isPlainObject(artifact.binary_identity) ||
+      !Array.isArray(artifact.required_symbols) ||
+      artifact.required_symbols.length !== 2 ||
+      artifact.required_symbols[0] !== "snwc_rn_module_identity" ||
+      artifact.required_symbols[1] !== "symbolNemWalletCoreCxxModuleProvider"
+    ) {
+      fail(`release React Native artifact identity mismatch: ${targetId}`);
+    }
+    const expectedBinaryIdentity = target.platform === "android"
+      ? {
+          format: "ELF64",
+          endian: "little",
+          type: "ET_DYN",
+          machine: target.architecture === "arm64-v8a" ? "AArch64" : "x86_64",
+          architecture: target.architecture,
+        }
+      : {
+          format: "Mach-O-64",
+          architecture: "arm64",
+          platform: target.environment === "simulator" ? "ios-simulator" : "ios",
+        };
+    exactKeys(
+      artifact.binary_identity,
+      target.platform === "android"
+        ? ["format", "endian", "type", "machine", "architecture"]
+        : ["format", "architecture", "platform", "object_count"],
+      `React Native binary identity ${targetId}`,
+    );
+    if (
+      JSON.stringify(target.platform === "android"
+        ? artifact.binary_identity
+        : Object.fromEntries(Object.entries(artifact.binary_identity).filter(([key]) => key !== "object_count"))) !== JSON.stringify(expectedBinaryIdentity) ||
+      (target.platform === "ios" && (!Number.isSafeInteger(artifact.binary_identity.object_count) || artifact.binary_identity.object_count <= 0))
+    ) {
+      fail(`release React Native binary identity mismatch: ${targetId}`);
+    }
+    exactKeys(artifact.controlled_build, [
+      "workflow", "runner", "build_mode", "source_commit", "package_version", "target_id", "toolchain_identifier",
+    ], `React Native controlled build ${targetId}`);
+    if (
+      artifact.controlled_build.workflow !== "react-native-controlled-build" ||
+      typeof artifact.controlled_build.runner !== "string" ||
+      artifact.controlled_build.runner.length === 0 ||
+      artifact.controlled_build.build_mode !== "release" ||
+      artifact.controlled_build.source_commit !== manifest.source_commit ||
+      artifact.controlled_build.package_version !== manifest.package_version ||
+      artifact.controlled_build.target_id !== targetId ||
+      artifact.controlled_build.toolchain_identifier !== artifact.toolchain_identifier
+    ) {
+      fail(`React Native controlled build identity mismatch: ${targetId}`);
+    }
+    safeRelativePath(artifact.relative_path, `React Native artifact path ${targetId}`);
+    validHash(artifact.sha256, `React Native artifact hash ${targetId}`);
+    validSize(artifact.size, `React Native artifact size ${targetId}`);
+    if (paths.has(artifact.relative_path)) fail("duplicate React Native artifact path");
+    paths.add(artifact.relative_path);
   }
 }
 
@@ -523,6 +701,7 @@ function validateManifestShape(manifest) {
     "toolchains",
     "build_steps",
     "native_artifacts",
+    "react_native",
     "wasm",
     "npm_tarball",
     "digest_file",
@@ -579,6 +758,8 @@ function validateManifestShape(manifest) {
     }
   }
 
+  validateReactNativeReleaseIdentity(manifest.react_native, manifest);
+
   exactKeys(manifest.wasm, ["source_artifact", "canonical_artifact", "wasm_bindgen"], "release WASM identity");
   exactKeys(manifest.wasm.source_artifact, ["artifact_filename", "sha256", "size", "source_commit", "package_version", "cargo_lock_sha256", "toolchain_identifier"], "raw WASM artifact identity");
   exactKeys(manifest.wasm.canonical_artifact, ["artifact_filename", "relative_path", "sha256", "size", "source_commit", "package_version", "cargo_lock_sha256", "toolchain_identifier", "wasm_bindgen_version"], "canonical WASM artifact identity");
@@ -606,6 +787,13 @@ function validateManifestShape(manifest) {
 
 function releaseManifestArtifacts(manifest) {
   const entries = manifest.native_artifacts.map((artifact) => ({ hash: artifact.sha256, path: artifact.relative_path }));
+  entries.push({
+    hash: manifest.react_native.artifact_manifest.sha256,
+    path: manifest.react_native.artifact_manifest.relative_path,
+  });
+  for (const artifact of manifest.react_native.artifacts) {
+    entries.push({ hash: artifact.sha256, path: artifact.relative_path });
+  }
   entries.push({ hash: manifest.wasm.canonical_artifact.sha256, path: manifest.wasm.canonical_artifact.relative_path });
   entries.push({ hash: manifest.npm_tarball.sha256, path: manifest.npm_tarball.filename });
   entries.push({ hash: undefined, path: MANIFEST_FILENAME });
@@ -682,6 +870,13 @@ function validateContext(manifest, input) {
   validateReleaseTag(manifest.mode, manifest.package_version, manifest.release_tag);
 
   const native = readNativeEvidenceSet(input.nativeSummaryPath, input.nativeEvidenceRoot, source, manifest.package_version);
+  const reactNative = readReactNativeEvidence(
+    input.reactNativeSummaryPath,
+    input.reactNativeEvidenceRoot,
+    input.reactNativeArtifactRoot,
+    source,
+    manifest.package_version,
+  );
   if (manifest.toolchains.rust.identifier !== native.summary.toolchain_identifier) fail("manifest Rust toolchain differs from native evidence");
   if (manifest.cargo_lock_sha256 !== cargoLockSha256() || manifest.pnpm_lock_sha256 !== pnpmLockSha256()) fail("release manifest lockfile digest differs from canonical source");
   for (const [index, evidence] of native.entries.entries()) {
@@ -700,7 +895,25 @@ function validateContext(manifest, input) {
     if (evidence.target_id === "linux-x64-gnu" && (artifact.glibc_version_runtime !== evidence.glibc_version_runtime || artifact.max_required_glibc_symbol !== evidence.max_required_glibc_symbol)) fail("Linux glibc evidence mismatch");
   }
 
-  const runtime = packageRuntimeManifest(input.packageRoot, metadata, source, native.entries, manifest.mode === "release");
+  const runtime = packageRuntimeManifest(input.packageRoot, metadata, source, native.entries, reactNative);
+  if (
+    sha256(runtime.reactNativeManifestPath) !== manifest.react_native.artifact_manifest.sha256 ||
+    fileSize(runtime.reactNativeManifestPath) !== manifest.react_native.artifact_manifest.size
+  ) {
+    fail("React Native artifact manifest hash mismatch");
+  }
+  for (const [index, evidence] of reactNative.entries.entries()) {
+    const artifact = manifest.react_native.artifacts[index];
+    for (const key of ["target_id", "platform", "environment", "architecture", "artifact_filename", "sha256", "size", "source_commit", "package_version", "toolchain_identifier", "binary_format"]) {
+      const evidenceKey = key === "size" ? "artifact_size" : key === "sha256" ? "artifact_sha256" : key;
+      if (artifact[key] !== evidence[evidenceKey]) fail(`release manifest React Native evidence mismatch: ${evidence.target_id}`);
+    }
+    if (
+      JSON.stringify(artifact.binary_identity) !== JSON.stringify(evidence.binary_identity) ||
+      JSON.stringify(artifact.required_symbols) !== JSON.stringify(evidence.required_symbols) ||
+      JSON.stringify(artifact.controlled_build) !== JSON.stringify(evidence.controlled_build)
+    ) fail(`release manifest React Native identity mismatch: ${evidence.target_id}`);
+  }
   const wasmSummary = json(input.wasmSummaryPath, "WASM summary");
   validateWasmEvidence(wasmSummary, source, manifest.package_version, input.wasmSourcePath);
   const wasmEvidence = json(input.wasmEvidencePath, "WASM evidence");
@@ -709,7 +922,7 @@ function validateContext(manifest, input) {
     if (wasmSummary[key] !== wasmEvidence[key]) fail(`WASM summary/evidence mismatch: ${key}`);
   }
   const wasmBindgen = validateWasmBindgenEvidence(json(input.wasmBindgenEvidencePath, "wasm-bindgen evidence"));
-  validateToolchains(manifest.toolchains, native.summary, wasmSummary, wasmBindgen);
+  validateToolchains(manifest.toolchains, native.summary, wasmSummary, wasmBindgen, reactNative.summary);
   const rawWasm = manifest.wasm.source_artifact;
   if (
     rawWasm.artifact_filename !== wasmSummary.artifact_filename ||
@@ -721,20 +934,23 @@ function validateContext(manifest, input) {
   if (!existsSync(canonicalWasmPath)) fail("canonical package WASM is missing");
   if (sha256(canonicalWasmPath) !== manifest.wasm.canonical_artifact.sha256) fail("canonical package WASM hash mismatch");
   if (fileSize(canonicalWasmPath) !== manifest.wasm.canonical_artifact.size) fail("canonical package WASM size mismatch");
-  if (runtime.source_commit !== source.source_commit) fail("runtime manifest source mismatch");
+  if (runtime.manifest.source_commit !== source.source_commit) fail("runtime manifest source mismatch");
 
   const tarMetadata = tarballMetadata(input.tarballPath);
   if (tarMetadata.name !== manifest.npm_tarball.package_name || tarMetadata.version !== manifest.npm_tarball.package_version) fail("npm tarball metadata differs from release manifest");
   if (basename(input.tarballPath) !== manifest.npm_tarball.filename) fail("npm tarball filename differs from release manifest");
   if (sha256(input.tarballPath) !== manifest.npm_tarball.sha256) fail("npm tarball hash mismatch");
   if (fileSize(input.tarballPath) !== manifest.npm_tarball.size) fail("npm tarball size mismatch");
-  return { source, metadata, native, wasmSummary, wasmBindgen };
+  return { source, metadata, native, reactNative, wasmSummary, wasmBindgen };
 }
 
 export function createReleaseManifest({
   sourceEvidencePath,
   nativeSummaryPath,
   nativeEvidenceRoot,
+  reactNativeSummaryPath,
+  reactNativeEvidenceRoot,
+  reactNativeArtifactRoot,
   wasmSummaryPath,
   wasmEvidencePath,
   wasmBindgenEvidencePath,
@@ -750,7 +966,14 @@ export function createReleaseManifest({
   if (source.package_version !== metadata.version) fail("source and npm package versions differ");
   validateReleaseTag(mode, metadata.version, releaseTag);
   const native = readNativeEvidenceSet(nativeSummaryPath, nativeEvidenceRoot, source, metadata.version);
-  const runtime = packageRuntimeManifest(packageRoot, metadata, source, native.entries, mode === "release");
+  const reactNative = readReactNativeEvidence(
+    reactNativeSummaryPath,
+    reactNativeEvidenceRoot,
+    reactNativeArtifactRoot,
+    source,
+    metadata.version,
+  );
+  const runtime = packageRuntimeManifest(packageRoot, metadata, source, native.entries, reactNative);
   const wasmSummary = json(wasmSummaryPath, "WASM summary");
   validateWasmEvidence(wasmSummary, source, metadata.version, wasmSourcePath);
   const wasmEvidence = json(wasmEvidencePath, "WASM evidence");
@@ -759,7 +982,7 @@ export function createReleaseManifest({
     if (wasmSummary[key] !== wasmEvidence[key]) fail(`WASM summary/evidence mismatch: ${key}`);
   }
   const wasmBindgen = validateWasmBindgenEvidence(json(wasmBindgenEvidencePath, "wasm-bindgen evidence"));
-  validateToolchains(toolchains, native.summary, wasmSummary, wasmBindgen);
+  validateToolchains(toolchains, native.summary, wasmSummary, wasmBindgen, reactNative.summary);
   const tarMetadata = tarballMetadata(tarballPath);
   if (tarMetadata.name !== metadata.name || tarMetadata.version !== metadata.version) fail("npm tarball metadata differs from package metadata");
 
@@ -791,6 +1014,35 @@ export function createReleaseManifest({
       }
       return artifact;
     }),
+    react_native: {
+      artifact_manifest: {
+        relative_path: "dist/react-native/artifact-manifest.json",
+        sha256: sha256(runtime.reactNativeManifestPath, "React Native artifact manifest"),
+        size: fileSize(runtime.reactNativeManifestPath, "React Native artifact manifest"),
+        source_commit: source.source_commit,
+        package_version: metadata.version,
+      },
+      artifacts: reactNative.entries.map((evidence) => {
+        const target = REACT_NATIVE_TARGETS[evidence.target_id];
+        return {
+          target_id: evidence.target_id,
+          platform: target.platform,
+          environment: target.environment,
+          architecture: target.architecture,
+          artifact_filename: target.artifactFilename,
+          relative_path: target.relativePath,
+          sha256: evidence.artifact_sha256,
+          size: evidence.artifact_size,
+          source_commit: evidence.source_commit,
+          package_version: evidence.package_version,
+          toolchain_identifier: evidence.toolchain_identifier,
+          binary_format: evidence.binary_format,
+          binary_identity: evidence.binary_identity,
+          required_symbols: evidence.required_symbols,
+          controlled_build: evidence.controlled_build,
+        };
+      }),
+    },
     wasm: {
       source_artifact: {
         artifact_filename: wasmSummary.artifact_filename,
@@ -829,6 +1081,8 @@ export function createReleaseManifest({
       source: "release-source.json",
       native_summary: "native-summary.json",
       native_artifacts: Object.fromEntries(REQUIRED_TARGETS.map((targetId) => [targetId, `${targetId}.json`])),
+      react_native_summary: "react-native-summary.json",
+      react_native_artifacts: Object.fromEntries(REQUIRED_REACT_NATIVE_TARGETS.map((targetId) => [targetId, `${targetId}.json`])),
       wasm_summary: "wasm-summary.json",
       wasm_artifact: "wasm-evidence.json",
       wasm_bindgen: "wasm-bindgen-version.json",
@@ -836,7 +1090,7 @@ export function createReleaseManifest({
   };
   if (mode === "release") manifest.release_tag = releaseTag;
   validateManifestShape(manifest);
-  if (runtime.source_commit !== manifest.source_commit) fail("runtime manifest source differs from release manifest");
+  if (runtime.manifest.source_commit !== manifest.source_commit) fail("runtime manifest source differs from release manifest");
   return manifest;
 }
 
@@ -846,6 +1100,9 @@ export function validateReleaseManifest({
   sourceEvidencePath,
   nativeSummaryPath,
   nativeEvidenceRoot,
+  reactNativeSummaryPath,
+  reactNativeEvidenceRoot,
+  reactNativeArtifactRoot,
   wasmSummaryPath,
   wasmEvidencePath,
   wasmBindgenEvidencePath,
@@ -860,6 +1117,9 @@ export function validateReleaseManifest({
     sourceEvidencePath,
     nativeSummaryPath,
     nativeEvidenceRoot,
+    reactNativeSummaryPath,
+    reactNativeEvidenceRoot,
+    reactNativeArtifactRoot,
     wasmSummaryPath,
     wasmEvidencePath,
     wasmBindgenEvidencePath,
@@ -886,6 +1146,9 @@ function validateArguments(argv, command) {
     "--source-evidence",
     "--native-summary",
     "--native-evidence-root",
+    "--react-native-summary",
+    "--react-native-evidence-root",
+    "--react-native-artifact-root",
     "--wasm-summary",
     "--wasm-evidence",
     "--wasm-bindgen-evidence",
@@ -916,6 +1179,9 @@ function pathsFromArguments(argv) {
     sourceEvidencePath: resolve(repositoryRoot, argument("--source-evidence", argv)),
     nativeSummaryPath: resolve(repositoryRoot, argument("--native-summary", argv)),
     nativeEvidenceRoot: resolve(repositoryRoot, argument("--native-evidence-root", argv)),
+    reactNativeSummaryPath: resolve(repositoryRoot, argument("--react-native-summary", argv)),
+    reactNativeEvidenceRoot: resolve(repositoryRoot, argument("--react-native-evidence-root", argv)),
+    reactNativeArtifactRoot: resolve(repositoryRoot, argument("--react-native-artifact-root", argv)),
     wasmSummaryPath: resolve(repositoryRoot, argument("--wasm-summary", argv)),
     wasmEvidencePath: resolve(repositoryRoot, argument("--wasm-evidence", argv)),
     wasmBindgenEvidencePath: resolve(repositoryRoot, argument("--wasm-bindgen-evidence", argv)),
@@ -937,7 +1203,8 @@ function run() {
     const mode = argument("--mode", argv, "candidate");
     const releaseTag = argv.includes("--release-tag") ? argument("--release-tag", argv) : undefined;
     const wasmBindgenEvidence = json(paths.wasmBindgenEvidencePath, "wasm-bindgen evidence");
-    const toolchains = actualToolchains(wasmBindgenEvidence);
+    const reactNativeSummary = json(paths.reactNativeSummaryPath, "React Native summary");
+    const toolchains = actualToolchains(wasmBindgenEvidence, reactNativeSummary);
     const nativeSummary = json(paths.nativeSummaryPath, "native summary");
     toolchains.rust.identifier = nativeSummary.toolchain_identifier;
     const manifest = createReleaseManifest({ ...paths, mode, releaseTag, toolchains });

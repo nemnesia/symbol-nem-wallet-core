@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstring>
 #include <mutex>
+#include <shared_mutex>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -57,7 +58,15 @@ bool isCoreError(const char *code) {
 }
 
 std::mutex coordinatorMutex;
-thread_local bool coordinatorOwned = false;
+thread_local const void *coordinatorOwner = nullptr;
+std::atomic_uintptr_t nextBindingIdentity{1};
+std::atomic_uint64_t nextRequestIdentity{0};
+
+uintptr_t allocateBindingIdentity() {
+  const uintptr_t identity = nextBindingIdentity.fetch_add(1, std::memory_order_relaxed);
+  if (identity == 0) fail(kBindingFailure);
+  return identity;
+}
 
 void wipeSecret(std::vector<uint8_t> &bytes) noexcept {
   volatile uint8_t *data = bytes.data();
@@ -68,30 +77,77 @@ void wipeSecret(std::vector<uint8_t> &bytes) noexcept {
 
 class AdmissionTicket final {
  public:
-  AdmissionTicket(const std::atomic_bool &valid, Runtime &runtime) : valid_(valid) {
-    if (!valid_.load(std::memory_order_acquire) || coordinatorOwned) {
+  AdmissionTicket(
+      const std::atomic_bool &valid,
+      const std::atomic_uintptr_t &runtimeIdentity,
+      uintptr_t registryIdentity,
+      uintptr_t contextIdentity,
+      uint64_t processGeneration,
+      std::atomic_uint64_t &nextRequestIdentity,
+      std::shared_mutex &lifecycleMutex,
+      Runtime &runtime)
+      : valid_(valid),
+        runtimeIdentity_(runtimeIdentity),
+        registryIdentity_(registryIdentity),
+        contextIdentity_(contextIdentity),
+        processGeneration_(processGeneration),
+        lifecycleMutex_(lifecycleMutex),
+        runtime_(reinterpret_cast<uintptr_t>(&runtime)) {
+    if (!valid_.load(std::memory_order_acquire) || coordinatorOwner != nullptr || runtime_ == 0) {
+      fail(kBindingFailure);
+    }
+    uintptr_t unregistered = 0;
+    if (!runtimeIdentity_.compare_exchange_strong(
+            unregistered, runtime_, std::memory_order_acq_rel, std::memory_order_acquire) &&
+        unregistered != runtime_) {
       fail(kBindingFailure);
     }
     lock_ = std::unique_lock<std::mutex>(coordinatorMutex);
-    if (!valid_.load(std::memory_order_acquire)) {
+    if (!valid_.load(std::memory_order_acquire) ||
+        runtimeIdentity_.load(std::memory_order_acquire) != runtime_ ||
+        registryIdentity_ == 0 || contextIdentity_ == 0 || processGeneration_ == 0) {
       fail(kBindingFailure);
     }
-    coordinatorOwned = true;
-    (void)runtime;
+    requestIdentity_ = nextRequestIdentity.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (requestIdentity_ == 0) {
+      fail(kBindingFailure);
+    }
+    coordinatorOwner = this;
   }
 
   ~AdmissionTicket() {
-    coordinatorOwned = false;
+    coordinatorOwner = nullptr;
   }
 
   void ensureLive() const {
-    if (!valid_.load(std::memory_order_acquire)) {
+    if (!isLive()) {
       fail(kBindingFailure);
     }
   }
 
+  template <typename Function>
+  decltype(auto) deliver(Function &&function) const {
+    std::shared_lock<std::shared_mutex> deliveryLock(lifecycleMutex_);
+    ensureLive();
+    return std::forward<Function>(function)();
+  }
+
  private:
+  bool isLive() const {
+    return valid_.load(std::memory_order_acquire) &&
+        runtimeIdentity_.load(std::memory_order_acquire) == runtime_ &&
+        registryIdentity_ != 0 && contextIdentity_ != 0 && processGeneration_ != 0 &&
+        requestIdentity_ != 0;
+  }
+
   const std::atomic_bool &valid_;
+  const std::atomic_uintptr_t &runtimeIdentity_;
+  const uintptr_t registryIdentity_;
+  const uintptr_t contextIdentity_;
+  const uint64_t processGeneration_;
+  std::shared_mutex &lifecycleMutex_;
+  const uintptr_t runtime_;
+  uint64_t requestIdentity_ = 0;
   std::unique_lock<std::mutex> lock_;
 };
 
@@ -139,6 +195,48 @@ class Warnings final {
   ~Warnings() { snwc_free_warnings(&value); }
 };
 
+class NativeWarnings final {
+ public:
+  struct NativeWarning {
+    std::string code;
+    std::string objectType;
+    std::array<uint8_t, 16> objectId{};
+    bool hasObjectId = false;
+    bool hasField = false;
+    std::string field;
+  };
+
+  NativeWarnings() = default;
+  NativeWarnings(const NativeWarnings &) = delete;
+  NativeWarnings &operator=(const NativeWarnings &) = delete;
+
+  void capture(Warnings &source) {
+    if (source.value.len != 0 && source.value.ptr == nullptr) fail(kBindingFailure);
+    values_.reserve(source.value.len);
+    for (size_t index = 0; index < source.value.len; index += 1) {
+      const SnwcWarning &warning = source.value.ptr[index];
+      if (warning.code == nullptr || warning.object_type == nullptr ||
+          (warning.has_object_id != 0 && warning.has_object_id != 1)) {
+        fail(kBindingFailure);
+      }
+      NativeWarning copy;
+      copy.code = warning.code;
+      copy.objectType = warning.object_type;
+      std::memcpy(copy.objectId.data(), warning.object_id, copy.objectId.size());
+      copy.hasObjectId = warning.has_object_id != 0;
+      copy.hasField = warning.field != nullptr;
+      if (copy.hasField) copy.field = warning.field;
+      values_.push_back(std::move(copy));
+    }
+    source.release();
+  }
+
+  const std::vector<NativeWarning> &values() const { return values_; }
+
+ private:
+  std::vector<NativeWarning> values_;
+};
+
 class Profiles final {
  public:
   SnwcProfileInfo *ptr = nullptr;
@@ -154,6 +252,40 @@ class SoftwareKeys final {
   void release() { snwc_free_software_key_list(&ptr, &len); }
   ~SoftwareKeys() { snwc_free_software_key_list(&ptr, &len); }
 };
+
+SecretBytes copyOwnedBytes(OwnedBytes &source) {
+  if (source.value.len != 0 && source.value.ptr == nullptr) fail(kBindingFailure);
+  std::vector<uint8_t> copy(source.value.len);
+  if (!copy.empty()) std::memcpy(copy.data(), source.value.ptr, copy.size());
+  source.release();
+  return SecretBytes(std::move(copy));
+}
+
+std::vector<SnwcProfileInfo> copyProfiles(Profiles &source) {
+  if (source.len != 0 && source.ptr == nullptr) fail(kBindingFailure);
+  std::vector<SnwcProfileInfo> copy(source.len);
+  if (!copy.empty()) std::memcpy(copy.data(), source.ptr, copy.size() * sizeof(SnwcProfileInfo));
+  source.release();
+  return copy;
+}
+
+std::vector<SnwcSoftwareKeyListItem> copySoftwareKeys(SoftwareKeys &source) {
+  if (source.len != 0 && source.ptr == nullptr) fail(kBindingFailure);
+  std::vector<SnwcSoftwareKeyListItem> copy(source.len);
+  if (!copy.empty()) std::memcpy(copy.data(), source.ptr, copy.size() * sizeof(SnwcSoftwareKeyListItem));
+  source.release();
+  return copy;
+}
+
+std::string copyAddress(OwnedBytes &source) {
+  if (source.value.len != 0 && source.value.ptr == nullptr) fail(kBindingFailure);
+  std::string copy;
+  if (source.value.len != 0) {
+    copy.assign(reinterpret_cast<const char *>(source.value.ptr), source.value.len);
+  }
+  source.release();
+  return copy;
+}
 
 Value property(Runtime &runtime, const Object &object, const char *name) {
   try {
@@ -370,38 +502,35 @@ void checkCoreError(const char *error) {
   fail(isCoreError(error) ? error : kBindingFailure);
 }
 
-Value bytesToJs(Runtime &runtime, const SnwcOwnedBytes &source) {
-  if (source.len != 0 && source.ptr == nullptr) fail(kBindingFailure);
-  Uint8Array result(runtime, source.len);
+Value bytesToJs(Runtime &runtime, const uint8_t *data, size_t length) {
+  if (length != 0 && data == nullptr) fail(kBindingFailure);
+  Uint8Array result(runtime, length);
   ArrayBuffer buffer = result.buffer(runtime);
-  if (source.len != 0) {
-    std::memcpy(buffer.data(runtime) + result.byteOffset(runtime), source.ptr, source.len);
+  if (length != 0) {
+    std::memcpy(buffer.data(runtime) + result.byteOffset(runtime), data, length);
   }
   return Value(std::move(result));
 }
 
-Value bytesToJs(Runtime &runtime, const OwnedBytes &source) {
-  return bytesToJs(runtime, source.value);
+Value bytesToJs(Runtime &runtime, const SecretBytes &source) {
+  return bytesToJs(runtime, source.cBytes().ptr, source.cBytes().len);
 }
 
-Value fixedBytesToJs(Runtime &runtime, const OwnedBytes &source, size_t expectedLength) {
-  if (source.value.len != expectedLength || source.value.ptr == nullptr) fail(kBindingFailure);
+Value fixedBytesToJs(Runtime &runtime, const SecretBytes &source, size_t expectedLength) {
+  if (source.cBytes().len != expectedLength || source.cBytes().ptr == nullptr) fail(kBindingFailure);
   return bytesToJs(runtime, source);
 }
 
-Object warningToJs(Runtime &runtime, const SnwcWarning &warning) {
-  if (warning.code == nullptr || warning.object_type == nullptr || (warning.has_object_id != 0 && warning.has_object_id != 1)) {
-    fail(kBindingFailure);
-  }
+Object warningToJs(Runtime &runtime, const NativeWarnings::NativeWarning &warning) {
   Object object(runtime);
   object.setProperty(runtime, "code", String::createFromUtf8(runtime, warning.code));
-  object.setProperty(runtime, "object_type", String::createFromUtf8(runtime, warning.object_type));
-  if (warning.has_object_id != 0) {
-    object.setProperty(runtime, "object_id", String::createFromUtf8(runtime, uuidString(warning.object_id)));
+  object.setProperty(runtime, "object_type", String::createFromUtf8(runtime, warning.objectType));
+  if (warning.hasObjectId) {
+    object.setProperty(runtime, "object_id", String::createFromUtf8(runtime, uuidString(warning.objectId.data())));
   } else {
     object.setProperty(runtime, "object_id", Value::undefined());
   }
-  if (warning.field != nullptr) {
+  if (warning.hasField) {
     object.setProperty(runtime, "field", String::createFromUtf8(runtime, warning.field));
   } else {
     object.setProperty(runtime, "field", Value::undefined());
@@ -409,11 +538,10 @@ Object warningToJs(Runtime &runtime, const SnwcWarning &warning) {
   return object;
 }
 
-Array warningsToJs(Runtime &runtime, const Warnings &warnings) {
-  if (warnings.value.len != 0 && warnings.value.ptr == nullptr) fail(kBindingFailure);
-  Array result(runtime, warnings.value.len);
-  for (size_t index = 0; index < warnings.value.len; index += 1) {
-    result.setValueAtIndex(runtime, index, warningToJs(runtime, warnings.value.ptr[index]));
+Array warningsToJs(Runtime &runtime, const NativeWarnings &warnings) {
+  Array result(runtime, warnings.values().size());
+  for (size_t index = 0; index < warnings.values().size(); index += 1) {
+    result.setValueAtIndex(runtime, index, warningToJs(runtime, warnings.values()[index]));
   }
   return result;
 }
@@ -422,14 +550,14 @@ void setValue(Runtime &runtime, Object &object, const char *name, Value value) {
   object.setProperty(runtime, name, std::move(value));
 }
 
-Object readResult(Runtime &runtime, Value value, const Warnings &warnings) {
+Object readResult(Runtime &runtime, Value value, const NativeWarnings &warnings) {
   Object result(runtime);
   setValue(runtime, result, "value", std::move(value));
   setValue(runtime, result, "warnings", Value(warningsToJs(runtime, warnings)));
   return result;
 }
 
-Object mutationResult(Runtime &runtime, const OwnedBytes &store, Value value, const Warnings &warnings) {
+Object mutationResult(Runtime &runtime, const SecretBytes &store, Value value, const NativeWarnings &warnings) {
   Object result(runtime);
   setValue(runtime, result, "store", bytesToJs(runtime, store));
   setValue(runtime, result, "value", std::move(value));
@@ -471,30 +599,24 @@ Object keyListItemToJs(Runtime &runtime, const SnwcSoftwareKeyListItem &key) {
   return result;
 }
 
-Array profilesToJs(Runtime &runtime, const Profiles &profiles) {
-  if (profiles.len != 0 && profiles.ptr == nullptr) fail(kBindingFailure);
-  Array result(runtime, profiles.len);
-  for (size_t index = 0; index < profiles.len; index += 1) {
-    result.setValueAtIndex(runtime, index, profileToJs(runtime, profiles.ptr[index]));
+Array profilesToJs(Runtime &runtime, const std::vector<SnwcProfileInfo> &profiles) {
+  Array result(runtime, profiles.size());
+  for (size_t index = 0; index < profiles.size(); index += 1) {
+    result.setValueAtIndex(runtime, index, profileToJs(runtime, profiles[index]));
   }
   return result;
 }
 
-Array softwareKeysToJs(Runtime &runtime, const SoftwareKeys &keys) {
-  if (keys.len != 0 && keys.ptr == nullptr) fail(kBindingFailure);
-  Array result(runtime, keys.len);
-  for (size_t index = 0; index < keys.len; index += 1) {
-    result.setValueAtIndex(runtime, index, keyListItemToJs(runtime, keys.ptr[index]));
+Array softwareKeysToJs(Runtime &runtime, const std::vector<SnwcSoftwareKeyListItem> &keys) {
+  Array result(runtime, keys.size());
+  for (size_t index = 0; index < keys.size(); index += 1) {
+    result.setValueAtIndex(runtime, index, keyListItemToJs(runtime, keys[index]));
   }
   return result;
 }
 
-Object publicAccountToJs(Runtime &runtime, const SnwcPublicAccountInfo &account, const OwnedBytes &address) {
+Object publicAccountToJs(Runtime &runtime, const SnwcPublicAccountInfo &account, const std::string &addressText) {
   if (account.chain > 1 || account.network > 1) fail(kBindingFailure);
-  if (address.value.len != 0 && address.value.ptr == nullptr) fail(kBindingFailure);
-  const std::string addressText = address.value.len == 0
-      ? std::string()
-      : std::string(reinterpret_cast<const char *>(address.value.ptr), address.value.len);
   Object result(runtime);
   setValue(runtime, result, "key_id", String::createFromUtf8(runtime, uuidString(account.key_id)));
   setValue(runtime, result, "chain", String::createFromUtf8(runtime, account.chain == 0 ? "nem" : "symbol"));
@@ -511,9 +633,12 @@ Object publicAccountToJs(Runtime &runtime, const SnwcPublicAccountInfo &account,
 } // namespace
 
 NativeSymbolNemWalletCore::NativeSymbolNemWalletCore(std::shared_ptr<CallInvoker> jsInvoker)
-    : NativeSymbolNemWalletCoreCxxSpec(std::move(jsInvoker)) {}
+    : NativeSymbolNemWalletCoreCxxSpec(std::move(jsInvoker)),
+      registryIdentity_(allocateBindingIdentity()),
+      contextIdentity_(allocateBindingIdentity()) {}
 
 void NativeSymbolNemWalletCore::invalidate() {
+  std::unique_lock<std::shared_mutex> lifecycleLock(lifecycleMutex_);
   valid_.store(false, std::memory_order_release);
 }
 
@@ -522,15 +647,17 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
     std::string operation,
     jsi::Object args) {
   try {
-    AdmissionTicket ticket(valid_, runtime);
+    AdmissionTicket ticket(
+        valid_, runtimeIdentity_, registryIdentity_, contextIdentity_, processGeneration_,
+        nextRequestIdentity, lifecycleMutex_, runtime);
     if (operation == "create_empty_store") {
       exactArgumentCount(runtime, args, 0);
       OwnedBytes store;
       checkCoreError(snwc_create_empty_store(&store.value));
-      Value result = bytesToJs(runtime, store);
-      store.release();
-      ticket.ensureLive();
-      return objectValue(runtime, result);
+      SecretBytes nativeStore = copyOwnedBytes(store);
+      return ticket.deliver([&]() {
+        return objectValue(runtime, bytesToJs(runtime, nativeStore));
+      });
     }
 
     if (operation == "prepare_generated_profile") {
@@ -543,15 +670,16 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
       Warnings warnings;
       checkCoreError(snwc_prepare_generated_profile(
           store.cBytes(), password.cBytes(), network, &mnemonic.value, &pending.value, &warnings.value));
-      Object value(runtime);
-      setValue(runtime, value, "mnemonic_utf8", bytesToJs(runtime, mnemonic));
-      setValue(runtime, value, "pending_profile", bytesToJs(runtime, pending));
-      Object result = readResult(runtime, std::move(value), warnings);
-      mnemonic.release();
-      pending.release();
-      warnings.release();
-      ticket.ensureLive();
-      return result;
+      SecretBytes nativeMnemonic = copyOwnedBytes(mnemonic);
+      SecretBytes nativePending = copyOwnedBytes(pending);
+      NativeWarnings nativeWarnings;
+      nativeWarnings.capture(warnings);
+      return ticket.deliver([&]() {
+        Object value(runtime);
+        setValue(runtime, value, "mnemonic_utf8", bytesToJs(runtime, nativeMnemonic));
+        setValue(runtime, value, "pending_profile", bytesToJs(runtime, nativePending));
+        return readResult(runtime, std::move(value), nativeWarnings);
+      });
     }
 
     if (operation == "finalize_generated_profile" || operation == "restore_profile") {
@@ -574,11 +702,12 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
             store.cBytes(), second.cBytes(), password.cBytes(), network, &replacement.value, &profile, &warnings.value);
       }
       checkCoreError(error);
-      Object result = mutationResult(runtime, replacement, profileToJs(runtime, profile), warnings);
-      replacement.release();
-      warnings.release();
-      ticket.ensureLive();
-      return result;
+      SecretBytes nativeReplacement = copyOwnedBytes(replacement);
+      NativeWarnings nativeWarnings;
+      nativeWarnings.capture(warnings);
+      return ticket.deliver([&]() {
+        return mutationResult(runtime, nativeReplacement, profileToJs(runtime, profile), nativeWarnings);
+      });
     }
 
     if (operation == "list_profiles") {
@@ -587,11 +716,12 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
       Profiles profiles;
       Warnings warnings;
       checkCoreError(snwc_list_profiles(store.cBytes(), &profiles.ptr, &profiles.len, &warnings.value));
-      Object result = readResult(runtime, Value(profilesToJs(runtime, profiles)), warnings);
-      profiles.release();
-      warnings.release();
-      ticket.ensureLive();
-      return result;
+      std::vector<SnwcProfileInfo> nativeProfiles = copyProfiles(profiles);
+      NativeWarnings nativeWarnings;
+      nativeWarnings.capture(warnings);
+      return ticket.deliver([&]() {
+        return readResult(runtime, Value(profilesToJs(runtime, nativeProfiles)), nativeWarnings);
+      });
     }
 
     if (operation == "export_mnemonic" || operation == "export_private_key") {
@@ -605,14 +735,15 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
           ? snwc_export_mnemonic(store.cBytes(), request, password.cBytes(), &exported.value, &warnings.value)
           : snwc_export_private_key(store.cBytes(), request, password.cBytes(), &exported.value, &warnings.value);
       checkCoreError(error);
-      Object value(runtime);
-      setValue(runtime, value, operation == "export_mnemonic" ? "mnemonic_utf8" : "private_key",
-          operation == "export_mnemonic" ? bytesToJs(runtime, exported) : fixedBytesToJs(runtime, exported, 32));
-      Object result = readResult(runtime, std::move(value), warnings);
-      exported.release();
-      warnings.release();
-      ticket.ensureLive();
-      return result;
+      SecretBytes nativeExported = copyOwnedBytes(exported);
+      NativeWarnings nativeWarnings;
+      nativeWarnings.capture(warnings);
+      return ticket.deliver([&]() {
+        Object value(runtime);
+        setValue(runtime, value, operation == "export_mnemonic" ? "mnemonic_utf8" : "private_key",
+            operation == "export_mnemonic" ? bytesToJs(runtime, nativeExported) : fixedBytesToJs(runtime, nativeExported, 32));
+        return readResult(runtime, std::move(value), nativeWarnings);
+      });
     }
 
     if (operation == "list_software_keys") {
@@ -622,11 +753,12 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
       SoftwareKeys keys;
       Warnings warnings;
       checkCoreError(snwc_list_software_keys(store.cBytes(), profile, &keys.ptr, &keys.len, &warnings.value));
-      Object result = readResult(runtime, softwareKeysToJs(runtime, keys), warnings);
-      keys.release();
-      warnings.release();
-      ticket.ensureLive();
-      return result;
+      std::vector<SnwcSoftwareKeyListItem> nativeKeys = copySoftwareKeys(keys);
+      NativeWarnings nativeWarnings;
+      nativeWarnings.capture(warnings);
+      return ticket.deliver([&]() {
+        return readResult(runtime, softwareKeysToJs(runtime, nativeKeys), nativeWarnings);
+      });
     }
 
     if (operation == "derive_software_key" || operation == "import_software_key" || operation == "generate_software_key") {
@@ -652,11 +784,12 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
             &replacement.value, &key, &warnings.value);
       }
       checkCoreError(error);
-      Object result = mutationResult(runtime, replacement, keyInfoToJs(runtime, key), warnings);
-      replacement.release();
-      warnings.release();
-      ticket.ensureLive();
-      return result;
+      SecretBytes nativeReplacement = copyOwnedBytes(replacement);
+      NativeWarnings nativeWarnings;
+      nativeWarnings.capture(warnings);
+      return ticket.deliver([&]() {
+        return mutationResult(runtime, nativeReplacement, keyInfoToJs(runtime, key), nativeWarnings);
+      });
     }
 
     if (operation == "get_public_account") {
@@ -673,11 +806,12 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
       OwnedBytes address;
       address.value = account.address;
       account.address = {};
-      Object result = readResult(runtime, Value(publicAccountToJs(runtime, account, address)), warnings);
-      address.release();
-      warnings.release();
-      ticket.ensureLive();
-      return result;
+      std::string nativeAddress = copyAddress(address);
+      NativeWarnings nativeWarnings;
+      nativeWarnings.capture(warnings);
+      return ticket.deliver([&]() {
+        return readResult(runtime, Value(publicAccountToJs(runtime, account, nativeAddress)), nativeWarnings);
+      });
     }
 
     if (operation == "sign") {
@@ -689,13 +823,14 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
       OwnedBytes signature;
       Warnings warnings;
       checkCoreError(snwc_sign(store.cBytes(), request, password.cBytes(), &signature.value, &warnings.value));
-      Object value(runtime);
-      setValue(runtime, value, "signature", fixedBytesToJs(runtime, signature, 64));
-      Object result = readResult(runtime, std::move(value), warnings);
-      signature.release();
-      warnings.release();
-      ticket.ensureLive();
-      return result;
+      SecretBytes nativeSignature = copyOwnedBytes(signature);
+      NativeWarnings nativeWarnings;
+      nativeWarnings.capture(warnings);
+      return ticket.deliver([&]() {
+        Object value(runtime);
+        setValue(runtime, value, "signature", fixedBytesToJs(runtime, nativeSignature, 64));
+        return readResult(runtime, std::move(value), nativeWarnings);
+      });
     }
 
     if (operation == "change_profile_password") {
@@ -708,11 +843,12 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
       Warnings warnings;
       checkCoreError(snwc_change_profile_password(
           store.cBytes(), profile, current.cBytes(), next.cBytes(), &replacement.value, &warnings.value));
-      Object result = mutationResult(runtime, replacement, Value::null(), warnings);
-      replacement.release();
-      warnings.release();
-      ticket.ensureLive();
-      return result;
+      SecretBytes nativeReplacement = copyOwnedBytes(replacement);
+      NativeWarnings nativeWarnings;
+      nativeWarnings.capture(warnings);
+      return ticket.deliver([&]() {
+        return mutationResult(runtime, nativeReplacement, Value::null(), nativeWarnings);
+      });
     }
 
     if (operation == "delete_software_key" || operation == "delete_profile") {
@@ -732,11 +868,12 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
         error = snwc_delete_profile(store.cBytes(), profile, password.cBytes(), &replacement.value, &warnings.value);
       }
       checkCoreError(error);
-      Object result = mutationResult(runtime, replacement, Value::null(), warnings);
-      replacement.release();
-      warnings.release();
-      ticket.ensureLive();
-      return result;
+      SecretBytes nativeReplacement = copyOwnedBytes(replacement);
+      NativeWarnings nativeWarnings;
+      nativeWarnings.capture(warnings);
+      return ticket.deliver([&]() {
+        return mutationResult(runtime, nativeReplacement, Value::null(), nativeWarnings);
+      });
     }
 
     fail(kBindingFailure);

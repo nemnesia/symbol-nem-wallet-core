@@ -1,11 +1,24 @@
 apply plugin: "com.android.library"
 
+def reactAndroidDir = project.findProperty("snwcReactAndroidDir") ?: ""
+
 android {
     namespace "com.nemnesia.symbolnemwalletcore"
     compileSdkVersion rootProject.ext.has("compileSdkVersion") ? rootProject.ext.compileSdkVersion : 35
 
     defaultConfig {
         minSdkVersion 24
+    }
+
+    // The appmodules CMake entry point performs Codegen/JSI integration and
+    // links the approved per-ABI C ABI/Rust artifact supplied by the consumer.
+    externalNativeBuild {
+        cmake {
+            path file("CMakeLists.txt")
+            version "3.22.1"
+            arguments "-DREACT_ANDROID_DIR=${reactAndroidDir}"
+            arguments "-DSNWC_C_ABI_LIBRARY=${project.findProperty('snwcCAbiLibrary') ?: ''}"
+        }
     }
 
     sourceSets {
