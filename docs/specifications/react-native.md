@@ -48,11 +48,31 @@ Platform Baseline は次であり、本書は後続の正式承認なしに変�
 | React Native              | `>= 0.86.x`。`0.87.x` を primary validation line。stable のみ                                                       |
 | Android                   | `minSdk = 24`。formal ABI は `arm64-v8a`、`x86_64`                                                                  |
 | Bare RN iOS               | iOS `15.1+`                                                                                                         |
-| Expo subset               | iOS `16.4+`、Android は approved Android baseline                                                                   |
+| Expo subset               | Expo SDK `57` stable + RN `0.86.x`。iOS `16.4+`、Android は approved Android baseline                               |
 | iOS architecture          | device `arm64`、Apple Silicon simulator `arm64`                                                                     |
 | React Native architecture | New Architecture mandatory                                                                                          |
 | Native integration        | TurboModule / JSI required。Legacy Architecture / Bridge は unsupported                                             |
 | Expo                      | Bare RN、Development Build、Prebuild / CNG、custom native module workflow を formal support。Expo Go は unsupported |
+
+`>= 0.86.x` は minimum compatibility floor であり、将来の RN minor line を無期限または自動的に
+formal support する wildcard ではない。v1 の formal RN support window は、stable patch release を
+含む `0.86.x`（compatibility verification line）および `0.87.x`（primary validation line）だけである。
+`0.88.x` 以降または表に列挙されていない minor line は、stable であっても Specification と
+release / CI matrix が更新されるまで unsupported とする。canary、nightly、`next` はこの window
+に含めない。
+
+次のいずれかが発生した場合、次の support claim または release gate の前に support window の
+re-baseline を行う。
+
+- 新しい stable RN minor line を formal support に追加する場合
+- formal window 内の line が upstream で End of Cycle / Unsupported になった場合、または security / native compatibility を維持できなくなった場合
+- RN version、Codegen、New Architecture または native toolchain の変更により、既存 line の互換性根拠が失われた場合
+
+re-baseline は primary / compatibility line、Expo compatibility pair、CI / release evidence の
+対象を同時に更新するまで有効な support claim とみなさない。re-baseline 前に未列挙 line を
+formal support として扱ったり、既存 line の status 変更を無視したりしてはならない。これは
+新しい platform choice を追加する判断ではなく、`PD-RN-001` の approved baseline を維持するための
+Specification / release gate である。
 
 ### 1.2 対象外と責任境界
 
@@ -222,30 +242,61 @@ replacement Store を返さず、temporary を cleanup する。
 
 分類は経過時間の固定 threshold ではなく、operation が要求する Core step、secret lifetime、Store
 mutation および evidence の種類で決める。実測結果だけで operation の classification を変更しない。
+class は速度、JS thread の non-blocking または AC-061 の適用除外を保証するものではない。
 
 | operation                    | class                                  | serialization scope         | cancellation relevance                                     | cleanup requirement                                   | evidence                              |
 | ---------------------------- | -------------------------------------- | --------------------------- | ---------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------- |
-| `create_empty_store`         | C0: bounded direct                     | process-wide RN coordinator | admission / teardown のみ                                  | output buffer、request metadata                       | parity、lifecycle                     |
+| `create_empty_store`         | C0: bounded direct                     | process-wide RN coordinator | admission / teardown のみ                                  | output buffer、request metadata                       | parity / lifecycle / blocking         |
 | `prepare_generated_profile`  | C2: potentially expensive secret / KDF | process-wide                | admission 前は取り消し可能。Core 開始後は forced stop 不可 | mnemonic、pending、KDF temporary                      | AC-061 execution / resource / cleanup |
 | `finalize_generated_profile` | C2: KDF / Store mutation               | process-wide                | 同上                                                       | password、pending、decrypted data、replacement        | AC-061 + Store parity                 |
 | `restore_profile`            | C2: mnemonic / KDF / Store mutation    | process-wide                | 同上                                                       | mnemonic、password、seed、replacement                 | AC-061 + restore parity               |
-| `list_profiles`              | C0: manifest read                      | process-wide                | admission / teardown のみ                                  | DTO、warning buffer                                   | API / error parity                    |
+| `list_profiles`              | C0: manifest read                      | process-wide                | admission / teardown のみ                                  | DTO、warning buffer                                   | AC-061 size / blocking / cleanup      |
 | `export_mnemonic`            | C2: secret export / decrypt            | process-wide                | delivery cancellation が重要。Core 開始後 forced stop 不可 | password、decrypted mnemonic、output                  | AC-061 + secret cleanup               |
 | `export_private_key`         | C2: secret export / decrypt            | process-wide                | delivery cancellation が重要。Core 開始後 forced stop 不可 | password、decrypted key、output                       | AC-061 + secret cleanup               |
-| `list_software_keys`         | C0: manifest read                      | process-wide                | admission / teardown のみ                                  | DTO、warning buffer                                   | API / error parity                    |
+| `list_software_keys`         | C0: manifest read                      | process-wide                | admission / teardown のみ                                  | DTO、warning buffer                                   | AC-061 size / blocking / cleanup      |
 | `derive_software_key`        | C2: derivation / Store mutation        | process-wide                | 同上                                                       | password、seed、private key、replacement              | AC-061 + Store parity                 |
-| `import_software_key`        | C1: secret-capable crypto / mutation   | process-wide                | admission / teardown、delivery cancellation                | private key、password、replacement                    | parity + cleanup                      |
-| `generate_software_key`      | C1: randomness / crypto / mutation     | process-wide                | admission / teardown、delivery cancellation                | generated key、password、replacement                  | parity + cleanup                      |
-| `get_public_account`         | C1: secret-capable read                | process-wide                | admission / teardown、delivery cancellation                | password、decrypted key / public derivation temporary | parity + cleanup                      |
+| `import_software_key`        | C1: secret-capable crypto / mutation   | process-wide                | admission / teardown、delivery cancellation                | private key、password、replacement                    | AC-061 trigger / parity / cleanup     |
+| `generate_software_key`      | C1: randomness / crypto / mutation     | process-wide                | admission / teardown、delivery cancellation                | generated key、password、replacement                  | AC-061 trigger / parity / cleanup     |
+| `get_public_account`         | C1: secret-capable read                | process-wide                | admission / teardown、delivery cancellation                | password、decrypted key / public derivation temporary | AC-061 trigger / parity / cleanup     |
 | `sign`                       | C2: signing / secret use               | process-wide                | delivery cancellation が重要。Core 開始後 forced stop 不可 | password、decrypted key、signing temporary、signature | AC-061 + signing parity               |
 | `change_profile_password`    | C2: KDF / re-encryption mutation       | process-wide                | 同上                                                       | old/new password、decrypted payload、replacement      | AC-061 + Store parity                 |
-| `delete_software_key`        | C1: decrypt / mutation                 | process-wide                | admission / teardown、delivery cancellation                | password、decrypted payload、replacement              | parity + deletion cleanup             |
-| `delete_profile`             | C1: decrypt / mutation                 | process-wide                | admission / teardown、delivery cancellation                | password、decrypted payload、replacement              | parity + deletion cleanup             |
+| `delete_software_key`        | C1: decrypt / mutation                 | process-wide                | admission / teardown、delivery cancellation                | password、decrypted payload、replacement              | AC-061 trigger / deletion cleanup     |
+| `delete_profile`             | C1: decrypt / mutation                 | process-wide                | admission / teardown、delivery cancellation                | password、decrypted payload、replacement              | AC-061 trigger / deletion cleanup     |
 
-C0 は常に低コストであるという保証ではなく、current contract 上の bounded direct operation で
-ある。C1 / C2 は常に遅いという主張ではない。C2 は `NFR-015` / `AC-061` に基づく responsiveness、
-blocking、resource、starvation および cleanup evidence の対象である。いずれの class も process-wide
-parallel execution を許可する根拠にはならない。
+C0 は、empty Store の生成または manifest / metadata の direct read のように、current contract 上
+bounded direct と定義された operation である。C1 は password、secret-capable crypto、bounded decrypt または
+Store mutation を含み得る bounded secret-capable operation であり、常に低コストとは限らない。C2 は
+password KDF、Store-wide encryption / decryption または re-encryption、Mnemonic seed / derivation、key
+derivation、signing、secret export / decrypt または large Store processing を含む、current contract 上
+potentially expensive として指定された operation である。
+いずれも速度や resource の保証ではなく、いずれの class も process-wide parallel execution を許可する
+根拠にはならない。
+
+Evidence の適用範囲は class とは独立して次の規則で決まる。
+
+1. 全16 operation は、API / error parity、synchronous return / throw、admission wait、JS / UI thread
+   blocking、cross-runtime starvation、resource retention、cancellation / teardown cleanup および
+   stale result rejection の common baseline evidence を持たなければならない。process-wide serialization
+   があるため、C0 も admission wait または blocking の対象から外れない。
+2. operation の declared Core step、secret lifetime、Store / opaque input size または result lifecycle が、
+   `NFR-015` / `AC-061` の password KDF、Store / profile payload encrypt / decrypt、Mnemonic seed /
+   derivation、key derivation、signing、large Store processing、resource boundedness または interruption /
+   cleanup のいずれかに該当し得る場合、class が C0 または C1 であっても §23 の operation-specific
+   evidence を適用する。C1 の current rows は password / decrypt / mutation / secret-capable work を含むため、
+   trigger-set evidence の対象であり、class を理由に測定を省略してはならない。C0 の manifest read も
+   variable Store envelope の size が processing cost に影響する場合は同じ扱いとする。
+3. C2 は常に operation-specific evidence の対象である。C0 / C1 の trigger がないことを採用する場合は、
+   operation 単位で該当する Core step、input envelope、secret lifetime および除外理由を evidence に記録する。
+
+現行16 operationの適用は次のとおりである。`create_empty_store` は secret、Store input、crypto、mutation
+および C2 trigger を持たないため、full §23 execution-cost measurement から除外できる唯一の C0 operation
+であるが、common blocking / lifecycle baseline は必須である。`list_profiles` と `list_software_keys` は
+variable Store envelope を読むため input-size trigger があり、full §23 evidence の対象である。表の全 C1
+operation は password、decrypt、secret-capable crypto または mutation を含むため full §23 evidence の対象で
+あり、C1 という class を理由に除外してはならない。C2 operation はすべて full §23 evidence の対象である。
+
+この規則は classification の付与と evidence の包含関係を分離し、C0 / C1 の class 名だけを根拠に
+`NFR-015` / `AC-061` の blocking、resource、starvation または cleanup evaluation を省略することを禁止する。
 
 ### 4.3 Sync / async decision gate
 
@@ -282,15 +333,15 @@ secret / Store content を共有しない。
 意味上の state は次の通りである。exact mutex、queue container、executor、atomic primitive、thread
 affinity、memory ordering は Implementation に委譲する。
 
-| state           | admission                                                          | in-flight                                               | 遷移                                                                                          |
-| --------------- | ------------------------------------------------------------------ | ------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `uninitialized` | registration only                                                  | none                                                    | first valid registration が initialization を開始                                             |
-| `initializing`  | new execution は待機または fail closed。重複 initialization は不可 | initialization 1 件のみ                                 | success で `ready`、failure で process generation unavailable                                 |
-| `ready`         | valid runtime / context から受理                                   | 最大 1 件                                               | ticket order で `in_flight` へ                                                                |
-| `in_flight`     | 次の request は ticket と descriptor のみ保持                      | exactly 1 Core / C ABI execution                        | completion + release + delivery check 後に `ready`                                            |
-| `draining`      | 受理しない                                                         | existing operation は forced kill せず cleanup まで処理 | zero in-flight 後に `closed`                                                                  |
-| `closed`        | 旧 coordinator lifecycle では受理しない                            | none                                                    | 全 cleanup 後の new coordinator lifecycle registration のみ再初期化可能                       |
-| `unavailable`   | 受理しない                                                         | failure に応じ cleanup                                  | integrity / shared init failure は process restart または明示的 lifecycle reset まで terminal |
+| state           | admission                                                                                                           | in-flight                                               | 遷移                                                                                                     |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `uninitialized` | registration only                                                                                                   | none                                                    | first valid registration が initialization を開始                                                        |
+| `initializing`  | new execution は全 runtime 共通で即時 fail closed。registration metadata のみ許可し、ticket / descriptor を作らない | initialization 1 件のみ                                 | success で `ready`、failure または initiating identity の invalidation で process generation unavailable |
+| `ready`         | valid runtime / context から受理                                                                                    | 最大 1 件                                               | ticket order で `in_flight` へ                                                                           |
+| `in_flight`     | 次の request は ticket と descriptor のみ保持                                                                       | exactly 1 Core / C ABI execution                        | completion + release + delivery check 後に `ready`                                                       |
+| `draining`      | 受理しない                                                                                                          | existing operation は forced kill せず cleanup まで処理 | zero in-flight 後に `closed`                                                                             |
+| `closed`        | 旧 coordinator lifecycle では受理しない                                                                             | none                                                    | 全 cleanup 後の new coordinator lifecycle registration のみ再初期化可能                                  |
+| `unavailable`   | 受理しない                                                                                                          | failure に応じ cleanup                                  | integrity / shared init failure は process restart または明示的 lifecycle reset まで terminal            |
 
 coordinator は、受理した request に単調増加する admission identity を割り当てる。execution order は
 その identity の順序であり、受理済み request を後から並べ替えてはならない。admission 前に取消・
@@ -303,6 +354,16 @@ request identity、non-secret scalar、cancellation state だけを保持する�
 private key、decrypted Store、payload bytes または signing intermediate を process-wide queue に
 コピー・保持してはならない。secret の native materialization は admission 後かつ Core invocation
 直前に行う。
+
+`initializing` 中の new execution は待機させず、既存 public contract の
+`BackendInitializationError` を同期的に返す。これらの request には admission identity、ticket、queue
+descriptor、secret conversion、C ABI invocation または自動 retry を与えない。初期化が成功した後の
+再試行は、caller が新たに開始する別 request として扱う。初期化が失敗した場合、または initialization
+中に initiating runtime / registry が invalid になった場合は、initialization-local resource を cleanup
+して `unavailable` へ遷移し、全 runtime の後続 execution を同じ `BackendInitializationError` で拒否する。
+process restart または明示的な新 coordinator lifecycle reset まで、失敗した initialization を再利用・
+部分成功・別 backend fallback として扱わない。この rule は runtime A が initialization を開始した場合も
+runtime B が先に public operation を呼ぶ場合も同一である。
 
 ### 5.3 Runtime registration と validity
 
@@ -369,17 +430,25 @@ context は Profile、Store、password、Mnemonic、private key、authorization 
 
 次の behavior を exact contract とする。
 
-| event                                                  | 必須動作                                                                                                                                                                                     |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 同一 context の nested synchronous invocation          | 内側を実行・再帰・queue 待ちさせず `BindingFailure` として拒否。外側の Core operation と state は維持                                                                                        |
-| callback-originated re-entry                           | Core call 中の JS callback、UI callback、public facade callback または recursive invoke を要求しない。発生した場合は `BindingFailure` または stale cleanup とし、success にしない            |
-| lower scope → upper scope の同期再入                   | coordinator、runtime scope、context scope、C ABI、Core の下位から public facade / upper coordinator への同期再入を要求しない                                                                 |
-| teardown during invocation                             | identity を invalid にし、新規 admission / delivery を止める。Core invocation は unsafe forced thread termination をせず完了または安全な native unwind を待ち、output / temporary を cleanup |
-| cancellation during invocation                         | cancellation flag を delivery eligibility に反映する。Core を強制停止せず、completion は stale として cleanup                                                                                |
-| process-wide coordinator と context coordinator の競合 | 下位が上位を同期 wait して循環しない。process-wide admission が execution authority で、context は local metadata のみを持つ                                                                 |
+| event                                                  | 必須動作                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 同一 context の nested synchronous invocation          | 内側を実行・再帰・queue 待ちさせず `BindingFailure` として拒否。外側の Core operation と state は維持                                                                                                                                                                              |
+| callback-originated re-entry                           | 現在の process / runtime / registry / context identity が valid で、既存 invocation が active な場合は nested request を即時 `BindingFailure` として拒否する。identity が既に invalid、cancelled または teardown 中なら nested request を admission せず stale cleanup-only とする |
+| lower scope → upper scope の同期再入                   | coordinator、runtime scope、context scope、C ABI、Core の下位から public facade / upper coordinator への同期再入を要求しない                                                                                                                                                       |
+| teardown during invocation                             | identity を invalid にし、新規 admission / delivery を止める。Core invocation は unsafe forced thread termination をせず完了または安全な native unwind を待ち、output / temporary を cleanup                                                                                       |
+| cancellation during invocation                         | cancellation flag を delivery eligibility に反映する。Core を強制停止せず、completion は stale として cleanup                                                                                                                                                                      |
+| process-wide coordinator と context coordinator の競合 | 下位が上位を同期 wait して循環しない。process-wide admission が execution authority で、context は local metadata のみを持つ                                                                                                                                                       |
 
 lock hierarchy、queue type、worker count、callback mechanism、thread affinity、memory ordering および
 reentrancy guard の具体実装は固定しない。ただし上表の外部 behavior を変える実装は認めない。
+
+re-entry request の outcome は、検出時点の identity validity を先に評価して決める。valid な active
+context での callback-originated、public-facade または recursive invocation は常に
+`WalletCoreError(code = "BindingFailure")` を同期的に観測させ、queue 待ち、Core / C ABI 呼出し、success
+delivery または retry を行わない。runtime / registry / context が既に invalid、request が cancelled / superseded、
+または process teardown 中である場合は、その nested request に error callback を合成せず、stale cleanup-only
+とする。後者は既に admission 済みの outer request の stale completion mapping とは別の event であり、outer
+request の caller-visible result は §9.2 に従う。
 
 ## 9. Cancellation、stale completion および teardown
 
@@ -420,9 +489,11 @@ stale completion は MUST NOT:
 - public state mutation、current Store application または authorization state を再実行する
 
 stale を検出した時点で native owned bytes を C ABI release contract に従い解放し、secret-containing
-temporary は可能な範囲で zeroize する。runtime がすでに失効して JS error を受け取れない場合、binding
-は新しい error callback を合成せず cleanup だけを行う。caller がなお同期的に error を観測できる場合
-は `WalletCoreError(code = "BindingFailure")` とし、stale を成功として返さない。
+temporary は可能な範囲で zeroize する。runtime がすでに失効して JS error を受け取れない場合、binding は
+新しい error callback を合成せず cleanup だけを行う。caller がなお同期的に outer request の error を
+観測できる場合は `WalletCoreError(code = "BindingFailure")` とし、stale を成功として返さない。この mapping は
+既に admission 済みの completion に適用し、§8 の valid re-entry request に対する即時拒否または invalid
+re-entry request に対する cleanup-only の二択を再導入しない。
 
 ### 9.3 Runtime-local teardown
 
@@ -585,8 +656,11 @@ TurboModule / JSI から C ABI call へ入る前に runtime / registry / context
 native provider invalidation は新規 admission を停止し、in-flight result は §9 の stale contract に従う。
 
 Android native layer は Activity、React context、TurboModule object または JNI global reference を
-Core secret の lifetime anchor にしてはならない。Android の lifecycle callback が C ABI / Core を再入させる
-場合は `BindingFailure` または stale cleanup とし、同期 recursive call を行わない。
+Core secret の lifetime anchor にしてはならない。Android lifecycle callback が invocation 中に再入を試みる
+場合、callback が runtime / registry / context を invalid にする lifecycle event なら invalidation を先に確定し、
+nested request は stale cleanup-only とする。それ以外の valid active identity に対する lifecycle callback re-entry
+は `WalletCoreError(code = "BindingFailure")` として即時拒否し、同期 recursive call、queue 待ちまたは Core / C ABI
+呼出しを行わない。
 
 ### 13.3 Android failure behavior
 
@@ -712,9 +786,19 @@ formal support は次である。
 Expo Go は unsupported である。Expo Go に native RN artifact を後から追加するための WASM / Node
 fallback、runtime download または別 package を提供しない。
 
-Expo consumer は supported stable Expo SDK / React Native version pair を使用し、RN は `>= 0.86.x`、
-New Architecture enabled、Android approved baseline、Expo iOS subset は iOS `16.4+` を満たす。canary、
-nightly、incompatible SDK / RN pair は formal support 外である。
+Expo consumer の formal compatibility pair は **Expo SDK `57` stable + React Native `0.86.x`** の一つだけ
+である。この pair では New Architecture enabled、Android approved baseline、Expo iOS subset iOS `16.4+`
+を満たす。RN `0.87.x` は bare RN の primary validation line であり、Expo SDK 57 に RN `0.87.x` を強制的に
+組み合わせることは formal Expo support ではない。SDK 57 / RN 0.86.x 以外の stable pair、unlisted pair、
+canary、nightly、`next`、SDK / RN mismatch および custom fork は unsupported とする。
+
+Expo の formal workflow（Development Build、Prebuild / CNG、custom native module integration）は、上記の
+exact pair に限って適用する。pair の判定は prebuild / native build の support-matrix gate で行い、unlisted / mismatch
+を成功した native project として出力してはならない。gate を bypass した場合も最初の RN backend initialization
+で `BackendInitializationError` とし、Node / WASM fallback を行わない。
+
+Expo workflow は §1.1 の finite RN support window と re-baseline rule を共有し、formal workflow であることだけを
+理由に未列挙の RN minor line または Expo SDK / RN pair を追加してはならない。
 
 ### 17.2 Prebuild / CNG contract
 
@@ -765,16 +849,18 @@ private substrate の組合せだけを対象とする。
 既存 public error namespace だけを使用する。新しい public `ErrorCode`、RN-specific error class、backend
 selector または diagnostics object を追加しない。
 
-| failure source                                                                                                                             | public mapping                                                                                                                 |
-| ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| Rust Core operation error                                                                                                                  | existing `WalletCoreError`。18 個の `ErrorCode` と `message = code` を維持                                                     |
-| existing C ABI `ErrorCode`                                                                                                                 | Core code へ 1 対 1 mapping。成功・warning-only へ変換しない                                                                   |
-| public DTO field 欠落、unknown literal、malformed UUID、semantic enum / context 不正                                                       | existing `InvalidArgument`                                                                                                     |
-| typed array 型不一致、detached / unreadable buffer、pointer / length / allocation / ownership / output conversion failure                  | existing `BindingFailure`                                                                                                      |
-| native module missing、TurboModule / JSI registration failure、library load / symbol / link failure、artifact integrity / manifest failure | `BackendInitializationError`                                                                                                   |
-| unsupported RN version、Legacy Architecture、Android API / ABI、iOS host / slice、incompatible Expo pair、Expo Go                          | `BackendInitializationError`。近い backend へ fallback しない                                                                  |
-| runtime invalidation、context destruction、request cancellation、stale completion、teardown delivery failure                               | caller が観測できる場合は `WalletCoreError(code = "BindingFailure")`; runtime が既に無効なら success delivery を行わず cleanup |
-| process-wide shared resource unavailable                                                                                                   | initialization phase は `BackendInitializationError`、operation phase は `BindingFailure`。いずれも new admission を止める     |
+| failure source                                                                                                                             | public mapping                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Rust Core operation error                                                                                                                  | existing `WalletCoreError`。18 個の `ErrorCode` と `message = code` を維持                                                       |
+| existing C ABI `ErrorCode`                                                                                                                 | Core code へ 1 対 1 mapping。成功・warning-only へ変換しない                                                                     |
+| public DTO field 欠落、unknown literal、malformed UUID、semantic enum / context 不正                                                       | existing `InvalidArgument`                                                                                                       |
+| typed array 型不一致、detached / unreadable buffer、pointer / length / allocation / ownership / output conversion failure                  | existing `BindingFailure`                                                                                                        |
+| valid active identity における callback / lifecycle-originated recursive invocation                                                        | `WalletCoreError(code = "BindingFailure")`。queue 待ち、Core / C ABI invocation、success delivery または retry を行わない        |
+| invalid / cancelled / teardown 中の callback / lifecycle-originated recursive invocation                                                   | nested request を admission せず、public error callback を合成しない stale cleanup-only。outer request の mapping は §9.2 に従う |
+| native module missing、TurboModule / JSI registration failure、library load / symbol / link failure、artifact integrity / manifest failure | `BackendInitializationError`                                                                                                     |
+| unsupported RN version、Legacy Architecture、Android API / ABI、iOS host / slice、incompatible Expo pair、Expo Go                          | `BackendInitializationError`。近い backend へ fallback しない                                                                    |
+| runtime invalidation、context destruction、request cancellation、stale completion、teardown delivery failure                               | caller が観測できる場合は `WalletCoreError(code = "BindingFailure")`; runtime が既に無効なら success delivery を行わず cleanup   |
+| process-wide shared resource unavailable                                                                                                   | initialization phase は `BackendInitializationError`、operation phase は `BindingFailure`。いずれも new admission を止める       |
 
 `BackendInitializationError` の public `name` / `message` は既存契約の
 `WalletCoreBackendInitializationError` / `backend initialization failed` とする。unsupported ABI、
@@ -790,29 +876,34 @@ Core `AuthenticationFailed`、`InvalidStore`、`NetworkMismatch`、`PendingProfi
 
 ### 20.1 Formal matrix
 
-| target                            | formal baseline                                                                                                          |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Android device / emulator         | API 24+、ABI `arm64-v8a` / `x86_64`、New Architecture、stable RN `>=0.86.x`                                              |
-| Bare RN iOS device                | iOS 15.1+、`arm64`、New Architecture、stable RN `>=0.86.x`                                                               |
-| Bare RN iOS simulator             | Apple Silicon、`arm64`、iOS 15.1+                                                                                        |
-| Expo Development Build / Prebuild | supported stable RN / Expo pair、New Architecture、approved Android baseline、iOS 16.4+、custom native module workflow   |
-| RN primary validation             | RN `0.87.x`                                                                                                              |
-| package-wide non-RN               | Node / Browser / Browser Extension の existing `npm-typescript-facade.md` contract。RN entry / artifact が影響を与えない |
+| target                            | formal baseline                                                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Android device / emulator         | API 24+、ABI `arm64-v8a` / `x86_64`、New Architecture、stable RN `0.86.x` / `0.87.x`（0.87 primary）                           |
+| Bare RN iOS device                | iOS 15.1+、`arm64`、New Architecture、stable RN `0.86.x` / `0.87.x`（0.87 primary）                                            |
+| Bare RN iOS simulator             | Apple Silicon、`arm64`、iOS 15.1+、stable RN `0.86.x` / `0.87.x`（0.87 primary）                                               |
+| Expo Development Build / Prebuild | Expo SDK `57` stable + RN `0.86.x` only、New Architecture、approved Android baseline、iOS 16.4+、custom native module workflow |
+| RN primary validation             | RN `0.87.x`                                                                                                                    |
+| package-wide non-RN               | Node / Browser / Browser Extension の existing `npm-typescript-facade.md` contract。RN entry / artifact が影響を与えない       |
+
+この matrix は v1 の finite support window であり、`>= 0.86.x` の floor を満たすだけでは formal support にならない。
+新しい minor line の追加、既存 line の End of Cycle / Unsupported または compatibility evidence の喪失は §1.1 の
+re-baseline trigger である。matrix 更新前に未列挙 line または Expo pair を release / support claim に含めない。
 
 ### 20.2 Detection point
 
-| unsupported condition                                | earliest required detection                           | final fail-closed behavior                              |
-| ---------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------- |
-| RN `< 0.86.x`                                        | package manager warning または native build / Codegen | bypass 時も initialization failure                      |
-| canary / nightly RN                                  | build / support-matrix gate                           | bypass 時も initialization failure                      |
-| Legacy Architecture                                  | build configuration / Codegen                         | initialization failure。legacy shim なし                |
-| Android `< API 24`                                   | Gradle / native build target                          | runtime 到達時も initialization failure                 |
-| Android `armeabi-v7a` / `x86` / other ABI            | package assembly / native link                        | artifact selection failure。近似 ABI / WASM なし        |
-| Intel iOS simulator `x86_64`                         | XCFramework / link stage                              | runtime 到達時も initialization failure                 |
-| Expo Go                                              | integration / build stage、または missing provider    | `BackendInitializationError`。WASM / Node fallback なし |
-| incompatible Expo SDK / RN pair                      | prebuild / native build support matrix                | bypass 時も initialization failure                      |
-| missing / wrong / extra native artifact              | assembly / link / load verification                   | `BackendInitializationError`                            |
-| Metro package exports disabled or wrong entry forced | build / bundle resolution                             | initialization failure。silent alternate backend なし   |
+| unsupported condition                                               | earliest required detection                           | final fail-closed behavior                              |
+| ------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------- |
+| RN `< 0.86.x`                                                       | package manager warning または native build / Codegen | bypass 時も initialization failure                      |
+| RN `>= 0.88.x` または support matrix 外の stable minor              | build / support-matrix gate                           | bypass 時も initialization failure                      |
+| canary / nightly / `next` RN                                        | build / support-matrix gate                           | bypass 時も initialization failure                      |
+| Legacy Architecture                                                 | build configuration / Codegen                         | initialization failure。legacy shim なし                |
+| Android `< API 24`                                                  | Gradle / native build target                          | runtime 到達時も initialization failure                 |
+| Android `armeabi-v7a` / `x86` / other ABI                           | package assembly / native link                        | artifact selection failure。近似 ABI / WASM なし        |
+| Intel iOS simulator `x86_64`                                        | XCFramework / link stage                              | runtime 到達時も initialization failure                 |
+| Expo Go                                                             | integration / build stage、または missing provider    | `BackendInitializationError`。WASM / Node fallback なし |
+| Expo SDK `57` stable + RN `0.86.x` 以外、または mismatch / unlisted | prebuild / native build support matrix                | bypass 時も initialization failure                      |
+| missing / wrong / extra native artifact                             | assembly / link / load verification                   | `BackendInitializationError`                            |
+| Metro package exports disabled or wrong entry forced                | build / bundle resolution                             | initialization failure。silent alternate backend なし   |
 
 installation-time に検出できない condition を installation success と扱わない。build-time に検出
 できるものは native build / prebuild gate で早期に reject し、runtime にしか観測できないものは最初の
@@ -913,16 +1004,16 @@ binary download、別 RN package および RN 用の別 WASM binary は禁止す
 下表の evidence は、Implementation / integration / release verification で収集する。今回の
 Specification authoring では runtime build、device test、Expo build または full test を実行しない。
 
-| acceptance                               | required evidence                                                                                                                                                                                                            |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AC-054` public API parity               | Android / iOS が同じ 16 facade function、argument order、DTO、`null` / `undefined`、sync return / throw を観測する declaration + runtime parity record                                                                       |
-| `AC-055` Core authority / secret cleanup | Core / C ABI / RN adapter responsibility inspection、secret-bearing input/output ownership、failure / exception / cancellation / teardown cleanup、no cache / no log evidence                                                |
-| `AC-056` fail closed / error parity      | missing provider、missing artifact、wrong ABI / slice、manifest digest failure、Core error、C ABI error、conversion error、runtime invalidation、stale result の mapping matrix。Node / WASM fallback がない execution trace |
-| `AC-057` non-regression                  | Node native、Node `--no-addons` WASM、Browser WASM、Browser Extension、existing C ABI、public API、release / provenance の before / after parity record                                                                      |
-| `AC-058` version support                 | RN `0.86.x` compatibility、RN `0.87.x` primary、stable-only、Android API 24、Bare iOS 15.1、Expo iOS 16.4、New Architecture、supported Expo pair の build / release gate record                                              |
-| `AC-059` architecture / ABI              | Android `arm64-v8a` / `x86_64`、iOS device `arm64`、Apple Silicon simulator `arm64` の load / link / invoke record。unsupported ABI / Intel simulator rejection                                                              |
-| `AC-060` integration path                | Node / Browser が RN setup を要求しないこと、RN が Node addon / WASM を要求しないこと、single package root import、private condition resolution の Metro / bundler record                                                    |
-| `AC-061` responsiveness / resource       | §23 の production-equivalent evidence protocol。negative evidence がなければ sync gate 継続、negative evidence があれば user decision record を作成                                                                          |
+| acceptance                               | required evidence                                                                                                                                                                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AC-054` public API parity               | Android / iOS が同じ 16 facade function、argument order、DTO、`null` / `undefined`、sync return / throw を観測する declaration + runtime parity record                                                                                |
+| `AC-055` Core authority / secret cleanup | Core / C ABI / RN adapter responsibility inspection、secret-bearing input/output ownership、failure / exception / cancellation / teardown cleanup、no cache / no log evidence                                                         |
+| `AC-056` fail closed / error parity      | missing provider、missing artifact、wrong ABI / slice、manifest digest failure、Core error、C ABI error、conversion error、runtime invalidation、stale result の mapping matrix。Node / WASM fallback がない execution trace          |
+| `AC-057` non-regression                  | Node native、Node `--no-addons` WASM、Browser WASM、Browser Extension、existing C ABI、public API、release / provenance の before / after parity record                                                                               |
+| `AC-058` version support                 | RN `0.86.x` compatibility / `0.87.x` primary の finite support window、stable-only、re-baseline record、Android API 24、Bare iOS 15.1、Expo SDK 57 stable + RN 0.86.x、Expo iOS 16.4、New Architecture の build / release gate record |
+| `AC-059` architecture / ABI              | Android `arm64-v8a` / `x86_64`、iOS device `arm64`、Apple Silicon simulator `arm64` の load / link / invoke record。unsupported ABI / Intel simulator rejection                                                                       |
+| `AC-060` integration path                | Node / Browser が RN setup を要求しないこと、RN が Node addon / WASM を要求しないこと、single package root import、private condition resolution の Metro / bundler record                                                             |
+| `AC-061` responsiveness / resource       | §23 の production-equivalent evidence protocol。negative evidence がなければ sync gate 継続、negative evidence があれば user decision record を作成                                                                                   |
 
 追加の acceptance evidence は次を含む。
 
@@ -937,13 +1028,17 @@ Specification authoring では runtime build、device test、Expo build また�
 
 ### 23.1 Test setup
 
-各 C2 operation と、C1 から evidence 上 cost が大きい operation を、次の条件で測定する。
+各 C2 operation と、§4.2 の trigger-set に該当する C0 / C1 operation を、次の条件で測定する。全 operation は
+common admission / blocking / starvation / cleanup baseline の対象であり、class 名だけを理由に §23 の観測を
+省略してはならない。
 
 - representative Android physical device class: approved `arm64-v8a` device、release-equivalent build
 - representative Android emulator class: approved `x86_64` emulator、同じ native artifact family
 - representative iOS physical device class: approved `arm64` device、Bare RN iOS baseline
 - representative Apple Silicon simulator class: approved `arm64` simulator。Expo subset は iOS 16.4+
 - RN `0.87.x` primary validation、`0.86.x` compatibility line、stable release、New Architecture
+- Expo evidence は formal pair の Expo SDK `57` stable + RN `0.86.x` に限定し、他の Expo SDK / RN pair へ
+  compatibility claim を推論しない
 - production-equivalent native build、debugger / profiler の影響を除いた release configuration、published
   package assembly と同じ native artifacts
 - representative Store / input と、Wallet Store Format が許す reasonable worst-case valid Store / input class。
@@ -995,15 +1090,15 @@ silent に変更しない。negative evidence が存在しない現在の状態�
 
 ### 24.2 Approved Platform Decision traceability
 
-| decision    | reflected contract                                                                     |
-| ----------- | -------------------------------------------------------------------------------------- |
-| `PD-RN-001` | §1.1、§17.1、§20.1。RN `>=0.86.x`、`0.87.x` primary、stable-only                       |
-| `PD-RN-002` | §1.1、§14.3、§20.1。Android API 24、target / compile policy                            |
-| `PD-RN-003` | §1.1、§15、§16、§17.1、§20.1。Bare iOS 15.1、Expo iOS 16.4                             |
-| `PD-RN-004` | §1.1、§14.1、§20.1、§21。Android `arm64-v8a` / `x86_64` only                           |
-| `PD-RN-005` | §1.1、§16、§20.1。iOS device arm64、Apple Silicon simulator arm64                      |
-| `PD-RN-006` | §1.1、§13、§15、§18。TurboModule / JSI required、Legacy unsupported                    |
-| `PD-RN-007` | §1.1、§17、§20.1、§22。Bare / Development Build / Prebuild formal、Expo Go unsupported |
+| decision    | reflected contract                                                                                                                                                               |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PD-RN-001` | §1.1、§17.1、§20.1、§23。RN `>=0.86.x` を floor とし、formal window を `0.86.x` compatibility / `0.87.x` primary に限定、stable-only、re-baseline を要求                         |
+| `PD-RN-002` | §1.1、§14.3、§20.1。Android API 24、target / compile policy                                                                                                                      |
+| `PD-RN-003` | §1.1、§15、§16、§17.1、§20.1。Bare iOS 15.1、Expo iOS 16.4                                                                                                                       |
+| `PD-RN-004` | §1.1、§14.1、§20.1、§21。Android `arm64-v8a` / `x86_64` only                                                                                                                     |
+| `PD-RN-005` | §1.1、§16、§20.1。iOS device arm64、Apple Silicon simulator arm64                                                                                                                |
+| `PD-RN-006` | §1.1、§13、§15、§18。TurboModule / JSI required、Legacy unsupported                                                                                                              |
+| `PD-RN-007` | §1.1、§17、§20.1、§20.2、§22、§23。Bare / Development Build / Prebuild formal、Expo SDK 57 stable + RN 0.86.x pair、unlisted / mismatch / canary / nightly / Expo Go unsupported |
 
 ### 24.3 Non-regression references
 
