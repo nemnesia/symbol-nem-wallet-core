@@ -2,231 +2,188 @@
 
 ## Review Target
 
+- 対象 branch: `agent/react-native-support`
+- 対象 HEAD: `bb529efd19c4e0b45f596a0588a4bb2a3f9a1db7`
 - 対象: `docs/consept/concept-sheet.md`
-- Reviewed branch: `agent/react-native-support`
-- Current HEAD before review work: `576d233835ce1b7a1073e2bf6072c9572cd70451`
-- Reviewed HEAD: `bb529efd19c4e0b45f596a0588a4bb2a3f9a1db7`
+- 確認日: 2026-09-05
 - 成果物: `docs/reviews/concept/concept-sheet-review-011.md`
-- Review Scope: React Native Concept Sheet 変更 commit の Concept Sheet §1〜§13 全体を対象に、React Native Android / iOS の追加、Desktop / Node.js / Browser / Browser Extension との platform coverage、単一 repository・単一 npm package、共通 Rust Core、runtime / platform 差異の隠蔽方針、公開 API の一貫性、Security Boundary、既存 v1 scope・out-of-scope・責任境界および過去 finding の回帰を確認した。
-- Reviewed content の固定: 本レビューの Concept 本文は、現在 branch の downstream 文書や現在 HEAD の Requirements / Requirements Review / Design の内容ではなく、`git show bb529efd19c4e0b45f596a0588a4bb2a3f9a1db7:docs/consept/concept-sheet.md` で取得した本文に固定した。
-- 未確認範囲: Requirements、Design、Specification、Implementation、API、schema、wire format、暗号方式、KDF / Cipher、保存形式、Binding 実装、runtime resolution、ABI、thread / async、詳細 UX、CI および release workflow の適合性。これらは Concept の欠陥を判定する根拠として扱っていない。
+- Review Scope: Concept Sheet の §1〜§13 全体を対象に、React Native Android / iOS の追加による既存コンセプトとの整合性、対象 platform の境界、単一 repository / 単一 npm package、共通 Rust Core、Security Invariant、Core / UI / Application の責任境界、Concept の抽象度、MosaicLynx 固有要件の混入、Requirements への委譲および過去 finding の回帰を確認した。
+- 変更差分: `origin/main...HEAD` の Concept Sheet 差分を確認した。対象 branch では React Native 対応方針を中心とする Concept Sheet の変更のみが確認できた。
+- 未確認範囲: Requirements、Design、Specification、Implementation、API、schema、wire format、暗号方式、KDF / Cipher、保存形式、Binding の実装方式、JSI / TurboModule 等の採否、build / release workflow、詳細 UX、実装可能性および外部 Node との相互運用性の正否。これらは今回の Concept Review の判定対象にしていない。
 
 ## Execution Audit
 
 - 実行モード: サブエージェントを使用しない3つの独立した自己レビュー・パス。
-- Reviewer A（品質と論理）: 完了。React Native 追加後の説明順、目的・課題・価値・成功条件の因果、Mobile / Web の用語、単一 Core 方針、v1 と将来候補の分離および Concept の抽象度を確認した。
-- Reviewer B（課題と価値）: 完了。対象ユーザー、Desktop / Node.js / Browser / Browser Extension / React Native Android / iOS の利用場面、共通 Rust Core による価値、利用環境追加による製品像の変化の有無を確認した。
-- Reviewer C（境界と成立性）: 完了。Core と UI / Application の責任境界、Mnemonic / Software Key / private key / signing の管理責任、通常処理での秘密情報非開示、platform 差異、v1 対象外、前提およびリスクを確認した。
-- Phase 0: 完了。レビュー対象を `bb529efd...` 時点の Concept Sheet に固定し、成果物の出力先、既存 finding ID および Concept フェーズの境界を確認した。
-- Phase 1: 完了。Reviewer A / B / C の観点で Concept の品質、価値、境界および成立性を確認した。
-- Phase 2: 完了。React Native 変更差分、既存 Concept Review 001〜010、過去 finding の状態、再発候補および後工程への委譲を確認した。
-- Chair 統合: 完了。Concept の解釈・viability・boundary に直接影響する候補だけを採用基準に照合し、新規 formal finding は採用していない。
+- Reviewer A（品質と論理）: 完了。§1〜§13 の説明順、用語、目的・課題・価値・成功条件の因果、`Mnemonic → HD Wallet → Software Key → Account` の関係、既存記述との整合および React Native 追加による矛盾を確認した。
+- Reviewer B（課題と価値）: 完了。対象ユーザー、主要利用場面、platform coverage、単一 package による共通利用の価値、Browser と Browser Extension の区別、および MosaicLynx 固有要件の混入有無を確認した。
+- Reviewer C（境界と成立性）: 完了。v1 の境界、共通 Rust Core の責任、Mnemonic / Software Key の継続管理、Security Invariant、UI / Application と host environment の責任、React Native 側への責任移転の有無、前提、リスクおよび成立性を確認した。
+- Phase 0: 完了。対象 branch、HEAD、主対象文書、差分、過去 artifact、出力先および Concept Review の境界を確定した。
+- Phase 1: 完了。Reviewer A / B / C を独立した観点で確認した。
+- Phase 2: 完了。React Native 追加による新規候補、既存 finding の回帰、ユーザー決定済み方針の再審議要否、Concept から後工程へ委譲すべき事項および候補の採否を再確認した。
+- Chair 統合: 完了。本文へ追跡でき、Concept の成立・解釈・境界に直接影響する問題だけを formal finding 候補として評価した。新規 formal finding は採用していない。
 
 ## Evidence Used
 
 | 種別 | Reviewed Documents / 参照箇所 | 用途 |
 | --- | --- | --- |
-| 主対象文書 | `bb529efd19c4e0b45f596a0588a4bb2a3f9a1db7:docs/consept/concept-sheet.md` §1〜§13 | React Native Android / iOS の意味、platform coverage、単一 repository・単一 npm package、共通 Rust Core、責任境界、Security Invariant、v1 scope、out-of-scope、リスク、未決定事項および Requirements への引継ぎを確認 |
-| React Native Concept 差分 | `bb529efd19c4e0b45f596a0588a4bb2a3f9a1db7` の Concept Sheet 差分 | Browser / Browser Extension の明確化、Mobile の定義、React Native Android / iOS の v1 対象化、共通 Core・security invariant・success condition・risk・後工程委譲の追加が Concept の抽象度を越えていないか確認 |
-| 過去レビュー | `docs/reviews/concept/concept-sheet-review-001.md`〜`concept-sheet-review-010.md` | `CR-001〜CR-012` および `CS-001〜CS-005` の初出、解消状態、完了条件、既存 Gate 判定および finding ID の連続性を追跡 |
-| 作業指針 | [`AGENTS.md`](../../../AGENTS.md) | Source of Truth、Concept フェーズ境界、変更範囲、未決定事項、レビューおよび docs-only 検証方針を確認 |
-| Concept Review 手順 | [`SKILL.md`](../../../.agents/skills/concept-review/SKILL.md)、[`reviewers.md`](../../../.agents/skills/concept-review/reviewers.md)、[`review-gates.md`](../../../.agents/skills/concept-review/review-gates.md)、[`output-format.md`](../../../.agents/skills/concept-review/output-format.md) | Reviewer A / B / C、finding 採用基準、Severity、Gate、Review Result および成果物形式を確認 |
-| 共通レビュー手順 | [`review-playbook.md`](../../../.agents/skills/review-common/review-playbook.md)、[`output-format.md`](../../../.agents/skills/review-common/output-format.md) | Phase 0〜3、過去 finding 追跡、Deferred Findings、検証および Git 運用を確認 |
-| Phase Context | なし | `AGENTS.md` に Concept の Context 登録がないため、Phase Context は使用していない |
+| 主対象文書 | `docs/consept/concept-sheet.md` §1〜§13 | 製品目的、課題、対象ユーザー、platform coverage、提供価値、v1 範囲、責任境界、Security Invariant、成功条件、前提、リスク、未決定事項および次工程への引継ぎを確認 |
+| 今回の変更差分 | `origin/main...HEAD` の `docs/consept/concept-sheet.md` 差分 | React Native Android / iOS の追加、platform 定義、共通 Rust Core、単一 repository / npm package、Security Invariant および後工程委譲の追加・変更を確認 |
+| 直前レビュー | `docs/reviews/concept/concept-sheet-review-010.md` | 前回の `READY` 判定、過去 finding の回帰確認範囲および artifact の継続性を確認。前回判定を現行本文の代わりにはしていない |
+| 過去レビュー | `docs/reviews/concept/concept-sheet-review-001.md`〜`concept-sheet-review-009.md` | `CR-001`〜`CR-012`、`CS-001`〜`CS-005` の初出、状態、完了条件および再発対象を追跡 |
+| 作業指針 | `AGENTS.md` | Source of Truth、Concept フェーズ境界、変更範囲、秘密情報、change-aware validation および Git 運用を確認 |
+| Concept Review 手順 | `.agents/skills/concept-review/SKILL.md`、`reviewers.md`、`review-gates.md`、`output-format.md` | Reviewer A / B / C、finding 採用基準、severity、Review Gate、Review Result および artifact 形式を確認 |
+| 共通レビュー手順 | `.agents/skills/review-common/review-playbook.md`、`output-format.md` | Phase 0〜3、過去 finding 追跡、Deferred Findings、検証および成果物運用を確認 |
+| Phase Context | なし | `AGENTS.md` に Concept の Context 登録がないため、Design Context は使用していない |
 
 ## Review Result
 
 `READY`
+## Summary
 
-## Review Gate Rule
+React Native Android / iOS の追加は、既存の Desktop / Mobile / Web / Node.js という上位の製品像を壊さず、§5 で Mobile を React Native Android / iOS、Web を Browser（Web Application）および Browser Extension と定義し、§7〜§10 で対象範囲・Security Invariant・成功条件・リスクへ反映されている。Browser Extension は Browser と同一視されず、Web Application とは別の利用形態として本文から確認できる。
 
-Concept Review Skill の rule を適用した。Concept Review の7つの Gate（明確さ、課題、対象ユーザーと価値、v1 の境界、責任境界、内部整合性、成立性）がすべて合格した場合は `READY`、いずれかが不合格の場合は `REVISE CONCEPT` とする。Gate 不合格に相当する Critical finding が必要であり、Major / Minor の改善事項だけでは Gate を不合格にしない。
+単一 repository、単一 npm package、React Native 専用 package を作らないこと、各 runtime / platform から同じ Rust Core を利用することは、§1、§7、§8、§12〜§13 で矛盾なく扱われている。React Native Android / iOS は別の Wallet Core として定義されず、runtime / platform 固有の差異を package 内部に隠蔽し、platform 固有に分ける必然性がない公開 API は一貫した利用モデルを目指すという Concept レベルの方針に留まっている。
 
-## Findings Summary
+React Native 対応を理由に、暗号処理、Mnemonic、秘密鍵、Wallet Store、署名処理または秘密情報 lifecycle の責任を React Native、Kotlin、Swift、JavaScript 等へ移す記述はない。§7 の Security Invariant は Mnemonic と Software Key の双方に適用され、runtime / platform によって Core の管理責任と通常処理での非開示原則を変えない。ホスト環境の侵害を Core が防止する保証ではないという限界も維持されている。
 
-正式 finding は確認されなかった。React Native Android / iOS の追加は、既存 Concept の目的、対象ユーザー、v1 scope、Core の責任、UI / Application の責任、Security Invariant および out-of-scope を変更せずに、既存の利用環境の定義と coverage を具体化している。
+Concept Sheet に JSI、TurboModule、Native Module、Kotlin / Swift / Objective-C++、NDK、`.so`、AAR、XCFramework、CocoaPods、Swift Package Manager、Metro resolver、conditional exports、autolinking、ABI、threading / async model、exact API signature、architecture matrix、CI / release workflow の実装詳細は混入していない。MosaicLynx 固有の UI、画面構成、Deep Link、アプリフロー、署名 UX も記載されていない。Requirements / Design へ送る具体事項は本文の未決定事項および次工程への引継ぎとして整理されており、Concept の不足として扱うべき formal finding はない。
 
-| 区分 | 件数 |
-| --- | ---: |
-| Open Critical | 0 |
-| Open Major | 0 |
-| Open Minor | 0 |
-| Reopened | 0 |
-| New finding IDs | なし |
+過去 `CR-001`〜`CR-012` および `CS-001`〜`CS-005` の回帰は確認されなかった。新規、Open、Reopened の Critical / Major / Minor finding はないため、既存運用上の正式な Review Result は `READY` とし、Requirements へ進められる。
 
 ## Finding Status
 
-Formal findings: なし。新規、Open、Reopened の Critical / Major / Minor finding は確認されなかった。
+Formal findings: なし。今回の New / Open / Reopened は 0 件であり、Reopened finding もない。
 
 | ID | Severity | Status | 初出レビュー | 今回の状態根拠 |
 | --- | --- | --- | --- | --- |
-| CR-001〜CR-009 | 過去の各 Severity | Resolved / 回帰なし | concept-sheet-review-001〜003 | v1 能力・対象外・責任境界・対象ユーザー・用語・価値・成功条件・取込み境界を、React Native 追加後の §1、§2、§4〜§8、§10、§12〜§13 で再確認した。 |
-| CR-010〜CR-012 | 過去の各 Severity | Resolved / 回帰なし | concept-sheet-review-004〜006 | Mnemonic の継続管理、課題・仮定・価値仮説の分離、`Mnemonic → HD Wallet → Software Key → Account` と Core / UI の責任関係を再確認した。 |
-| CS-001〜CS-003 | Major / Minor | Resolved / 回帰なし | concept-sheet-review-006〜007 | Mnemonic と Software Key の関係、課題分類、鍵モデル、Account 利用および Core / UI の境界が維持されている。 |
-| CS-004〜CS-005 | Critical | Resolved / 回帰なし | concept-sheet-review-008〜009 | 非エンジニア向けの製品説明、用語、Security Invariant、通常処理と明示的アクセスの区別、ホスト侵害への保証限界が維持され、React Native 追加による再発はない。 |
+| `CR-001`〜`CR-009` | 初出時の各 Severity | Resolved / 回帰なし | `concept-sheet-review-001`〜`concept-sheet-review-003` | v1 範囲、Core と外部責任、対象ユーザー、用語、鍵管理範囲、HD Wallet と Software Key、Watch-only、価値と成功条件、取込み時の責任境界が現行 §1〜§13 に維持されている。 |
+| `CR-010`〜`CR-012` | Major / Minor | Resolved / 回帰なし | `concept-sheet-review-004`〜`concept-sheet-review-007` | Mnemonic の Core 継続管理、課題・仮定・価値仮説の分離、`Mnemonic → HD Wallet → Software Key → Account` と Core / UI の責任関係が現行本文に維持されている。 |
+| `CS-001`〜`CS-003` | Major / Minor | Resolved / 回帰なし | `concept-sheet-review-006`〜`concept-sheet-review-007` | Mnemonic の lifecycle 境界、課題分類および Account / HD Wallet / Software Key の関係について、前回の解消状態からの回帰はない。 |
+| `CS-004`〜`CS-005` | Critical | Resolved / 回帰なし | `concept-sheet-review-008`〜`concept-sheet-review-009` | 非専門家を含む読者への製品説明、Mnemonic を含む Security Invariant、通常処理と意図的な秘密情報アクセスの区別、host environment に対する保証限界が現行本文に維持されている。 |
 
-## Open Findings
+## Required Changes
 
-なし。現時点で Concept Sheet の解釈、viability、v1 boundary または responsibility boundary を阻害する Open finding はない。
+なし。Concept Review の必須変更対象となる Critical の New / Open / Reopened は確認されなかった。
 
-## Reopened Findings
+## Optional Improvements
 
-なし。既存の Resolved finding `CR-001〜CR-012` および `CS-001〜CS-005` を再度 Open にする根拠は確認されなかった。
-
-## New Finding IDs
-
-なし。既存 ID と重複する新規 finding は発行していない。
-
-## Platform Coverage
-
-合格。§1、§4、§5、§7、§8、§10、§12〜§13 で、次の関係を一貫して追跡できる。
-
-- `Desktop` は既存の desktop wallet 利用環境として扱われる。
-- `Node.js` は Node.js Application の利用環境として扱われる。
-- `Browser` は Web Application の実行環境として扱われる。
-- `Browser Extension` は Browser と同じ Web の利用形態として扱われ、独立した別の製品ラインや別の Wallet Core にはなっていない。
-- `Mobile` は `React Native Android / iOS` を意味する Concept 上の呼称として定義されている。
-- v1 の対象列挙では、曖昧な `Mobile` のみではなく `React Native Android / iOS` が明記されている。
-
-React Native の実装方式を Concept で固定しておらず、対象環境の追加が別 Core や別の責任境界を導入する記述にもなっていない。
-
-## Single Repository / Single npm Package
-
-合格。§1、§7、§8、§12〜§13 は、repository を `nemnesia/symbol-nem-wallet-core` に、npm package を `@nemnesia/symbol-nem-wallet-core` に統一することを維持している。React Native 専用 npm package を作らないこと、Node.js / Browser / Browser Extension / React Native Android / iOS から同じ Rust Core を利用すること、runtime / platform 固有差異を可能な限り package 内部へ隠蔽する方向が、Concept の製品方針として自然に記載されている。
-
-一方、directory layout、exact artifact packaging、package exports、runtime 条件、autolinking または distribution artifact は固定されていない。これらを未定義であること自体の Concept finding とはせず、後工程への引継ぎ事項として扱う。
-
-## Shared Rust Core Boundary
-
-合格。Concept は各 runtime 向けに Wallet Core を個別実装する方針を採らず、単一の Rust Core を共通利用する方針を維持している。Mnemonic、private key、Software Key、HD Wallet 由来の導出、signing、secret management および暗号処理に相当する Core の責任を React Native 側へ移していない。
-
-React Native 側に関する記述は、共通 Core を各利用環境から利用するという製品境界、ならびに runtime / platform 差異を package 内部へ隠蔽する方向に留まる。具体的な platform integration、data transfer、invocation、error propagation、binding 実装、memory / erase 方式は Concept で決められていない。したがって、binding が Core の validation や security boundary を bypass できるという要求も導入されていない。
-
-## Public API Concept
-
-合格。platform 固有に分ける必然性がない公開 API について、一貫した利用モデルを目指すという Concept は、複数 runtime に共通する利用者価値と責任境界を示す高レベルな方針として適切である。Android / iOS 差異だけを理由に application-facing model を分岐する記述、React Native 対応だけを理由に公開 API surface を増やす記述、exact API signature・型・TypeScript declaration・error code を固定する記述はない。
-
-platform 固有 API が必要になる場合の具体的な判断基準や API 契約は、Concept の責務ではなく Requirements / Design / Specification へ委譲されている。
-
-## Security Boundary
-
-合格。§1、§3、§5、§7、§8、§9〜§10、§12〜§13 の Security Invariant は、Mnemonic と Software Key を Core が継続管理し、通常処理で Core 管理下の秘密情報を Core 外へ返却・共有しないという責任を維持している。秘密鍵または Mnemonic の取込み時に UI / Application が一時的に入力を仲介する場合があるが、それは取込み後の Core 管理責任の移転ではない。
-
-Desktop、Node.js、Browser / Browser Extension、React Native Android / iOS の環境差異によって Core の秘密情報管理責任や通常処理での非開示原則を変えない。明示的な recovery / display / export は通常処理と区別され、権限、認証、UX、transport および詳細なライフサイクルは後工程へ委譲されている。なお、host compromise 自体を Core が防止する保証ではないという限界も維持されている。
-
-## Concept Scope
-
-合格。React Native 追加は「誰が、どの利用環境で、どの共通 Core を利用するか」という Concept レベルに留まっている。対象本文には、JSI、TurboModule、JNI、Kotlin、Swift、Objective-C++、Android NDK、AAR、XCFramework、CocoaPods、Metro、exact package exports、exact runtime resolution、ABI、thread / async implementation、exact API signature、CI job または release workflow implementation の決定はない。
-
-React Native 固有の実装方式、minimum version、OS/API level、CPU architecture、Expo、New Architecture、具体的な release matrix 等は、Concept の未決定事項または次工程への委譲として扱われている。これらを Concept の欠陥や未解消 finding とはしていない。
-
-## Existing Concept Integrity
-
-合格。React Native の coverage 追加によって、既存 Concept の次の意味に semantic regression は確認されなかった。
-
-- `Mnemonic` は Core 管理下の秘密情報であり、`Software Key` と同一視されず、取込み後も Core が継続管理する。
-- `HD Wallet` から導出される秘密鍵を Software Key として扱い、Account の利用・選択と秘密情報の継続管理を分離する関係が維持されている。
-- `Profile`、Mnemonic、Software Key の具体的な管理単位・保存・保護・消去・詳細ライフサイクルは、既存どおり後工程へ委譲されており、React Native 追加で別の管理モデルを導入していない。
-- Core は秘密情報の生成、復元、導出、管理および署名利用の責任を担い、UI / Application はユーザー操作、表示、設定、Account の選択および入力の一時仲介を担うという境界が維持されている。
-- v1 は Software Key 管理 Core の範囲であり、Hardware Wallet、External Signer、OS-backed Key、Watch-only、SNIF 連携等の対象外・将来候補との境界を変更していない。
-- Symbol / NEM、Chain / Network、Mainnet / Testnet の区別を共通化によって曖昧にしていない。
-
-## Requirements Follow-up
-
-Concept Gate を通過するための Concept 修正は不要である。次工程では、Concept が明示した以下の引継ぎを、Concept の方針を変えずに具体化する必要がある。
-
-- Requirements: Desktop、Node.js、Browser、Browser Extension、React Native Android / iOS の support matrix と検証可能な外部要求、共通利用モデル、Core の security responsibility、secret handling、failure semantics、non-regression、受入条件および後続 decision gate を定義する。
-- Requirements / Design: minimum React Native version、minimum Android API level、minimum iOS version、対応 architecture、React Native New Architecture、Expo compatibility、supported browser baseline 等の support decision の責任主体と決定時点を明確にする。
-- Design / Specification: binding の選択、runtime resolution、package 内部での差異隠蔽、公開 API 契約、data transfer、ownership、error mapping、thread / async、secret lifetime / zeroization の具体化を行う。
-- Release planning: 単一 npm package と各対象環境の release / distribution / evidence matrix を、Requirements と Design の決定に従って定義する。
-
-上記は Concept Review の formal finding ではなく、Concept §12〜§13 が既に示している後工程への引継ぎである。
-
-## NEEDS USER DECISION
-
-Concept Review の Gate 判定を妨げる追加の user decision はない。上記の React Native support matrix、binding、Expo / New Architecture、package distribution および release evidence の具体値は未決定事項だが、Concept で決めるべき事項ではなく、Requirements / Design / Release planning の decision gate で決定する。
+なし。Major / Minor の formal finding も確認されなかった。§1、§5、§7、§8、§9、§12、§13 では上位の `Desktop / Mobile / Web / Node.js` 表記と、対象を明示する `Browser / Browser Extension / React Native Android / iOS` 表記が併存するが、§5 の定義と各章の文脈から対応関係を追跡でき、現時点で Concept の解釈を妨げる曖昧さとは判定しなかった。
 
 ## Resolved Findings
 
-既存の `CR-001〜CR-012` および `CS-001〜CS-005` は、今回の reviewed content で再発していない。
+### 過去 finding の回帰確認
 
-- `CR-001〜CR-009`: v1 scope、out-of-scope、責任境界、対象ユーザー、用語、価値、成功条件および取込み境界を確認した。React Native は既存の対象環境を具体化しただけで、これらの意味を変更していない。
-- `CR-010 / CS-001`: Mnemonic の Core 継続管理と Software Key との区別を確認した。
-- `CR-011 / CS-002`: 実際の利用者課題、プロジェクト上の仮定、未検証の価値仮説の分離を確認した。
-- `CR-012 / CS-003`: `Mnemonic → HD Wallet → Software Key → Account`、Core の導出・管理責任および UI / Application の Account 選択責任を確認した。
-- `CS-004`: 非エンジニアにも追える製品像、主要用語、v1 scope および責任境界を確認した。
-- `CS-005`: Mnemonic / Software Key の Security Invariant、一時的な入力仲介、通常処理での非返却・非共有、環境差異によらない原則および host compromise への保証限界を確認した。
+| 過去 finding | 今回の確認 |
+| --- | --- |
+| `CR-001` | §7 の v1 能力、v1 対象外、プロジェクトとして扱わない領域、外部責任および §8 の成功条件が区別されている。回帰なし。 |
+| `CR-002` | §1、§7、§9〜§10 に Core、UI / Application、Web / Browser、OS、Network 層、Transaction 構築層および External Signer の高レベルな責任分界がある。回帰なし。 |
+| `CR-003` | §2、§4 に Symbol / NEM ウォレット開発者と対象 runtime / platform、主要利用場面がある。RN Android / iOS の追加後も対象ユーザーは変わっていない。回帰なし。 |
+| `CR-004`〜`CR-008` | §5〜§8 に秘密鍵処理、鍵管理、署名処理、Signer、Software Key、Watch-only、提供価値および成功条件が維持されている。回帰なし。 |
+| `CR-009` | §1、§3、§7〜§8 に取込み時の一時仲介、取込み後の Core 管理および通常処理での秘密情報非返却・非共有が維持されている。回帰なし。 |
+| `CR-010` / `CS-001` | §1、§5、§7、§8、§12〜§13 に Mnemonic は生成・復元・取込み後も Core が継続管理する秘密情報であり、Software Key とは別の管理対象であることが維持されている。回帰なし。 |
+| `CR-011` / `CS-002` | §2 が利用者の課題、プロジェクト上の仮定、未検証の価値仮説を見出しと記述で分離している。回帰なし。 |
+| `CR-012` / `CS-003` | §5 の関係説明、§3・§4・§7 の利用場面と責任境界により、Mnemonic、HD Wallet、Software Key、Account および UI / Application の責任関係を追跡できる。回帰なし。 |
+| `CS-004` | §1、§4〜§5、§7 に製品像、主要用語、Core / UI / Application の役割、管理対象および責任外があり、非専門家を含む読者が概念的に理解できる。回帰なし。 |
+| `CS-005` | §7 に Mnemonic と Software Key の Security Invariant、取込み時の一時仲介、通常処理での非返却・非共有、runtime / platform 非依存の原則、明示的アクセスとの区別および host environment への保証限界がある。回帰なし。 |
 
-既存 finding を勝手に削除・改名せず、今回の artifact では継続性と再発なしの状態だけを記録した。
+### React Native 追加による semantic regression の有無
+
+なし。変更後も次の意味の連鎖が維持されている。
+
+- React Native Android / iOS は Mobile の具体的な対象として追加され、別の Core や別の製品責任として扱われていない（§1、§5、§7〜§10）。
+- Browser と Browser Extension は Web の内訳としてそれぞれ明示され、Browser Extension を単なる別名として扱っていない（§1、§5、§7〜§10）。
+- 単一 repository / 単一 npm package と、各 runtime / platform からの共通 Rust Core 利用が維持されている（§1、§7、§8、§12〜§13）。
+- React Native 対応後も、暗号処理、Mnemonic、Software Key、署名および秘密情報 lifecycle の責任は Core に残り、Security Invariant の適用対象と公開範囲は変化していない（§1、§3、§7〜§10）。
+- UI / Application はユーザー操作、表示、Account 選択および取込み時の一時仲介を担うが、秘密情報の継続的な管理主体にはならない（§1、§3〜§5、§7〜§8）。
 
 ## Upstream Feedback
 
-なし。Concept より上流の正式資料または decision の不足・矛盾を、今回の判定根拠として確認していない。
+なし。Concept より上流の正式資料または decision の不足・曖昧さ・矛盾を、今回の判定根拠として確認していない。
 
 ## Deferred Findings
 
-Formal finding はない。以下は本文が未決定事項または次工程への引継ぎとして明示しており、Concept の欠陥として扱わない。
+Formal finding はなし。以下は本文が明示的に Requirements / Design / Specification へ委譲している事項であり、Concept の欠陥としては採用しない。
 
-- React Native / Android / iOS の minimum version、OS/API level、device / simulator architecture および Browser baseline。
-- React Native New Architecture、Expo compatibility、具体的な binding 方式、runtime resolution、package exports、autolinking および distribution artifact。
-- API、型、data format、ownership、error、暗号、保存、memory retention / erase、secret lifetime / zeroization および詳細な処理順序。
-- explicit recovery / display / export の可否、認可条件、UX、transport および host security の強度。
-- CI job、release workflow、release matrix および supply-chain evidence の具体的な実装。
+### FOLLOW-UP FOR REQUIREMENTS
+
+- Node.js、Browser、Browser Extension、React Native Android、React Native iOS（および既存 Concept が対象に含める Desktop）について、v1 で共通に対象とする能力、互換性基準、対象 version および成功条件の確認方法を定める。Browser と Browser Extension、React Native Android と iOS の差異を別の Core としてではなく、同じ Core を利用する platform 境界として扱う。
+- 全 runtime / platform で Mnemonic および Software Key に適用する Security Invariant、通常処理での非返却・非共有、意図的な回復・表示・export の扱い、および host environment の侵害に対する保証限界を受入条件へ具体化する。
+- 単一 repository `nemnesia/symbol-nem-wallet-core` と単一 npm package `@nemnesia/symbol-nem-wallet-core` から各対象環境で共通利用するという決定済み方針を、要件として追跡可能にする。package resolution、binding、build architecture などの方式はここでは決めない。
+- React Native を含む binding 境界での秘密情報の一時的な受渡し、コピー、保持および破棄について、Core の責任と host / application の限界を踏まえた必要な受入条件を定める。具体方式は Design / Specification へ委譲する。
+
+### 後続 Design / Specification への委譲
+
+- 具体的な Binding 方式、runtime / platform 固有差異の隠蔽方法、公開 API の共通化範囲、対象 OS・Browser・version、build / 配布方式。
+- 具体的な入力形式、validation、暗号方式、保存形式、メモリ保持・消去方式、認可条件、状態、error および相互運用性検証。
+
+これらは React Native 対応の実装手段を Concept Review で決める要求ではなく、本文 §12〜§13 に従った後工程の検討事項である。
+
+## Scope and Traceability
+
+- 対象境界: `docs/consept/concept-sheet.md` の Concept 本文全体。Symbol / NEM ウォレット開発者向けの Software Key 管理 Core を、Node.js、Browser、Browser Extension、React Native Android / iOS、および既存範囲の Desktop / Mobile / Web から利用する構想を対象とした。
+- 今回差分の意味: React Native Android / iOS を Mobile の具体的な対象として明示し、Browser / Browser Extension を Web の具体的な対象として明示し、単一 repository / npm package と共通 Rust Core の方針を追加・反映している。
+- 製品責任: Mnemonic と Software Key の継続管理、HD Wallet からの導出、秘密鍵の取込み・生成、Software Key の管理・署名利用、通常処理での秘密情報非返却・非共有および runtime / platform に依存しない公開範囲を Core に集約する。
+- 外部責任: UI / Application は Account 選択、公開情報表示、ユーザー操作、ウォレット固有の表示・設定および取込み時の一時仲介を担うが、Mnemonic / Software Key の継続的な保存・管理主体ではない。Web Application / Browser Extension、Node.js Application、host environment、Network 層および Transaction 構築層の固有責任は Core 外である。React Native 専用の秘密情報管理責任は定義されていない。
+- Security / Trust Boundary: §7 の Security Invariant が、Mnemonic と Software Key、通常処理、意図的アクセス、runtime / platform 差異および host environment に対する保証限界を定めている。
+- 再利用性: MosaicLynx の UI、画面構成、Deep Link、アプリフロー、署名 UX 等の製品固有要件は Concept Sheet に記載されておらず、Wallet Core の reusable library という境界を維持している。
+- 過去成果物との追跡: `concept-sheet-review-010.md` の `READY` 判定および `CR-001`〜`CR-012`、`CS-001`〜`CS-005` の解消状態を確認し、現行本文から回帰がないことを確認した。過去 artifact は上書きしていない。
+- Concept → Requirements / Design / Specification への委譲: 責任主体、非開示原則、対象 platform、単一 package / 共通 Core 方針および v1 境界は Concept に残され、API、データ形式、暗号、保存、認可、詳細 lifecycle、Binding、version、詳細 UX および受入条件は後工程へ委譲されている。
+- Concept フェーズ逸脱: なし。本文は React Native の実装方式を定義せず、package 内部に差異を隠蔽するという高レベル方針に留めている。
 
 ## Domain Checks
 
 | 評価項目 | 結果 | 根拠 |
 | --- | --- | --- |
-| 課題・価値 | 合格 | §2 が実行環境ごとの秘密情報処理の分散と責任境界の不一致を課題として示し、§3、§6、§8 が共通 Core による責任集約と共通利用の価値・成功条件を示している。 |
-| 対象ユーザー | 合格 | §4 が Symbol / NEM ウォレット開発者を対象とし、Desktop / Node.js / Browser / Browser Extension / React Native Android / iOS を含む利用場面を追跡できる。 |
-| Platform Coverage | 合格 | Browser Extension は Browser を含む Web の利用形態、Mobile は React Native Android / iOS と定義され、別の consumer target や別 Core として復活していない。 |
-| 単一 repository・単一 package | 合格 | `nemnesia/symbol-nem-wallet-core`、`@nemnesia/symbol-nem-wallet-core`、React Native 専用 package を作らない方針および package 内部への差異隠蔽方針が明記されている。 |
-| Shared Rust Core | 合格 | 各 environment で個別 Wallet Core を実装せず、暗号処理、key derivation、signing、Mnemonic / private key / secret management を共通 Rust Core に集約している。 |
-| Public API Concept | 合格 | platform 固有に分ける必然性がない公開 API は一貫した利用モデルを目指すが、exact API contract は固定していない。 |
-| Security Boundary | 合格 | Core の継続的な secret management、通常処理での非開示、一時的な入力仲介は責任移転でないこと、環境差異に依存しない invariant および host compromise の保証限界が維持されている。 |
-| v1 の境界 | 合格 | Software Key 管理 Core を v1 とし、Hardware Wallet、External Signer、OS-backed Key、Watch-only、SNIF 等を対象外または将来候補として分離している。 |
-| 成功条件・成立性 | 合格 | §8 が共通 Rust Core、全対象 environment、秘密情報管理責任、非開示、Symbol / NEM と Chain / Network の区別を success condition として追跡でき、§9〜§10 が成立条件と限界を示している。 |
-| Phase Boundary | 合格 | Concept は目的、対象、価値、scope、責任、原則、制約および risk を扱い、binding、API、schema、暗号、保存、CI / release implementation を後工程へ委譲している。 |
+| 課題・価値 | 合格 | §2、§6、§8 が、実行環境ごとの秘密鍵処理の分散、Core への責任集約、共通利用による価値および成功条件を示している。React Native の追加は既存の課題・価値の対象環境を拡張するもので、別の価値提案を発明していない。 |
+| 対象ユーザー | 合格 | §4 は引き続き Symbol / NEM ウォレット開発者を対象とし、React Native Android / iOS を既存 Mobile の具体的な利用環境として位置付けている。一般利用者を直接の利用者にする記述もない。 |
+| Platform Coverage | 合格 | §1、§5、§7、§8、§9、§12、§13 で Node.js、Browser、Browser Extension、React Native Android / iOS が追跡できる。Browser Extension は Browser（Web Application）と別に明示され、React Native Android / iOS は Mobile の内訳として別 Core を意味しない。 |
+| Single Repository / Single npm Package | 合格 | §1 が `nemnesia/symbol-nem-wallet-core` と `@nemnesia/symbol-nem-wallet-core` の単一化、React Native 専用 package を作らない方針を明示し、§7、§8、§12〜§13 と矛盾しない。resolution / packaging implementation の詳細は決めていない。 |
+| Shared Rust Core Boundary | 合格 | §1、§3、§7、§8、§10 が、全対象環境で同じ Rust Core を利用し、runtime / platform ごとの別 Wallet Core や React Native 側の暗号・秘密情報管理実装を追加しない責任境界を維持している。 |
+| Security Responsibility Boundary | 合格 | §7 の Security Invariant が Mnemonic と Software Key の Core 継続管理、通常処理での非返却・非共有、runtime / platform 非依存および host environment 侵害に対する保証限界を定めている。React Native を理由とする例外はない。 |
+| Concept Scope | 合格 | React Native の対象追加は目的・対象環境・上位責任の記述に留まり、JSI、TurboModule、Native Module、Kotlin / Swift / Objective-C++、NDK、artifact、resolver、autolinking、ABI、threading、exact API、architecture、CI / release workflow を決めていない。 |
+| Product-specific Leakage | 合格 | MosaicLynx の名前、固有 UI、画面構成、Deep Link、アプリフロー、署名 UX 等はなく、§7 の「特定ウォレットアプリ専用ロジックを扱わない」という reusable library の境界が維持されている。 |
+| v1 の境界 | 合格 | §7、§11 が v1 能力、v1 対象外、プロジェクト非対象および将来候補を区別している。React Native Android / iOS は v1 対象へ追加されるが、Hardware Wallet、External Signer、OS-backed Key、Watch-only 等の境界は変わらない。 |
+| 既存 Concept との整合性 | 合格 | Core の責務、UI / Application の責任、Mnemonic の継続管理、Software Key / Account の位置付け、Chain / Network の区別、security / portability / interoperability の上位原則および利用者像に回帰はない。 |
+| Requirements Leakage | 合格 | 単一 package、共通 Core、platform 非依存の責任という高レベル方針は Concept に適合し、具体的な API、データ形式、暗号、保存、Binding、build、release および acceptance の詳細は §12〜§13 と本 artifact の FOLLOW-UP FOR REQUIREMENTS / 後続委譲へ分離されている。 |
+| 成功条件 | 合格 | §8 が全対象環境から同じ Rust Core を利用すること、秘密情報の管理主体・公開範囲を変えないこと、Chain / Network の区別および共通 Software Key を対応付けている。 |
+| 成立性 | 合格 | §9〜§10 が portable Core の前提、Web / host environment の保証限界、runtime / platform 差異が増えるリスクおよび後工程での検証を明示している。React Native 追加によるコンセプト自体の成立不能な前提矛盾は確認されない。 |
 
 ## Validation Results
 
-- 実施: `git rev-parse HEAD` により、レビュー開始時の current HEAD が `576d233835ce1b7a1073e2bf6072c9572cd70451` であることを確認した。
-- 実施: `git cat-file -t bb529efd19c4e0b45f596a0588a4bb2a3f9a1db7` および `git show bb529efd19c4e0b45f596a0588a4bb2a3f9a1db7:docs/consept/concept-sheet.md` により、reviewed HEAD と対象 Concept 本文を確認した。
-- 実施: React Native Concept Sheet 変更 commit の差分を確認し、Mobile = React Native Android / iOS、Web = Browser / Browser Extension、単一 repository・単一 npm package、共通 Rust Core および責任境界の追加を追跡した。
-- 実施: `concept-sheet-review-001.md`〜`concept-sheet-review-010.md` を確認し、既存 finding ID `CR-001〜CR-012` / `CS-001〜CS-005` の連続性、Resolved 状態および review 011 の欠落を確認した。
-- 実施: `AGENTS.md`、Concept Review Skill 一式および共通 review playbook / output format を確認した。
-- 実施: reviewed content が13章で構成され、Mobile / Web の定義、v1、Security Invariant、out-of-scope、未決定事項および次工程引継ぎの internal reference を確認した。
-- 未実施: Rust formatter、clippy、cargo test、WASM check、Native / Node / Browser / React Native の build・test、Android / iOS 検証、release / supply-chain 検証。今回の変更およびレビュー対象は Concept Review artifact だけであり、ユーザー指定によりフルテストを実施していない。
-- 未実施: Requirements / Design / Specification / Implementation の適合性検証。今回の reviewed content として現在 branch HEAD の downstream 文書を混同しないため、Concept Review の根拠にしていない。
+- 実施: `agent/react-native-support` の checkout 状態、working tree、HEAD、直近 commit および対象 branch を確認した。
+- 実施: `docs/consept/concept-sheet.md` の §1〜§13 全文を確認した。
+- 実施: `docs/reviews/concept/` の既存 artifact 一覧を確認し、最大連番 `concept-sheet-review-010.md` の次として本 artifact を作成した。既存 artifact は上書きしていない。
+- 実施: `origin/main...HEAD` の Concept Sheet 差分、React Native 追加箇所および既存記述との対応を確認した。
+- 実施: `git diff --check`。エラーなし。
+- 実施: `git status --short`、working tree / cached 差分のファイル一覧および未追跡ファイルを確認し、レビュー artifact 以外の変更がないことを確認した。
+- 未実施: Rust formatter、clippy、cargo test、WASM check、Native / Node / Browser / React Native build、runtime test、release CI。今回の対象は Concept Review の文書のみであり、ユーザー指示および change-aware validation により対象外。
+- 未確認: 外部 Node、ネットワーク相互運用、暗号方式、API、データ形式、Binding 実装、platform version の実現可能性および下流成果物の適合性。
 
 ## Review Gates
 
 | Gate | 結果 | 根拠 | 対応 ID |
 | --- | --- | --- | --- |
-| 明確さ | 合格 | §1、§4〜§5、§7 に製品像、platform 用語、鍵モデル、v1 scope、対象外および Core / UI / Application の役割がある。 | なし（CS-004 回帰なし） |
-| 課題 | 合格 | §2 に実行環境ごとの秘密情報処理の分散、責任境界の不一致および Symbol / NEM・Mainnet / Testnet の区別という課題がある。 | なし |
-| 対象ユーザーと価値 | 合格 | §4、§6、§8 にウォレット開発者、各対象 environment、共通 Core に責任を集約する価値および成功条件がある。 | なし |
-| v1 の境界 | 合格 | §7 が Desktop、Node.js、Browser / Browser Extension、React Native Android / iOS の v1 対象を示し、§7・§11 が対象外・将来候補を分離している。 | なし（CR-001 回帰なし） |
-| 責任境界 | 合格 | §7 の Security Invariant が Mnemonic / Software Key の Core 継続管理、一時仲介、通常処理での非返却・非共有、environment 非依存の原則および host compromise の保証限界を示している。 | なし（CS-005 回帰なし） |
-| 内部整合性 | 合格 | React Native の追加は対象 environment と共通利用方針を拡張するが、Core の責任、UI / Application の責任、v1 scope、out-of-scope および既存の鍵モデルを変更していない。 | なし（CR-001〜CR-012、CS-001〜CS-005 回帰なし） |
-| 成立性 | 合格 | §9〜§10 がポータブル Rust Core の前提、environment / platform 差異による実装・レビュー範囲の増加、binding 境界の risk および host security の限界を示しており、Concrete implementation を Concept の事実として固定していない。 | なし |
+| 明確さ | 合格 | §1、§5、§7〜§8 に、何を作り、誰が利用し、React Native Android / iOS、Browser、Browser Extension をどの位置付けで含めるかがある。 | なし |
+| 課題 | 合格 | §2 が秘密情報処理の分散、実行環境差異、責任境界の不一貫性および放置時の影響を示している。 | なし |
+| 対象ユーザーと価値 | 合格 | §4、§6、§8 が Symbol / NEM ウォレット開発者、利用場面、共通 Core と単一 package による再利用価値および成功条件を示している。 | なし |
+| v1 の境界 | 合格 | §7、§11 が React Native 対応を v1 対象に含めつつ、v1 対象外、プロジェクト非対象、将来候補および外部責任を区別している。 | なし |
+| 責任境界 | 合格 | §1、§3、§5、§7、§9〜§10 に、Rust Core が Mnemonic、Software Key、署名および秘密情報 lifecycle を担い、React Native / UI / Application は別 Core や秘密情報管理主体にならないことがある。 | なし |
+| 内部整合性 | 合格 | RN Android / iOS の追加は §1、§5、§7〜§10、§12〜§13 で同じ Core、同じ Security Invariant、同じ reusable library の方針に接続され、既存記述との矛盾がない。 | なし |
+| 成立性 | 合格 | §9〜§10 が host environment の侵害を Core の保証外とし、runtime / platform 差異のリスクと後工程での検証を明示している。コンセプトを成立不能にする未解決の前提矛盾は確認されない。 | なし |
 
-全 Gate 合格。Concept Review Gate は `READY` とする。
+全 Gate が合格であり、Skill および過去 artifact の正式運用に従い Review Result は `READY` とする。
 
 ## Remaining Risks and Open Decisions
 
-- React Native Android / iOS を含めることで、environment・platform 差異の implementation / review scope と binding 境界の risk は増加する。Concept は秘密情報管理ロジックを environment ごとに別実装しない方針と、binding 境界の詳細を後工程へ委譲する方針を示している。
-- support version、OS / API level、architecture、New Architecture、Expo、Browser baseline、runtime resolution、package distribution、secret lifetime / erase、error semantics および release evidence は未決定である。
-- これらは reviewed Concept の欠陥ではなく、Requirements / Design / Specification / Release planning で decision gate と検証条件を設けるべき後工程の事項である。
+- React Native Android / iOS と Browser / Browser Extension を含む各対象環境の version、互換性基準、v1 機能範囲、受入条件および相互運用性は未決定であり、Requirements 以降で具体化する必要がある。
+- Binding 境界での秘密情報のコピー、保持、破棄、意図的な回復・表示・export の認可および受渡しは、Core の Security Invariant と host environment の保証限界を前提に後工程で定める必要がある。
+- 単一 npm package から各対象環境で共通利用することは決定済みであり、未決定なのはその resolution、binding、build、配布等の実装方式である。これらを user decision として再審議しない。
+- NEEDS USER DECISION: なし。repository 分割、npm package 分割、React Native Android / iOS の対象化、共通 Rust Core の方針はユーザー決定済みとして扱い、JSI / TurboModule / packaging / build architecture も今回の Concept Review では判断要求にしていない。
 
 ## Automatic Changes
 
-レビュー中に `docs/consept/concept-sheet.md`、Requirements、Design、Specification、Implementation、テスト、package、CI、release または既存 Concept Review artifact 001〜010 は変更していない。新規成果物として本レビュー文書のみを作成した。
+レビュー中に `docs/consept/concept-sheet.md`、Requirements、Design、Specification、Implementation、テスト、README、設定または過去レビュー artifact は変更していない。レビュー成果物として `docs/reviews/concept/concept-sheet-review-011.md` のみを新規作成した。
 
-## Final Review Gate
+## Final Decision
 
 `READY`
-
-**CONCEPT PHASE READY TO CLOSE**
-
-`bb529efd19c4e0b45f596a0588a4bb2a3f9a1db7` 時点の Concept Sheet は、React Native Android / iOS の追加を含め、Requirements へ進むための製品目的、対象 environment、単一 repository・単一 npm package 方針、共通 Rust Core の責任、Security Boundary、v1 scope および後工程への委譲を十分に明確化している。これは React Native の具体的な implementation、support matrix、Specification または release readiness が完了したことを意味せず、それらは後続工程で確認する。
