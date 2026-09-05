@@ -25,6 +25,7 @@ import {
 } from "./release-manifest.mjs";
 import { CANONICAL_TARGET_ORDER, NATIVE_TARGETS } from "../packages/wallet-core/src/manifest.mjs";
 import { REACT_NATIVE_TARGETS } from "../packages/wallet-core/src/react-native-manifest.mjs";
+import { validReactNativeArtifact } from "./react-native-fixtures.mjs";
 import {
   createReactNativeArtifactEvidence,
   createReactNativeSummary,
@@ -63,41 +64,6 @@ function createTarball(root, metadata, name = "nemnesia-symbol-nem-wallet-core-0
   const tarball = resolve(root, name);
   execFileSync("tar", ["-czf", tarball, "-C", archiveRoot, "package"], { cwd: repositoryRoot });
   return tarball;
-}
-
-function syntheticElf(machine) {
-  const bytes = Buffer.alloc(64);
-  bytes.writeUInt8(0x7f, 0);
-  bytes.write("ELF", 1, "ascii");
-  bytes.writeUInt8(2, 4);
-  bytes.writeUInt8(1, 5);
-  bytes.writeUInt16LE(3, 16);
-  bytes.writeUInt16LE(machine, 18);
-  return Buffer.concat([bytes, Buffer.from("snwc_rn_module_identity symbolNemWalletCoreCxxModuleProvider")]);
-}
-
-function syntheticArchive(platform) {
-  const content = Buffer.alloc(48);
-  content.writeUInt32LE(0xfeedfacf, 0);
-  content.writeUInt32LE(0x0100000c, 4);
-  content.writeUInt32LE(1, 16);
-  content.writeUInt32LE(16, 20);
-  content.writeUInt32LE(0x32, 32);
-  content.writeUInt32LE(16, 36);
-  content.writeUInt32LE(platform, 40);
-  const payload = Buffer.concat([content, Buffer.from("snwc_rn_module_identity symbolNemWalletCoreCxxModuleProvider")]);
-  const header = Buffer.alloc(60, " ");
-  header.write("snwc.o/", 0, "ascii");
-  header.write(String(payload.length).padEnd(10, " "), 48, "ascii");
-  header.write("`\n", 58, "ascii");
-  return Buffer.concat([Buffer.from("!<arch>\n"), header, payload, payload.length % 2 === 1 ? Buffer.from("\n") : Buffer.alloc(0)]);
-}
-
-function syntheticReactNativeArtifact(targetId) {
-  if (targetId === "android-arm64-v8a") return syntheticElf(183);
-  if (targetId === "android-x86_64") return syntheticElf(62);
-  if (targetId === "ios-arm64") return syntheticArchive(2);
-  return syntheticArchive(7);
 }
 
 function fixture() {
@@ -195,7 +161,7 @@ function fixture() {
   writeJson(resolve(packageRoot, "dist/native/artifact-manifest.json"), runtimeManifest);
 
   const reactNativeArtifacts = Object.entries(REACT_NATIVE_TARGETS).map(([targetId, target]) => {
-    const artifactBytes = syntheticReactNativeArtifact(targetId);
+    const artifactBytes = validReactNativeArtifact(targetId);
     const artifactPath = resolve(packageRoot, target.relativePath);
     mkdirSync(resolve(artifactPath, ".."), { recursive: true });
     writeFileSync(artifactPath, artifactBytes);
@@ -244,7 +210,31 @@ function fixture() {
   });
   writeFileSync(
     resolve(packageRoot, "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/Info.plist"),
-    "fixture XCFramework metadata",
+    `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>AvailableLibraries</key>
+  <array>
+    <dict>
+      <key>LibraryIdentifier</key><string>ios-arm64</string>
+      <key>LibraryPath</key><string>libsymbol_nem_wallet_core_rn.a</string>
+      <key>SupportedArchitectures</key><array><string>arm64</string></array>
+      <key>SupportedPlatform</key><string>ios</string>
+    </dict>
+    <dict>
+      <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+      <key>LibraryPath</key><string>libsymbol_nem_wallet_core_rn.a</string>
+      <key>SupportedArchitectures</key><array><string>arm64</string></array>
+      <key>SupportedPlatform</key><string>ios</string>
+      <key>SupportedPlatformVariant</key><string>simulator</string>
+    </dict>
+  </array>
+  <key>CFBundlePackageType</key><string>XFWK</string>
+  <key>XCFrameworkFormatVersion</key><string>1.0</string>
+</dict>
+</plist>
+`,
   );
 
   const wasmBytes = Buffer.from("raw Rust wasm input");

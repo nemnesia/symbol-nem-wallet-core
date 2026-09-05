@@ -19,6 +19,7 @@ import {
   REACT_NATIVE_TARGETS,
   inspectReactNativeArtifact,
 } from "../packages/wallet-core/src/react-native-manifest.mjs";
+import { consumerManifestSha256, reactNativeBuildInputSha256 } from "./react-native-evidence.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
@@ -469,6 +470,13 @@ function validateReactNativeEvidence(releaseDir, manifest, sourceCommit) {
       evidence.controlled_build.package_version !== manifest.package_version ||
       evidence.controlled_build.target_id !== targetId ||
       evidence.controlled_build.toolchain_identifier !== evidence.toolchain_identifier ||
+      evidence.controlled_build.consumer_manifest_sha256 !== consumerManifestSha256() ||
+      evidence.controlled_build.build_input_sha256 !== reactNativeBuildInputSha256({
+        sourceCommit,
+        packageVersion: manifest.package_version,
+        targetId,
+        toolchainIdentifier: evidence.toolchain_identifier,
+      }) ||
       evidence.toolchain_identifier !== artifact.toolchain_identifier
     ) {
       fail(`React Native release evidence identity mismatch: ${targetId}`);

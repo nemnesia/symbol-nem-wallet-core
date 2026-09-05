@@ -1,0 +1,13 @@
+{
+  "name": "snwc-react-native-consumer",
+  "private": true,
+  "version": "0.0.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@nemnesia/symbol-nem-wallet-core": "file:../../../packages/wallet-core",
+    "react": "19.1.0",
+    "react-native": "0.87.0"
+  }
+}

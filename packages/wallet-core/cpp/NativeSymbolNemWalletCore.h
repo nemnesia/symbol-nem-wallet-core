@@ -8,10 +8,9 @@
 #error "React Native Codegen output SymbolNemWalletCoreSpecJSI.h is required"
 #endif
 
-#include <atomic>
-#include <cstdint>
 #include <memory>
-#include <shared_mutex>
+
+#include "RnLifecycleCoordinator.h"
 
 namespace facebook::react {
 
@@ -19,17 +18,13 @@ class NativeSymbolNemWalletCore final
     : public NativeSymbolNemWalletCoreCxxSpec<NativeSymbolNemWalletCore> {
  public:
   explicit NativeSymbolNemWalletCore(std::shared_ptr<CallInvoker> jsInvoker);
+  ~NativeSymbolNemWalletCore();
 
   jsi::Object invoke(jsi::Runtime &runtime, std::string operation, jsi::Object args);
   void invalidate() override;
 
  private:
-  std::atomic_bool valid_{true};
-  mutable std::shared_mutex lifecycleMutex_;
-  std::atomic_uintptr_t runtimeIdentity_{0};
-  const uintptr_t registryIdentity_;
-  const uintptr_t contextIdentity_;
-  const uint64_t processGeneration_ = 1;
+  RnLifecycleCoordinator::Registration registration_;
 };
 
 } // namespace facebook::react

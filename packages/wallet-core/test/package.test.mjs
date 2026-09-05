@@ -127,6 +127,12 @@ test("npm READMEs document exactly the public 16-function facade", () => {
   }
 });
 
+test("formal npm assembly consumes the independently produced iOS XCFramework", () => {
+  const packageBuilder = readFileSync(resolve(packageRoot, "../../scripts/build-npm-package.mjs"), "utf8");
+  assert.match(packageBuilder, /--react-native-xcframework/);
+  assert.match(packageBuilder, /validateReactNativeXcframework/);
+});
+
 test("npm pack dry run contains only package metadata, README, license, and dist allowlist", () => {
   const configuredNpmCli = process.env.npm_execpath;
   const npmCli =
@@ -172,10 +178,13 @@ test("npm pack dry run contains only package metadata, README, license, and dist
     "android/CMakeLists.txt",
     "android/OnLoad.cpp",
     "android/build.gradle",
+    "react-native.config.cjs",
     "cpp/NativeSymbolNemWalletCore.cpp",
     "cpp/NativeSymbolNemWalletCore.h",
     "cpp/NativeSymbolNemWalletCoreProvider.cpp",
     "cpp/NativeSymbolNemWalletCoreProvider.h",
+    "cpp/RnLifecycleCoordinator.cpp",
+    "cpp/RnLifecycleCoordinator.h",
     "cpp/include/symbol_nem_wallet_core.h",
     "ios/NativeSymbolNemWalletCoreProvider.h",
     "ios/NativeSymbolNemWalletCoreProvider.mm",

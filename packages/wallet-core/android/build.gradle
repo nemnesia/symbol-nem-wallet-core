@@ -1,7 +1,5 @@
 apply plugin: "com.android.library"
 
-def reactAndroidDir = project.findProperty("snwcReactAndroidDir") ?: ""
-
 android {
     namespace "com.nemnesia.symbolnemwalletcore"
     compileSdkVersion rootProject.ext.has("compileSdkVersion") ? rootProject.ext.compileSdkVersion : 35
@@ -10,17 +8,10 @@ android {
         minSdkVersion 24
     }
 
-    // The appmodules CMake entry point performs Codegen/JSI integration and
-    // links the approved per-ABI C ABI/Rust artifact supplied by the consumer.
-    externalNativeBuild {
-        cmake {
-            path file("CMakeLists.txt")
-            version "3.22.1"
-            arguments "-DREACT_ANDROID_DIR=${reactAndroidDir}"
-            arguments "-DSNWC_C_ABI_LIBRARY=${project.findProperty('snwcCAbiLibrary') ?: ''}"
-        }
-    }
-
+    // RN CLI links the package C++ target into the application's appmodules
+    // target. The published package supplies the corresponding prebuilt
+    // library for every formal ABI; no consumer repository path or Gradle
+    // property is required.
     sourceSets {
         main {
             jniLibs.srcDirs = ["../dist/react-native/android/jni"]

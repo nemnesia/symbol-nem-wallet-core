@@ -1,7 +1,10 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { validateReactNativeManifest } from "../packages/wallet-core/src/react-native-manifest.mjs";
+import {
+  validateReactNativeManifest,
+  validateReactNativePackageArtifacts,
+} from "../packages/wallet-core/src/react-native-manifest.mjs";
 
 const STATIC_DIST_FILES = [
   "index.d.ts",
@@ -50,6 +53,7 @@ export function validatePackageContents(packageRoot, manifest, reactNativeManife
     JSON.parse(readFileSync(resolve(distRoot, "react-native/artifact-manifest.json"), "utf8"));
   try {
     validateReactNativeManifest(rnManifest, packageMeta);
+    validateReactNativePackageArtifacts(packageRoot, rnManifest);
   } catch {
     contentsError();
   }

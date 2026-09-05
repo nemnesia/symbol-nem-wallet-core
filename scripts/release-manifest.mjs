@@ -644,29 +644,38 @@ function validateReactNativeReleaseIdentity(reactNative, manifest) {
           type: "ET_DYN",
           machine: target.architecture === "arm64-v8a" ? "AArch64" : "x86_64",
           architecture: target.architecture,
+          soname: "libsymbol_nem_wallet_core_rn.so",
+          loadable_segments: artifact.binary_identity.loadable_segments,
+          dynamic_symbols: artifact.binary_identity.dynamic_symbols,
         }
       : {
           format: "Mach-O-64",
           architecture: "arm64",
           platform: target.environment === "simulator" ? "ios-simulator" : "ios",
+          load_commands: artifact.binary_identity.load_commands,
+          sections: artifact.binary_identity.sections,
+          exported_symbols: artifact.binary_identity.exported_symbols,
         };
     exactKeys(
       artifact.binary_identity,
       target.platform === "android"
-        ? ["format", "endian", "type", "machine", "architecture"]
-        : ["format", "architecture", "platform", "object_count"],
+        ? ["format", "endian", "type", "machine", "architecture", "soname", "loadable_segments", "dynamic_symbols"]
+        : ["format", "architecture", "platform", "load_commands", "sections", "exported_symbols", "object_count"],
       `React Native binary identity ${targetId}`,
     );
     if (
       JSON.stringify(target.platform === "android"
         ? artifact.binary_identity
         : Object.fromEntries(Object.entries(artifact.binary_identity).filter(([key]) => key !== "object_count"))) !== JSON.stringify(expectedBinaryIdentity) ||
+      !Number.isSafeInteger(artifact.binary_identity.loadable_segments ?? artifact.binary_identity.load_commands) ||
+      !Number.isSafeInteger(artifact.binary_identity.dynamic_symbols ?? artifact.binary_identity.exported_symbols) ||
       (target.platform === "ios" && (!Number.isSafeInteger(artifact.binary_identity.object_count) || artifact.binary_identity.object_count <= 0))
     ) {
       fail(`release React Native binary identity mismatch: ${targetId}`);
     }
     exactKeys(artifact.controlled_build, [
       "workflow", "runner", "build_mode", "source_commit", "package_version", "target_id", "toolchain_identifier",
+      "consumer_manifest_sha256", "build_input_sha256",
     ], `React Native controlled build ${targetId}`);
     if (
       artifact.controlled_build.workflow !== "react-native-controlled-build" ||
@@ -676,7 +685,9 @@ function validateReactNativeReleaseIdentity(reactNative, manifest) {
       artifact.controlled_build.source_commit !== manifest.source_commit ||
       artifact.controlled_build.package_version !== manifest.package_version ||
       artifact.controlled_build.target_id !== targetId ||
-      artifact.controlled_build.toolchain_identifier !== artifact.toolchain_identifier
+      artifact.controlled_build.toolchain_identifier !== artifact.toolchain_identifier ||
+      !HASH_PATTERN.test(artifact.controlled_build.consumer_manifest_sha256) ||
+      !HASH_PATTERN.test(artifact.controlled_build.build_input_sha256)
     ) {
       fail(`React Native controlled build identity mismatch: ${targetId}`);
     }

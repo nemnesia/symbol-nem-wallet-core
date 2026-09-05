@@ -62,6 +62,7 @@
   "files": [
     "dist",
     "src/react-native",
+    "react-native.config.cjs",
     "cpp",
     "android",
     "ios",

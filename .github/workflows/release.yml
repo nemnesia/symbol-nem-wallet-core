@@ -77,8 +77,6 @@ jobs:
     with:
       release_mode: release
       release_tag: ${{ github.ref_name }}
-      react_native_android_consumer_root: ${{ vars.SNWC_RN_ANDROID_CONSUMER_ROOT }}
-      react_native_ios_consumer_root: ${{ vars.SNWC_RN_IOS_CONSUMER_ROOT }}
     permissions:
       contents: read
 

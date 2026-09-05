@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,6 +36,8 @@ const CONTROLLED_BUILD_KEYS = [
   "package_version",
   "target_id",
   "toolchain_identifier",
+  "consumer_manifest_sha256",
+  "build_input_sha256",
 ];
 const SUMMARY_KEYS = [
   "schema_version",
@@ -54,6 +56,9 @@ const SUMMARY_TARGET_KEYS = [
   "binary_identity",
   "artifact_input_filename",
 ];
+
+const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const consumerManifestPath = resolve(repositoryRoot, "integration/react-native/consumer/manifest.json");
 
 export const REACT_NATIVE_EVIDENCE_FILENAMES = Object.freeze({
   summary: "react-native-summary.json",
@@ -121,6 +126,30 @@ function fileDigest(path) {
   }
 }
 
+export function consumerManifestSha256() {
+  try {
+    return createHash("sha256").update(readFileSync(consumerManifestPath)).digest("hex");
+  } catch {
+    fail("source-controlled React Native consumer manifest is unreadable");
+  }
+}
+
+export function reactNativeBuildInputSha256({
+  sourceCommit,
+  packageVersion,
+  targetId,
+  toolchainIdentifier,
+}) {
+  const input = {
+    source_commit: sourceCommit,
+    package_version: packageVersion,
+    target_id: targetId,
+    toolchain_identifier: toolchainIdentifier,
+    consumer_manifest_sha256: consumerManifestSha256(),
+  };
+  return createHash("sha256").update(JSON.stringify(input)).digest("hex");
+}
+
 function validateControlledBuild(value, evidence) {
   exactKeys(value, CONTROLLED_BUILD_KEYS, "controlled build evidence");
   if (
@@ -131,7 +160,14 @@ function validateControlledBuild(value, evidence) {
     value.source_commit !== evidence.source_commit ||
     value.package_version !== evidence.package_version ||
     value.target_id !== evidence.target_id ||
-    value.toolchain_identifier !== evidence.toolchain_identifier
+    value.toolchain_identifier !== evidence.toolchain_identifier ||
+    value.consumer_manifest_sha256 !== consumerManifestSha256() ||
+    value.build_input_sha256 !== reactNativeBuildInputSha256({
+      sourceCommit: evidence.source_commit,
+      packageVersion: evidence.package_version,
+      targetId: evidence.target_id,
+      toolchainIdentifier: evidence.toolchain_identifier,
+    })
   ) {
     fail(`controlled build identity mismatch: ${evidence.target_id}`);
   }
@@ -183,6 +219,13 @@ export function createReactNativeArtifactEvidence({
       package_version: packageVersion,
       target_id: targetId,
       toolchain_identifier: toolchainIdentifier,
+      consumer_manifest_sha256: consumerManifestSha256(),
+      build_input_sha256: reactNativeBuildInputSha256({
+        sourceCommit,
+        packageVersion,
+        targetId,
+        toolchainIdentifier,
+      }),
     },
   };
   validateReactNativeArtifactEvidence(evidence, artifactPath, sourceCommit, packageVersion, {
