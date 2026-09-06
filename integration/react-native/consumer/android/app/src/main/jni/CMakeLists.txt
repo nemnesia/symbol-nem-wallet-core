@@ -33,8 +33,12 @@ if(NOT TARGET symbol_nem_wallet_core_rn)
 endif()
 target_link_libraries(${CMAKE_PROJECT_NAME} symbol_nem_wallet_core_rn)
 
+# CMake's default shared-library rule adds an appmodules SONAME after the
+# target options. Suppress that default so the final load unit has exactly the
+# published manifest filename, while the explicit linker option below remains
+# the only SONAME supplied to lld.
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
-    LINK_FLAGS "-Wl,-soname,libsymbol_nem_wallet_core_rn.so"
+    NO_SONAME TRUE
 )
 
 # The appmodules shared object is the Android RN load unit.  RN/AGP may link

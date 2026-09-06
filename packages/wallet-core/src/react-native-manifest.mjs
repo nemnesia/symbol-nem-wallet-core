@@ -410,26 +410,34 @@ function machOIdentity(
 }
 
 function inspectStaticArchive(bytes, target) {
-  if (bytes.length < 8 || bytes.toString("ascii", 0, 8) !== "!<arch>\n") assemblyError();
+  if (bytes.length < 8 || bytes.toString("ascii", 0, 8) !== "!<arch>\n") {
+    assemblyError("static archive header is invalid");
+  }
   const identities = [];
   const exportedSymbols = new Set();
   let offset = 8;
   while (offset < bytes.length) {
-    if (offset + 60 > bytes.length) assemblyError();
-    if (bytes[offset + 58] !== 0x60 || bytes[offset + 59] !== 0x0a) assemblyError();
+    if (offset + 60 > bytes.length) assemblyError(`static archive member header is truncated at ${offset}`);
+    if (bytes[offset + 58] !== 0x60 || bytes[offset + 59] !== 0x0a) {
+      assemblyError(`static archive member header is invalid at ${offset}`);
+    }
     const sizeText = bytes.toString("ascii", offset + 48, offset + 58).trim();
-    if (!/^\d+$/.test(sizeText)) assemblyError();
+    if (!/^\d+$/.test(sizeText)) assemblyError(`static archive member size is invalid at ${offset}`);
     const memberSize = Number(sizeText);
     const memberStart = offset + 60;
     const memberEnd = memberStart + memberSize;
-    if (!Number.isSafeInteger(memberSize) || memberEnd > bytes.length) assemblyError();
+    if (!Number.isSafeInteger(memberSize) || memberEnd > bytes.length) {
+      assemblyError(`static archive member is truncated at ${offset}`);
+    }
     const rawMember = bytes.subarray(memberStart, memberEnd);
     let memberName = bytes.toString("ascii", offset, offset + 16).trim();
     let member = rawMember;
     const extendedName = /^#1\/(\d+)$/.exec(memberName);
     if (extendedName !== null) {
       const nameLength = Number(extendedName[1]);
-      if (!Number.isSafeInteger(nameLength) || nameLength > rawMember.length) assemblyError();
+      if (!Number.isSafeInteger(nameLength) || nameLength > rawMember.length) {
+        assemblyError(`static archive extended member name is invalid: ${memberName}`);
+      }
       memberName = rawMember.toString("utf8", 0, nameLength);
       member = rawMember.subarray(nameLength);
     }
@@ -454,7 +462,9 @@ function inspectStaticArchive(bytes, target) {
         for (const symbol of identity.requiredSymbols) exportedSymbols.add(symbol);
       }
     } else {
-      if (identities.length !== 0 || !["/", "/SYM64/", "//", "__.SYMDEF", "__.SYMDEF SORTED"].includes(memberName)) assemblyError();
+      if (identities.length !== 0 || !["/", "/SYM64/", "//", "__.SYMDEF", "__.SYMDEF SORTED"].includes(memberName)) {
+        assemblyError(`static archive member is not a supported Mach-O object: ${memberName}`);
+      }
     }
     offset = memberEnd + (memberSize % 2);
   }
