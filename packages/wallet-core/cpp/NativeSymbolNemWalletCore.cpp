@@ -451,11 +451,11 @@ SnwcExportRequest exportRequest(Runtime &runtime, const Value &value) {
   result.target = exportTarget(runtime, property(runtime, object, "target"));
   Object user = objectValue(runtime, property(runtime, object, "user_request"));
   result.user_request.target = exportTarget(runtime, property(runtime, user, "target"));
-  result.user_request.status = exportStatus(runtime, property(runtime, user, "status"), "not_requested", "requested");
+  result.user_request.status = exportStatus(runtime, property(runtime, object, "user_request"), "not_requested", "requested");
   Object confirmation = objectValue(runtime, property(runtime, object, "application_confirmation"));
   result.application_confirmation.target = exportTarget(runtime, property(runtime, confirmation, "target"));
   result.application_confirmation.status = exportStatus(
-      runtime, property(runtime, confirmation, "status"), "not_confirmed", "confirmed");
+      runtime, property(runtime, object, "application_confirmation"), "not_confirmed", "confirmed");
   return result;
 }
 
