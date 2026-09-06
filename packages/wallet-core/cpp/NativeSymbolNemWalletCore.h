@@ -14,6 +14,10 @@
 
 namespace facebook::react {
 
+/* The token is owned by the RN TurboModule instance and expires with its
+ * actual registry/context lifetime. It is not exposed to JavaScript. */
+struct NativeSymbolNemWalletCoreContext final {};
+
 class NativeSymbolNemWalletCore final
     : public NativeSymbolNemWalletCoreCxxSpec<NativeSymbolNemWalletCore> {
  public:
@@ -21,9 +25,10 @@ class NativeSymbolNemWalletCore final
   ~NativeSymbolNemWalletCore();
 
   jsi::Object invoke(jsi::Runtime &runtime, std::string operation, jsi::Object args);
-  void invalidate() override;
+  void invalidate();
 
  private:
+  std::shared_ptr<NativeSymbolNemWalletCoreContext> context_;
   RnLifecycleCoordinator::Registration registration_;
 };
 

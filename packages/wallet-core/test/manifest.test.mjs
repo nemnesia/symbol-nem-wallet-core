@@ -200,11 +200,13 @@ test("React Native assembly hashes only supplied canonical artifacts and rejects
     const extraMachOPath = resolve(directory, "ios-extra", REACT_NATIVE_TARGETS["ios-arm64"].artifactFilename);
     const missingSymbolPath = resolve(directory, "missing-symbol", REACT_NATIVE_TARGETS["android-arm64-v8a"].artifactFilename);
     const nonExportedPath = resolve(directory, "non-exported", REACT_NATIVE_TARGETS["android-arm64-v8a"].artifactFilename);
+    const wrongEmbeddedIdentityPath = resolve(directory, "wrong-embedded-identity", REACT_NATIVE_TARGETS["android-arm64-v8a"].artifactFilename);
     const malformedPath = resolve(directory, "malformed", REACT_NATIVE_TARGETS["android-arm64-v8a"].artifactFilename);
     mkdirSync(resolve(directory, "text"), { recursive: true });
     mkdirSync(resolve(directory, "ios-extra"), { recursive: true });
     mkdirSync(resolve(directory, "missing-symbol"), { recursive: true });
     mkdirSync(resolve(directory, "non-exported"), { recursive: true });
+    mkdirSync(resolve(directory, "wrong-embedded-identity"), { recursive: true });
     mkdirSync(resolve(directory, "malformed"), { recursive: true });
     writeFileSync(textPath, Buffer.from("not an ELF"));
     writeFileSync(wrongElfPath, validElf(62, "libsymbol_nem_wallet_core_rn.so"));
@@ -212,6 +214,12 @@ test("React Native assembly hashes only supplied canonical artifacts and rejects
     writeFileSync(extraMachOPath, validArchive(2, { objectPlatforms: [2, 7] }));
     writeFileSync(missingSymbolPath, validElf(183, "libsymbol_nem_wallet_core_rn.so", { symbols: ["snwc_rn_module_identity"] }));
     writeFileSync(nonExportedPath, validElf(183, "libsymbol_nem_wallet_core_rn.so", { exported: false }));
+    writeFileSync(
+      wrongEmbeddedIdentityPath,
+      validElf(183, "libsymbol_nem_wallet_core_rn.so", {
+        artifactIdentity: REACT_NATIVE_TARGETS["android-x86_64"].artifactIdentity,
+      }),
+    );
     const malformed = validElf(183, "libsymbol_nem_wallet_core_rn.so");
     malformed.writeBigUInt64LE(0n, 176 + 8);
     writeFileSync(malformedPath, malformed);
@@ -232,6 +240,9 @@ test("React Native assembly hashes only supplied canonical artifacts and rejects
     ]));
     assert.throws(() => validateReactNativeArtifactInputs([
       { targetId: "android-arm64-v8a", path: nonExportedPath },
+    ]));
+    assert.throws(() => validateReactNativeArtifactInputs([
+      { targetId: "android-arm64-v8a", path: wrongEmbeddedIdentityPath },
     ]));
     assert.throws(() => validateReactNativeArtifactInputs([
       { targetId: "android-arm64-v8a", path: malformedPath },

@@ -1,8 +1,7 @@
 #include "RnLifecycleCoordinator.h"
 
-#include <limits>
+#include <algorithm>
 #include <stdexcept>
-#include <unistd.h>
 
 namespace facebook::react {
 namespace {
@@ -20,20 +19,9 @@ RnLifecycleCoordinator &RnLifecycleCoordinator::shared() {
   return coordinator;
 }
 
-uint64_t RnLifecycleCoordinator::newProcessGeneration() {
-  static std::atomic_uint64_t nextGeneration{0};
-  const uint64_t generation = nextGeneration.fetch_add(1, std::memory_order_relaxed) + 1;
-  const uint64_t processId = static_cast<uint64_t>(::getpid());
-  if (generation == 0 || generation > std::numeric_limits<uint32_t>::max() ||
-      processId == 0 || processId > std::numeric_limits<uint32_t>::max()) {
-    failLifecycle();
-  }
-  return (processId << 32) | generation;
-}
-
 void RnLifecycleCoordinator::ensureReadyLocked() {
   if (processState_ == ProcessState::uninitialized || processState_ == ProcessState::closed) {
-    processGeneration_ = newProcessGeneration();
+    processLifetime_ = std::make_shared<const uint8_t>(0);
     processState_ = ProcessState::ready;
   }
   if (processState_ != ProcessState::ready) failLifecycle();
@@ -45,17 +33,17 @@ void RnLifecycleCoordinator::registerProcessLifecycle() {
 }
 
 RnLifecycleCoordinator::Registration RnLifecycleCoordinator::registerModule(
-    const void *registry,
-    const void *context) {
-  if (registry == nullptr || context == nullptr) failLifecycle();
+    std::shared_ptr<const void> registryLifetime,
+    std::shared_ptr<const void> contextLifetime) {
+  if (registryLifetime == nullptr || contextLifetime == nullptr) failLifecycle();
   std::lock_guard<std::mutex> lock(stateMutex_);
   ensureReadyLocked();
   auto state = std::make_shared<RegistrationState>();
-  state->registry = registry;
-  state->context = context;
-  state->processGeneration = processGeneration_;
+  state->registryLifetime = std::move(registryLifetime);
+  state->contextLifetime = std::move(contextLifetime);
+  state->processLifetime = processLifetime_;
   state->active = true;
-  registrations_[context] = state;
+  registrations_.push_back(state);
   return {std::move(state)};
 }
 
@@ -67,9 +55,10 @@ RnLifecycleCoordinator::Request RnLifecycleCoordinator::begin(
   if (
       processState_ != ProcessState::ready ||
       !registration.state->active ||
-      registration.state->processGeneration != processGeneration_ ||
-      registration.state->registry == nullptr ||
-      registration.state->context == nullptr) {
+      registration.state->registryLifetime == nullptr ||
+      registration.state->contextLifetime.expired() ||
+      registration.state->processLifetime.expired() ||
+      registration.state->processLifetime.lock() != processLifetime_) {
     failLifecycle();
   }
   if (registration.state->runtime == nullptr) {
@@ -83,10 +72,10 @@ RnLifecycleCoordinator::Request RnLifecycleCoordinator::begin(
   hasActiveRequest = true;
   return {
       registration.state,
+      processLifetime_,
+      registration.state->registryLifetime,
+      registration.state->contextLifetime.lock(),
       runtime,
-      registration.state->registry,
-      registration.state->context,
-      processGeneration_,
       requestIdentity,
   };
 }
@@ -98,10 +87,10 @@ bool RnLifecycleCoordinator::isLive(const Request &request) const {
       request.registration != nullptr &&
       request.registration->active &&
       request.registration->runtime == request.runtime &&
-      request.registration->registry == request.registry &&
-      request.registration->context == request.context &&
-      request.registration->processGeneration == processGeneration_ &&
-      request.processGeneration == processGeneration_ &&
+      request.registration->registryLifetime == request.registryLifetime &&
+      request.registration->contextLifetime.lock() == request.contextLifetime &&
+      request.registration->processLifetime.lock() == request.processLifetime &&
+      request.processLifetime == processLifetime_ &&
       request.requestIdentity != 0;
 }
 
@@ -118,7 +107,14 @@ void RnLifecycleCoordinator::invalidate(const Registration &registration) noexce
   std::unique_lock<std::shared_mutex> barrier(deliveryBarrier_);
   std::lock_guard<std::mutex> lock(stateMutex_);
   registration.state->active = false;
-  registrations_.erase(registration.state->context);
+  registrations_.erase(
+      std::remove_if(
+          registrations_.begin(),
+          registrations_.end(),
+          [&registration](const auto &candidate) {
+            return candidate.expired() || candidate.lock() == registration.state;
+          }),
+      registrations_.end());
 }
 
 void RnLifecycleCoordinator::processTeardown() noexcept {
@@ -127,16 +123,16 @@ void RnLifecycleCoordinator::processTeardown() noexcept {
     std::lock_guard<std::mutex> lock(stateMutex_);
     if (processState_ == ProcessState::closed || processState_ == ProcessState::unavailable) return;
     processState_ = ProcessState::draining;
-    for (auto iterator = registrations_.begin(); iterator != registrations_.end();) {
-      if (auto state = iterator->second.lock()) state->active = false;
-      iterator = registrations_.erase(iterator);
+    for (const auto &candidate : registrations_) {
+      if (auto state = candidate.lock()) state->active = false;
     }
+    registrations_.clear();
+    processLifetime_.reset();
   }
   barrier.unlock();
   std::unique_lock<std::mutex> execution(executionMutex_);
   std::lock_guard<std::mutex> lock(stateMutex_);
   processState_ = ProcessState::closed;
-  processGeneration_ = 0;
 }
 
 bool RnLifecycleCoordinator::hasActiveRequestOnCurrentThread() const {

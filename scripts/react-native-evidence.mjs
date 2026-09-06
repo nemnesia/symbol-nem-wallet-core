@@ -19,6 +19,7 @@ const EVIDENCE_KEYS = [
   "source_commit",
   "package_version",
   "artifact_filename",
+  "artifact_identity",
   "artifact_input_filename",
   "artifact_sha256",
   "artifact_size",
@@ -51,6 +52,7 @@ const SUMMARY_TARGET_KEYS = [
   "target_id",
   "artifact_sha256",
   "artifact_size",
+  "artifact_identity",
   "toolchain_identifier",
   "binary_format",
   "binary_identity",
@@ -204,6 +206,7 @@ export function createReactNativeArtifactEvidence({
     source_commit: sourceCommit,
     package_version: packageVersion,
     artifact_filename: target.artifactFilename,
+    artifact_identity: target.artifactIdentity,
     artifact_input_filename: artifactInputFilename,
     artifact_sha256: inspected.sha256,
     artifact_size: inspected.size,
@@ -255,6 +258,7 @@ export function validateReactNativeArtifactEvidence(
     evidence.source_commit !== sourceCommit ||
     evidence.package_version !== packageVersion ||
     evidence.artifact_filename !== target.artifactFilename ||
+    evidence.artifact_identity !== target.artifactIdentity ||
     typeof evidence.artifact_input_filename !== "string" ||
     evidence.artifact_input_filename.length === 0 ||
     evidence.artifact_input_filename.startsWith("/") ||
@@ -301,6 +305,7 @@ export function createReactNativeSummary(entries, sourceCommit, packageVersion) 
     target_id: entry.target_id,
     artifact_sha256: entry.artifact_sha256,
     artifact_size: entry.artifact_size,
+    artifact_identity: entry.artifact_identity,
     toolchain_identifier: entry.toolchain_identifier,
     binary_format: entry.binary_format,
     binary_identity: entry.binary_identity,
@@ -336,7 +341,12 @@ export function validateReactNativeSummary(summary, sourceCommit, packageVersion
   for (const [index, targetId] of CANONICAL_REACT_NATIVE_TARGET_ORDER.entries()) {
     const target = summary.targets[index];
     exactKeys(target, SUMMARY_TARGET_KEYS, `React Native summary target ${targetId}`);
-    if (target.target_id !== targetId || typeof target.toolchain_identifier !== "string" || target.toolchain_identifier.length === 0) {
+    if (
+      target.target_id !== targetId ||
+      target.artifact_identity !== REACT_NATIVE_TARGETS[targetId].artifactIdentity ||
+      typeof target.toolchain_identifier !== "string" ||
+      target.toolchain_identifier.length === 0
+    ) {
       fail(`React Native summary target order is invalid: ${targetId}`);
     }
     validHash(target.artifact_sha256, `React Native summary hash ${targetId}`);

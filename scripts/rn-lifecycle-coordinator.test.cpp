@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
@@ -12,14 +13,14 @@ using facebook::react::RnLifecycleCoordinator;
 int main() {
   auto &coordinator = RnLifecycleCoordinator::shared();
   coordinator.registerProcessLifecycle();
-  int registryOne = 1;
-  int contextOne = 2;
-  int registryTwo = 3;
-  int contextTwo = 4;
+  auto registryOne = std::make_shared<int>(1);
+  auto contextOne = std::make_shared<int>(2);
+  auto registryTwo = std::make_shared<int>(3);
+  auto contextTwo = std::make_shared<int>(4);
   int runtimeOne = 5;
   int runtimeTwo = 6;
-  const auto first = coordinator.registerModule(&registryOne, &contextOne);
-  const auto second = coordinator.registerModule(&registryTwo, &contextTwo);
+  const auto first = coordinator.registerModule(registryOne, contextOne);
+  const auto second = coordinator.registerModule(registryTwo, contextTwo);
 
   const auto request = coordinator.begin(first, &runtimeOne);
   assert(coordinator.isLive(request));
@@ -59,9 +60,17 @@ int main() {
   assert(coordinator.processState() == RnLifecycleCoordinator::ProcessState::closed);
 
   coordinator.registerProcessLifecycle();
-  const auto reloaded = coordinator.registerModule(&registryOne, &contextOne);
+  const auto reloaded = coordinator.registerModule(registryOne, contextOne);
   const auto reloadedRequest = coordinator.begin(reloaded, &runtimeOne);
   assert(coordinator.isLive(reloadedRequest));
   coordinator.finish(reloadedRequest);
+
+  auto expiredContext = std::make_shared<int>(7);
+  const auto expired = coordinator.registerModule(registryOne, expiredContext);
+  const auto expiredRequest = coordinator.begin(expired, &runtimeOne);
+  coordinator.invalidate(expired);
+  expiredContext.reset();
+  assert(!coordinator.isLive(expiredRequest));
+  coordinator.finish(expiredRequest);
   return 0;
 }

@@ -5,10 +5,10 @@ const EXPECTED_MODULE_IDENTITY = "symbol-nem-wallet-core-react-native-v1";
 const PACKAGE_REACT_NATIVE_MANIFEST = null;
 
 const EXPECTED_ARTIFACTS = [
-  { target_id: "android-arm64-v8a", platform: "android", environment: "device", architecture: "arm64-v8a", relative_path: "dist/react-native/android/jni/arm64-v8a/libsymbol_nem_wallet_core_rn.so", artifact_filename: "libsymbol_nem_wallet_core_rn.so" },
-  { target_id: "android-x86_64", platform: "android", environment: "emulator", architecture: "x86_64", relative_path: "dist/react-native/android/jni/x86_64/libsymbol_nem_wallet_core_rn.so", artifact_filename: "libsymbol_nem_wallet_core_rn.so" },
-  { target_id: "ios-arm64", platform: "ios", environment: "device", architecture: "arm64", relative_path: "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64/libsymbol_nem_wallet_core_rn.a", artifact_filename: "libsymbol_nem_wallet_core_rn.a" },
-  { target_id: "ios-simulator-arm64", platform: "ios", environment: "simulator", architecture: "arm64", relative_path: "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a", artifact_filename: "libsymbol_nem_wallet_core_rn.a" },
+  { target_id: "android-arm64-v8a", platform: "android", environment: "device", architecture: "arm64-v8a", relative_path: "dist/react-native/android/jni/arm64-v8a/libsymbol_nem_wallet_core_rn.so", artifact_filename: "libsymbol_nem_wallet_core_rn.so", artifact_identity: "android|arm64-v8a|dist/react-native/android/jni/arm64-v8a/libsymbol_nem_wallet_core_rn.so" },
+  { target_id: "android-x86_64", platform: "android", environment: "emulator", architecture: "x86_64", relative_path: "dist/react-native/android/jni/x86_64/libsymbol_nem_wallet_core_rn.so", artifact_filename: "libsymbol_nem_wallet_core_rn.so", artifact_identity: "android|x86_64|dist/react-native/android/jni/x86_64/libsymbol_nem_wallet_core_rn.so" },
+  { target_id: "ios-arm64", platform: "ios", environment: "device", architecture: "arm64", relative_path: "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64/libsymbol_nem_wallet_core_rn.a", artifact_filename: "libsymbol_nem_wallet_core_rn.a", artifact_identity: "ios|ios|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64/libsymbol_nem_wallet_core_rn.a" },
+  { target_id: "ios-simulator-arm64", platform: "ios", environment: "simulator", architecture: "arm64", relative_path: "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a", artifact_filename: "libsymbol_nem_wallet_core_rn.a", artifact_identity: "ios|ios-simulator|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a" },
 ];
 
 function backendInitializationError() {
@@ -42,7 +42,7 @@ function manifestArtifactIdentities() {
     throw new Error("invalid React Native artifact manifest");
   }
 
-  const identities = [];
+  const identities = new Map();
   for (const [index, artifact] of manifest.artifacts.entries()) {
     const expected = EXPECTED_ARTIFACTS[index];
     if (
@@ -71,18 +71,15 @@ function manifestArtifactIdentities() {
     ) {
       throw new Error("invalid React Native artifact manifest");
     }
-    const platformIdentity = artifact.platform === "android"
-      ? `${artifact.platform}|${artifact.architecture}|${artifact.relative_path}`
-      : `${artifact.platform}|${artifact.environment === "simulator" ? "ios-simulator" : "ios"}|${artifact.architecture}|${artifact.relative_path}`;
-    identities.push(platformIdentity);
+    identities.set(artifact.target_id, expected.artifact_identity);
   }
-  return new Set(identities);
+  return identities;
 }
 
 export function getReactNativeModule() {
-  let expectedArtifactIdentities;
+  let expectedArtifacts;
   try {
-    expectedArtifactIdentities = manifestArtifactIdentities();
+    expectedArtifacts = manifestArtifactIdentities();
   } catch {
     throw backendInitializationError();
   }
@@ -110,11 +107,14 @@ export function getReactNativeModule() {
       "artifact_identity",
       "module_identity",
       "module_name",
+      "target_id",
     ]) ||
     identity.module_name !== MODULE_NAME ||
     identity.module_identity !== EXPECTED_MODULE_IDENTITY ||
     identity.architecture !== "new" ||
-    !expectedArtifactIdentities.has(identity.artifact_identity)
+    typeof identity.target_id !== "string" ||
+    !expectedArtifacts.has(identity.target_id) ||
+    expectedArtifacts.get(identity.target_id) !== identity.artifact_identity
   ) {
     throw backendInitializationError();
   }

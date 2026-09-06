@@ -2,6 +2,7 @@ const REQUIRED_SYMBOLS = [
   "snwc_rn_module_identity",
   "symbolNemWalletCoreCxxModuleProvider",
 ];
+const EMBEDDED_IDENTITY_SYMBOL = "snwc_rn_artifact_identity_value";
 
 function align(value, boundary) {
   return Math.ceil(value / boundary) * boundary;
@@ -13,7 +14,17 @@ function elfHash(name) {
   return value >>> 0;
 }
 
-export function validElf(machine, soname, { symbols = REQUIRED_SYMBOLS, exported = true } = {}) {
+export function validElf(
+  machine,
+  soname,
+  {
+    symbols = REQUIRED_SYMBOLS,
+    exported = true,
+    artifactIdentity = machine === 183
+      ? "android|arm64-v8a|dist/react-native/android/jni/arm64-v8a/libsymbol_nem_wallet_core_rn.so"
+      : "android|x86_64|dist/react-native/android/jni/x86_64/libsymbol_nem_wallet_core_rn.so",
+  } = {},
+) {
   const base = 0x400000;
   const headerSize = 64;
   const programHeaderOffset = headerSize;
@@ -23,15 +34,17 @@ export function validElf(machine, soname, { symbols = REQUIRED_SYMBOLS, exported
   const dynamicEntryCount = 7;
   const dynamicSize = dynamicEntryCount * 16;
   const stringOffset = align(dynamicOffset + dynamicSize, 8);
-  const names = ["", soname, ...symbols];
+  const names = ["", soname, ...symbols, EMBEDDED_IDENTITY_SYMBOL, artifactIdentity];
   const stringTable = Buffer.from(`${names.join("\0")}\0`, "utf8");
   const symbolOffset = align(stringOffset + stringTable.length, 8);
-  const symbolCount = symbols.length + 1;
+  const symbolCount = symbols.length + 2;
   const symbolSize = symbolCount * 24;
   const hashOffset = align(symbolOffset + symbolSize, 8);
   const hashSize = 8 + 4 + symbolCount * 4;
   const codeOffset = align(hashOffset + hashSize, 16);
-  const totalSize = codeOffset + 16;
+  const identityOffset = codeOffset + 16;
+  const identityBytes = Buffer.from(`${artifactIdentity}\0`, "utf8");
+  const totalSize = identityOffset + identityBytes.length;
   const bytes = Buffer.alloc(totalSize);
 
   bytes.writeUInt8(0x7f, 0);
@@ -96,25 +109,43 @@ export function validElf(machine, soname, { symbols = REQUIRED_SYMBOLS, exported
     bytes.writeUInt16LE(1, offset + 6);
     bytes.writeBigUInt64LE(BigInt(base + codeOffset + index), offset + 8);
   }
+  const identitySymbolOffset = symbolOffset + (symbols.length + 1) * 24;
+  bytes.writeUInt32LE(stringOffsets[symbols.length + 2], identitySymbolOffset);
+  bytes.writeUInt8(0x11, identitySymbolOffset + 4);
+  bytes.writeUInt16LE(1, identitySymbolOffset + 6);
+  bytes.writeBigUInt64LE(BigInt(base + identityOffset), identitySymbolOffset + 8);
+  bytes.writeBigUInt64LE(BigInt(identityBytes.length), identitySymbolOffset + 16);
   bytes.writeUInt32LE(1, hashOffset);
   bytes.writeUInt32LE(symbolCount, hashOffset + 4);
   bytes.writeUInt32LE(1, hashOffset + 8);
   for (let index = 0; index < symbolCount; index += 1) {
     bytes.writeUInt32LE(index === 0 ? 0 : index, hashOffset + 12 + index * 4);
   }
+  identityBytes.copy(bytes, identityOffset);
   return bytes;
 }
 
-function machOObject(platform, { symbols = REQUIRED_SYMBOLS, exported = true } = {}) {
+function machOObject(
+  platform,
+  {
+    symbols = REQUIRED_SYMBOLS,
+    exported = true,
+    artifactIdentity = platform === 2
+      ? "ios|ios|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64/libsymbol_nem_wallet_core_rn.a"
+      : "ios|ios-simulator|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a",
+  } = {},
+) {
   const headerSize = 32;
   const segmentCommandSize = 72 + 80;
   const buildCommandSize = 24;
   const symbolCommandSize = 24;
   const commandSize = segmentCommandSize + buildCommandSize + symbolCommandSize;
   const codeOffset = headerSize + commandSize;
-  const symbolOffset = align(codeOffset + 16, 8);
-  const stringTable = Buffer.from(`\0${symbols.map((name) => `_${name}`).join("\0")}\0`, "utf8");
-  const stringOffset = symbolOffset + (symbols.length + 1) * 16;
+  const identityOffset = codeOffset + 16;
+  const identityBytes = Buffer.from(`${artifactIdentity}\0`, "utf8");
+  const symbolOffset = align(identityOffset + identityBytes.length, 8);
+  const stringTable = Buffer.from(`\0${symbols.map((name) => `_${name}`).join("\0")}\0_${EMBEDDED_IDENTITY_SYMBOL}\0`, "utf8");
+  const stringOffset = symbolOffset + (symbols.length + 2) * 16;
   const totalSize = stringOffset + stringTable.length;
   const bytes = Buffer.alloc(totalSize);
   bytes.writeUInt32LE(0xfeedfacf, 0);
@@ -140,7 +171,7 @@ function machOObject(platform, { symbols = REQUIRED_SYMBOLS, exported = true } =
   bytes.write("__text", section, "ascii");
   bytes.write("__TEXT", section + 16, "ascii");
   bytes.writeBigUInt64LE(BigInt(codeOffset), section + 32);
-  bytes.writeBigUInt64LE(16n, section + 40);
+  bytes.writeBigUInt64LE(BigInt(identityOffset + identityBytes.length - codeOffset), section + 40);
   bytes.writeUInt32LE(codeOffset, section + 48);
   const build = segment + segmentCommandSize;
   bytes.writeUInt32LE(0x32, build);
@@ -153,7 +184,7 @@ function machOObject(platform, { symbols = REQUIRED_SYMBOLS, exported = true } =
   bytes.writeUInt32LE(0x2, symtab);
   bytes.writeUInt32LE(symbolCommandSize, symtab + 4);
   bytes.writeUInt32LE(symbolOffset, symtab + 8);
-  bytes.writeUInt32LE(symbols.length + 1, symtab + 12);
+  bytes.writeUInt32LE(symbols.length + 2, symtab + 12);
   bytes.writeUInt32LE(stringOffset, symtab + 16);
   bytes.writeUInt32LE(stringTable.length, symtab + 20);
   for (let index = 0; index < symbols.length; index += 1) {
@@ -165,7 +196,15 @@ function machOObject(platform, { symbols = REQUIRED_SYMBOLS, exported = true } =
     bytes.writeUInt8(1, offset + 5);
     bytes.writeBigUInt64LE(BigInt(codeOffset + index), offset + 8);
   }
+  const identitySymbolOffset = symbolOffset + (symbols.length + 1) * 16;
+  let identityNameOffset = 1;
+  for (const symbol of symbols) identityNameOffset += Buffer.byteLength(`_${symbol}`) + 1;
+  bytes.writeUInt32LE(identityNameOffset, identitySymbolOffset);
+  bytes.writeUInt8(0x0f, identitySymbolOffset + 4);
+  bytes.writeUInt8(1, identitySymbolOffset + 5);
+  bytes.writeBigUInt64LE(BigInt(identityOffset), identitySymbolOffset + 8);
   stringTable.copy(bytes, stringOffset);
+  identityBytes.copy(bytes, identityOffset);
   return bytes;
 }
 
@@ -184,8 +223,12 @@ export function validArchive(platform, options = {}) {
 
 export function validReactNativeArtifact(targetId) {
   return targetId === "android-arm64-v8a"
-    ? validElf(183, "libsymbol_nem_wallet_core_rn.so")
+    ? validElf(183, "libsymbol_nem_wallet_core_rn.so", { artifactIdentity: "android|arm64-v8a|dist/react-native/android/jni/arm64-v8a/libsymbol_nem_wallet_core_rn.so" })
     : targetId === "android-x86_64"
-      ? validElf(62, "libsymbol_nem_wallet_core_rn.so")
-      : validArchive(targetId === "ios-arm64" ? 2 : 7);
+      ? validElf(62, "libsymbol_nem_wallet_core_rn.so", { artifactIdentity: "android|x86_64|dist/react-native/android/jni/x86_64/libsymbol_nem_wallet_core_rn.so" })
+      : validArchive(targetId === "ios-arm64" ? 2 : 7, {
+        artifactIdentity: targetId === "ios-arm64"
+          ? "ios|ios|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64/libsymbol_nem_wallet_core_rn.a"
+          : "ios|ios-simulator|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a",
+      });
 }

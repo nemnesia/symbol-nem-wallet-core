@@ -1,11 +1,10 @@
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
-#include <unordered_map>
+#include <vector>
 
 namespace facebook::react {
 
@@ -20,10 +19,10 @@ class RnLifecycleCoordinator final {
   };
 
   struct RegistrationState final {
+    std::shared_ptr<const void> registryLifetime;
+    std::weak_ptr<const void> contextLifetime;
+    std::weak_ptr<const void> processLifetime;
     const void *runtime = nullptr;
-    const void *registry = nullptr;
-    const void *context = nullptr;
-    uint64_t processGeneration = 0;
     bool active = false;
   };
 
@@ -33,17 +32,19 @@ class RnLifecycleCoordinator final {
 
   struct Request final {
     std::shared_ptr<RegistrationState> registration;
+    std::shared_ptr<const void> processLifetime;
+    std::shared_ptr<const void> registryLifetime;
+    std::shared_ptr<const void> contextLifetime;
     const void *runtime = nullptr;
-    const void *registry = nullptr;
-    const void *context = nullptr;
-    uint64_t processGeneration = 0;
     uint64_t requestIdentity = 0;
   };
 
   static RnLifecycleCoordinator &shared();
 
   void registerProcessLifecycle();
-  Registration registerModule(const void *registry, const void *context);
+  Registration registerModule(
+      std::shared_ptr<const void> registryLifetime,
+      std::shared_ptr<const void> contextLifetime);
   Request begin(const Registration &registration, const void *runtime);
   bool isLive(const Request &request) const;
   void finish(const Request &request) noexcept;
@@ -58,15 +59,14 @@ class RnLifecycleCoordinator final {
  private:
   RnLifecycleCoordinator() = default;
 
-  static uint64_t newProcessGeneration();
   void ensureReadyLocked();
 
   mutable std::mutex stateMutex_;
   ProcessState processState_ = ProcessState::uninitialized;
-  uint64_t processGeneration_ = 0;
   uint64_t nextRequestIdentity_ = 0;
   size_t inFlight_ = 0;
-  std::unordered_map<const void *, std::weak_ptr<RegistrationState>> registrations_;
+  std::shared_ptr<const void> processLifetime_;
+  std::vector<std::weak_ptr<RegistrationState>> registrations_;
   std::mutex executionMutex_;
   std::shared_mutex deliveryBarrier_;
 };

@@ -51,7 +51,8 @@ std::shared_ptr<TurboModule> javaModuleProvider(
 } // namespace facebook::react
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
-  if (snwc_rn_module_identity() == nullptr || snwc_rn_artifact_identity() == nullptr) {
+  if (snwc_rn_module_identity() == nullptr || snwc_rn_artifact_identity() == nullptr ||
+      snwc_rn_target_id() == nullptr) {
     return JNI_ERR;
   }
   facebook::react::RnLifecycleCoordinator::shared().registerProcessLifecycle();

@@ -12,6 +12,10 @@ namespace facebook::react {
 #define SNWC_RN_ANDROID_ABI "unknown"
 #endif
 
+#if !defined(SNWC_RN_TARGET_ID)
+#define SNWC_RN_TARGET_ID "unknown"
+#endif
+
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #if TARGET_OS_SIMULATOR
@@ -25,13 +29,33 @@ extern "C" SNWC_RN_EXPORT const char *snwc_rn_module_identity() {
   return "symbol-nem-wallet-core-react-native-v1";
 }
 
+extern "C" SNWC_RN_EXPORT const char snwc_rn_artifact_identity_value[];
+
 extern "C" SNWC_RN_EXPORT const char *snwc_rn_artifact_identity() {
+  return snwc_rn_artifact_identity_value[0] == '\0' ? nullptr : snwc_rn_artifact_identity_value;
+}
+
+/* Keep this value in the binary as a data symbol as well as returning it from
+ * the provider. Release inspection verifies both the target tables and this
+ * exact embedded value. */
+extern "C" SNWC_RN_EXPORT const char snwc_rn_artifact_identity_value[] =
 #if defined(SNWC_RN_PLATFORM_ANDROID)
-  return "android|" SNWC_RN_ANDROID_ABI "|dist/react-native/android/jni/" SNWC_RN_ANDROID_ABI "/libsymbol_nem_wallet_core_rn.so";
+    "android|" SNWC_RN_ANDROID_ABI "|dist/react-native/android/jni/" SNWC_RN_ANDROID_ABI "/libsymbol_nem_wallet_core_rn.so";
 #elif defined(SNWC_RN_PLATFORM_IOS_SIMULATOR)
-  return "ios|ios-simulator|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a";
+    "ios|ios-simulator|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a";
 #elif defined(SNWC_RN_PLATFORM_IOS)
-  return "ios|ios|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64/libsymbol_nem_wallet_core_rn.a";
+    "ios|ios|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64/libsymbol_nem_wallet_core_rn.a";
+#else
+    "unknown";
+#endif
+
+extern "C" SNWC_RN_EXPORT const char *snwc_rn_target_id() {
+#if defined(SNWC_RN_PLATFORM_ANDROID)
+  return SNWC_RN_TARGET_ID;
+#elif defined(SNWC_RN_PLATFORM_IOS_SIMULATOR)
+  return "ios-simulator-arm64";
+#elif defined(SNWC_RN_PLATFORM_IOS)
+  return "ios-arm64";
 #else
   return nullptr;
 #endif

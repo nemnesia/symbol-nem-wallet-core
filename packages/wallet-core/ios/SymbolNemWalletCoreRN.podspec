@@ -12,11 +12,14 @@ Pod::Spec.new do |s|
   xcframework = File.expand_path("../dist/react-native/ios/SymbolNemWalletCoreRN.xcframework", __dir__)
   if File.directory?(xcframework)
     s.vendored_frameworks = xcframework
-    s.source_files = "NativeSymbolNemWalletCoreProvider.{h,mm}"
   else
-    # Codegen and the provider can be installed before the release producer
-    # creates the XCFramework. The release workflow creates it first for the
-    # artifact-consuming pod install.
+    # A source Pod is only valid when the target-specific C ABI archive has
+    # already been produced by the same controlled build. This makes source
+    # compilation and C ABI linking one deterministic Pod target; there is no
+    # source-only fallback that can silently omit the C ABI.
+    c_abi = File.expand_path("libsymbol_nem_wallet_core_native.a", __dir__)
+    raise "SymbolNemWalletCoreRN requires the prebuilt C ABI archive" unless File.file?(c_abi)
+    s.vendored_libraries = "libsymbol_nem_wallet_core_native.a"
     s.source_files = [
       "NativeSymbolNemWalletCoreProvider.{h,mm}",
       "../cpp/**/*.{h,cpp}",

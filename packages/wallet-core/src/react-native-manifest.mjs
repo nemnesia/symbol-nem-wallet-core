@@ -17,6 +17,8 @@ export const REACT_NATIVE_TARGETS = Object.freeze({
     relativePath:
       "dist/react-native/android/jni/arm64-v8a/libsymbol_nem_wallet_core_rn.so",
     artifactFilename: "libsymbol_nem_wallet_core_rn.so",
+    artifactIdentity:
+      "android|arm64-v8a|dist/react-native/android/jni/arm64-v8a/libsymbol_nem_wallet_core_rn.so",
   }),
   "android-x86_64": Object.freeze({
     platform: "android",
@@ -25,6 +27,8 @@ export const REACT_NATIVE_TARGETS = Object.freeze({
     relativePath:
       "dist/react-native/android/jni/x86_64/libsymbol_nem_wallet_core_rn.so",
     artifactFilename: "libsymbol_nem_wallet_core_rn.so",
+    artifactIdentity:
+      "android|x86_64|dist/react-native/android/jni/x86_64/libsymbol_nem_wallet_core_rn.so",
   }),
   "ios-arm64": Object.freeze({
     platform: "ios",
@@ -33,6 +37,8 @@ export const REACT_NATIVE_TARGETS = Object.freeze({
     relativePath:
       "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64/libsymbol_nem_wallet_core_rn.a",
     artifactFilename: "libsymbol_nem_wallet_core_rn.a",
+    artifactIdentity:
+      "ios|ios|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64/libsymbol_nem_wallet_core_rn.a",
   }),
   "ios-simulator-arm64": Object.freeze({
     platform: "ios",
@@ -41,6 +47,8 @@ export const REACT_NATIVE_TARGETS = Object.freeze({
     relativePath:
       "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a",
     artifactFilename: "libsymbol_nem_wallet_core_rn.a",
+    artifactIdentity:
+      "ios|ios-simulator|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a",
   }),
 });
 
@@ -75,6 +83,8 @@ export const REQUIRED_RN_SYMBOLS = Object.freeze([
   "snwc_rn_module_identity",
   "symbolNemWalletCoreCxxModuleProvider",
 ]);
+
+export const EMBEDDED_RN_ARTIFACT_IDENTITY_SYMBOL = "snwc_rn_artifact_identity_value";
 
 function rangeEnd(start, size, length) {
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(size) || start < 0 || size < 0 || start > length - size) {
@@ -191,6 +201,7 @@ function parseElfDynamicSymbols(bytes, header) {
     bytes.length,
   );
   const exported = new Set();
+  let artifactIdentity;
   for (let index = 0; index < symbolCount; index += 1) {
     const offset = symbolTableOffset + index * symbolEntrySize;
     const nameOffset = bytes.readUInt32LE(offset);
@@ -205,8 +216,18 @@ function parseElfDynamicSymbols(bytes, header) {
       (segment) => value >= segment.virtualAddress && value < segment.virtualAddress + segment.memorySize,
     );
     if (symbolInLoadSegment && ((info >> 4) === 1 || (info >> 4) === 10)) exported.add(name);
+    if (name === EMBEDDED_RN_ARTIFACT_IDENTITY_SYMBOL) {
+      if ((info & 0x0f) !== 1 || (info >> 4) !== 1 || !symbolInLoadSegment) assemblyError();
+      const fileOffset = elfVirtualOffset(loadSegments, value, 1, bytes.length);
+      const segment = loadSegments.find(
+        (candidate) => value >= candidate.virtualAddress && value < candidate.virtualAddress + candidate.fileSize,
+      );
+      if (segment === undefined) assemblyError();
+      artifactIdentity = cString(bytes, fileOffset, segment.fileOffset + segment.fileSize);
+    }
   }
-  return { soname, exported };
+  if (artifactIdentity === undefined) assemblyError();
+  return { soname, exported, artifactIdentity };
 }
 
 function inspectElf(bytes, target) {
@@ -258,6 +279,7 @@ function inspectElf(bytes, target) {
   const parsed = parseElfDynamicSymbols(bytes, { programHeaders, loadSegments, dynamic });
   for (const symbol of REQUIRED_RN_SYMBOLS) if (!parsed.exported.has(symbol)) assemblyError();
   if (parsed.soname !== target.artifactFilename) assemblyError();
+  if (parsed.artifactIdentity !== target.artifactIdentity) assemblyError();
   return {
     format: "ELF64",
     identity: {
@@ -269,6 +291,7 @@ function inspectElf(bytes, target) {
       soname: parsed.soname,
       loadable_segments: loadSegments.length,
       dynamic_symbols: parsed.exported.size,
+      artifact_identity: parsed.artifactIdentity,
     },
     requiredSymbols: [...REQUIRED_RN_SYMBOLS],
   };
@@ -289,6 +312,7 @@ function machOIdentity(bytes, target, { requireRequiredSymbols = true } = {}) {
   let offset = 32;
   let platform;
   let symbolTable = null;
+  const sections = [];
   let sectionCount = 0;
   for (let index = 0; index < commandCount; index += 1) {
     if (offset + 8 > bytes.length) assemblyError();
@@ -300,9 +324,17 @@ function machOIdentity(bytes, target, { requireRequiredSymbols = true } = {}) {
       const segmentFileOffset = u64(bytes, offset + 40);
       const segmentFileSize = u64(bytes, offset + 48);
       rangeEnd(segmentFileOffset, segmentFileSize, bytes.length);
-      const sections = bytes.readUInt32LE(offset + 64);
-      if (commandSize < 72 + sections * 80) assemblyError();
-      sectionCount += sections;
+      const sectionNumber = bytes.readUInt32LE(offset + 64);
+      if (commandSize < 72 + sectionNumber * 80) assemblyError();
+      sectionCount += sectionNumber;
+      for (let sectionIndex = 0; sectionIndex < sectionNumber; sectionIndex += 1) {
+        const sectionOffset = offset + 72 + sectionIndex * 80;
+        sections.push({
+          address: u64(bytes, sectionOffset + 32),
+          size: u64(bytes, sectionOffset + 40),
+          fileOffset: bytes.readUInt32LE(sectionOffset + 48),
+        });
+      }
     } else if (command === 0x32) {
       if (commandSize < 24) assemblyError();
       platform = bytes.readUInt32LE(offset + 8);
@@ -324,14 +356,25 @@ function machOIdentity(bytes, target, { requireRequiredSymbols = true } = {}) {
   const expectedPlatform = target.environment === "simulator" ? 7 : 2;
   if (platform !== expectedPlatform) assemblyError();
   const exported = new Set();
+  let artifactIdentity;
   for (let index = 0; index < symbolTable.symbolCount; index += 1) {
     const symbolOffset = symbolTable.symbolOffset + index * 16;
     const nameOffset = bytes.readUInt32LE(symbolOffset);
     const type = bytes.readUInt8(symbolOffset + 4);
     if (nameOffset >= symbolTable.stringSize || (type & 0x01) === 0 || (type & 0x0e) === 0) continue;
     const name = cString(bytes, symbolTable.stringOffset + nameOffset, symbolTable.stringOffset + symbolTable.stringSize);
-    if (name.length > 0) exported.add(name.startsWith("_") ? name.slice(1) : name);
+    if (name.length === 0) continue;
+    const normalizedName = name.startsWith("_") ? name.slice(1) : name;
+    exported.add(normalizedName);
+    if (normalizedName === EMBEDDED_RN_ARTIFACT_IDENTITY_SYMBOL) {
+      const value = u64(bytes, symbolOffset + 8);
+      const section = sections.find((candidate) => value >= candidate.address && value < candidate.address + candidate.size);
+      if (section === undefined) assemblyError();
+      const fileOffset = section.fileOffset + value - section.address;
+      artifactIdentity = cString(bytes, fileOffset, section.fileOffset + section.size);
+    }
   }
+  if (artifactIdentity === undefined || artifactIdentity !== target.artifactIdentity) assemblyError();
   if (requireRequiredSymbols) {
     for (const symbol of REQUIRED_RN_SYMBOLS) if (!exported.has(symbol)) assemblyError();
   }
@@ -344,6 +387,7 @@ function machOIdentity(bytes, target, { requireRequiredSymbols = true } = {}) {
       load_commands: commandCount,
       sections: sectionCount,
       exported_symbols: exported.size,
+      artifact_identity: artifactIdentity,
     },
     exportedSymbols: [...exported],
     requiredSymbols: REQUIRED_RN_SYMBOLS.filter((symbol) => exported.has(symbol)),
@@ -378,7 +422,8 @@ function inspectStaticArchive(bytes, target) {
   if (identities.length === 0 || exportedSymbols.size !== REQUIRED_RN_SYMBOLS.length) assemblyError();
   const first = identities[0];
   if (identities.some((identity) =>
-    identity.format !== first.format || identity.architecture !== first.architecture || identity.platform !== first.platform
+    identity.format !== first.format || identity.architecture !== first.architecture || identity.platform !== first.platform ||
+    identity.artifact_identity !== first.artifact_identity || identity.artifact_identity !== target.artifactIdentity
   )) assemblyError();
   if (exportedSymbols.size !== REQUIRED_RN_SYMBOLS.length) assemblyError();
   return {
@@ -391,6 +436,7 @@ function inspectStaticArchive(bytes, target) {
       sections: Math.max(...identities.map((identity) => identity.sections)),
       exported_symbols: identities.reduce((total, identity) => total + identity.exported_symbols, 0),
       object_count: identities.length,
+      artifact_identity: first.artifact_identity,
     },
     requiredSymbols: [...REQUIRED_RN_SYMBOLS],
   };
@@ -649,6 +695,7 @@ export function validateReactNativeArtifactInputs(artifacts, { requireComplete =
       toolchainIdentifier: typeof item.toolchainIdentifier === "string" ? item.toolchainIdentifier : undefined,
       binaryFormat: inspected.binaryFormat,
       binaryIdentity: inspected.binaryIdentity,
+      artifactIdentity: inspected.binaryIdentity.artifact_identity,
       requiredSymbols: inspected.requiredSymbols,
     };
     if (item.evidencePath !== undefined) result.evidencePath = item.evidencePath;

@@ -647,6 +647,7 @@ function validateReactNativeReleaseIdentity(reactNative, manifest) {
           soname: "libsymbol_nem_wallet_core_rn.so",
           loadable_segments: artifact.binary_identity.loadable_segments,
           dynamic_symbols: artifact.binary_identity.dynamic_symbols,
+          artifact_identity: REACT_NATIVE_TARGETS[targetId].artifactIdentity,
         }
       : {
           format: "Mach-O-64",
@@ -655,12 +656,13 @@ function validateReactNativeReleaseIdentity(reactNative, manifest) {
           load_commands: artifact.binary_identity.load_commands,
           sections: artifact.binary_identity.sections,
           exported_symbols: artifact.binary_identity.exported_symbols,
+          artifact_identity: REACT_NATIVE_TARGETS[targetId].artifactIdentity,
         };
     exactKeys(
       artifact.binary_identity,
       target.platform === "android"
-        ? ["format", "endian", "type", "machine", "architecture", "soname", "loadable_segments", "dynamic_symbols"]
-        : ["format", "architecture", "platform", "load_commands", "sections", "exported_symbols", "object_count"],
+        ? ["format", "endian", "type", "machine", "architecture", "soname", "loadable_segments", "dynamic_symbols", "artifact_identity"]
+        : ["format", "architecture", "platform", "load_commands", "sections", "exported_symbols", "object_count", "artifact_identity"],
       `React Native binary identity ${targetId}`,
     );
     if (

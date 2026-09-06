@@ -21,6 +21,7 @@ import {
   validateReactNativeXcframework,
 } from "../packages/wallet-core/src/react-native-manifest.mjs";
 import { reactNativeBuildInputSha256 } from "./react-native-evidence.mjs";
+import { inlineReactNativeRuntime } from "./react-native-runtime.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const consumerTemplate = resolve(repositoryRoot, "integration/react-native/consumer");
@@ -54,20 +55,34 @@ function packageVersion() {
 function verifyTemplate() {
   const manifest = readJson(consumerManifestPath, "consumer manifest");
   const packageJson = readJson(resolve(consumerTemplate, "package.json"), "consumer package metadata");
+  const packageLock = readJson(resolve(consumerTemplate, "package-lock.json"), "consumer dependency lockfile");
   if (
     manifest.react_native_version !== "0.87.0" ||
     manifest.new_architecture !== true ||
     JSON.stringify(manifest.android?.abis) !== JSON.stringify(["arm64-v8a", "x86_64"]) ||
     JSON.stringify(manifest.ios?.slices) !== JSON.stringify(["ios-arm64", "ios-arm64-simulator"]) ||
     packageJson.dependencies?.["react-native"] !== "0.87.0" ||
-    packageJson.dependencies?.react !== "19.1.0" ||
-    packageJson.dependencies?.["@nemnesia/symbol-nem-wallet-core"] !== "file:../../../packages/wallet-core"
+    packageJson.dependencies?.react !== "19.2.3" ||
+    packageJson.devDependencies?.["@react-native-community/cli"] !== "20.2.0" ||
+    packageJson.dependencies?.["@nemnesia/symbol-nem-wallet-core"] !== "file:../../../packages/wallet-core" ||
+    packageLock.lockfileVersion !== 3 ||
+    packageLock.packages?.[""]?.dependencies?.["react-native"] !== "0.87.0" ||
+    packageLock.packages?.[""]?.devDependencies?.["@react-native-community/cli"] !== "20.2.0" ||
+    packageLock.packages?.["node_modules/react-native"]?.version !== "0.87.0"
   ) fail("consumer template is not the approved RN 0.87.0 New Architecture baseline");
   for (const relativePath of [
     "package.json",
     "manifest.json",
     "README.md",
+    "App.tsx",
     "android/app/src/main/jni/CMakeLists.txt",
+    "ios/Podfile",
+    "package-lock.json",
+    "android/gradlew",
+    "android/settings.gradle",
+    "ios/SnwcRnBuild.xcodeproj/project.pbxproj",
+    "Gemfile",
+    "index.js",
   ]) {
     const path = resolve(consumerTemplate, relativePath);
     if (!existsSync(path) || !statSync(path).isFile()) fail(`consumer template file is missing: ${relativePath}`);
@@ -92,46 +107,113 @@ function requireTarget(targetId) {
 
 function createConsumerRoot(targetId) {
   verifyTemplate();
-  const root = mkdtempSync(resolve(tmpdir(), `snwc-rn-consumer-${targetId}-`));
+  const workspace = mkdtempSync(resolve(tmpdir(), `snwc-rn-consumer-${targetId}-`));
+  const root = resolve(workspace, "integration/react-native/consumer");
+  mkdirSync(root, { recursive: true });
   cpSync(consumerTemplate, root, { recursive: true });
-  return root;
+  mkdirSync(resolve(workspace, "packages"), { recursive: true });
+  cpSync(packageRoot, resolve(workspace, "packages/wallet-core"), { recursive: true });
+  materializeConsumerRuntime(resolve(workspace, "packages/wallet-core"));
+  return { root, workspace };
 }
 
-function installReactNativeConsumer(root) {
-  execFileSync("npm", ["install", "--ignore-scripts"], { cwd: root, stdio: "inherit" });
+function materializeConsumerRuntime(consumerPackageRoot) {
+  const manifest = {
+    schema_version: 1,
+    package_name: "@nemnesia/symbol-nem-wallet-core",
+    package_version: packageVersion(),
+    source_commit: sourceCommit(),
+    artifacts: CANONICAL_REACT_NATIVE_TARGET_ORDER.map((targetId) => {
+      const target = REACT_NATIVE_TARGETS[targetId];
+      return {
+        target_id: targetId,
+        platform: target.platform,
+        environment: target.environment,
+        architecture: target.architecture,
+        relative_path: target.relativePath,
+        artifact_filename: target.artifactFilename,
+        sha256: "0".repeat(64),
+        toolchain_identifier: "consumer-runtime-input",
+      };
+    }),
+  };
+  const distRoot = resolve(consumerPackageRoot, "dist/react-native");
+  mkdirSync(distRoot, { recursive: true });
+  writeFileSync(resolve(distRoot, "artifact-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  writeFileSync(
+    resolve(distRoot, "index.js"),
+    inlineReactNativeRuntime(resolve(consumerPackageRoot, "src/react-native/index.mjs"), [
+      resolve(consumerPackageRoot, "src/facade-runtime.mjs"),
+      resolve(consumerPackageRoot, "src/react-native/native-module.mjs"),
+    ], manifest),
+  );
+}
+
+function installReactNativeConsumer(root, env = {}) {
+  execFileSync("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], {
+    cwd: root,
+    env: { ...process.env, ...env },
+    stdio: "inherit",
+  });
+}
+
+function installIosTooling(root) {
+  if (!existsSync(resolve(root, "Gemfile"))) fail("generated iOS consumer has no Gemfile");
+  execFileSync("bundle", ["install", "--jobs", "4", "--retry", "3"], { cwd: root, stdio: "inherit" });
 }
 
 function configureAndroidConsumer(root, targetId, cAbiPath) {
   const target = requireTarget(targetId);
   const gradlePath = resolve(root, "android/app/build.gradle");
+  const gradlePropertiesPath = resolve(root, "android/gradle.properties");
   if (!existsSync(gradlePath)) fail("generated Android consumer has no app/build.gradle");
-  writeFileSync(gradlePath, `${readFileSync(gradlePath, "utf8")}\nandroid {\n  defaultConfig {\n    ndk { abiFilters '${target.architecture}' }\n    externalNativeBuild { cmake { arguments '-DSNWC_C_ABI_LIBRARY=${resolve(cAbiPath)}' } }\n  }\n}\n`);
+  if (!existsSync(gradlePropertiesPath)) fail("generated Android consumer has no gradle.properties");
+  writeFileSync(gradlePath, `${readFileSync(gradlePath, "utf8")}\nandroid {\n  defaultConfig {\n    ndk { abiFilters '${target.architecture}' }\n    externalNativeBuild { cmake { arguments '-DSNWC_C_ABI_LIBRARY=${resolve(cAbiPath)}' } }\n  }\n  externalNativeBuild { cmake { path file('src/main/jni/CMakeLists.txt') } }\n}\n`);
+  const properties = readFileSync(gradlePropertiesPath, "utf8").replace(
+    /^reactNativeArchitectures=.*$/m,
+    `reactNativeArchitectures=${target.architecture}`,
+  );
+  writeFileSync(gradlePropertiesPath, properties);
+}
+
+function applyConsumerOverlays(root) {
+  for (const relativePath of [
+    "package.json",
+    "package-lock.json",
+    "manifest.json",
+    "README.md",
+    "App.tsx",
+    "android/app/src/main/jni/CMakeLists.txt",
+    "ios/Podfile",
+  ]) {
+    const source = resolve(consumerTemplate, relativePath);
+    const destination = resolve(root, relativePath);
+    mkdirSync(dirname(destination), { recursive: true });
+    cpSync(source, destination, { recursive: true });
+  }
 }
 
 function generateReactNativeConsumer(root) {
-  // The CLI is selected by the source-controlled RN version. The generated
-  // project is disposable and never comes from a repository variable.
-  execFileSync(
-    "npx",
-    ["--yes", "react-native@0.87.0", "init", "SnwcRnBuild", "--version", "0.87.0", "--skip-install"],
-    { cwd: root, stdio: "inherit" },
-  );
-  const generated = resolve(root, "SnwcRnBuild");
-  for (const entry of readdirSync(generated)) cpSync(resolve(generated, entry), resolve(root, entry), { recursive: true });
-  rmSync(generated, { recursive: true, force: true });
-  cpSync(resolve(consumerTemplate, "android/app/src/main/jni/CMakeLists.txt"), resolve(root, "android/app/src/main/jni/CMakeLists.txt"));
-  const packageJson = readJson(resolve(root, "package.json"), "generated consumer package metadata");
-  packageJson.dependencies ??= {};
-  packageJson.dependencies["@nemnesia/symbol-nem-wallet-core"] = `file:${packageRoot}`;
-  packageJson.dependencies["react-native"] = "0.87.0";
-  writeFileSync(resolve(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`);
+  // The complete RN 0.87.0 scaffold is source-controlled. Only the package
+  // integration overlays are refreshed into the disposable copy; no CLI
+  // generation can overwrite a checked-in consumer input.
+  applyConsumerOverlays(root);
+  for (const relativePath of [
+    "android/gradlew",
+    "android/app/build.gradle",
+    "ios/Podfile",
+    "ios/SnwcRnBuild.xcodeproj/project.pbxproj",
+  ]) {
+    if (!existsSync(resolve(root, relativePath))) fail(`consumer scaffold file is missing: ${relativePath}`);
+  }
 }
 
-function buildAndroid(targetId, cAbiPath, outputPath) {
+function buildAndroid(targetId, cAbiPath, outputPath, consumerApkOutput) {
   const target = requireTarget(targetId);
   if (target.platform !== "android") fail("Android producer received a non-Android target");
   if (!existsSync(cAbiPath)) fail("Android C ABI artifact is missing");
-  const root = createConsumerRoot(targetId);
+  const consumer = createConsumerRoot(targetId);
+  const { root, workspace } = consumer;
   try {
     generateReactNativeConsumer(root);
     configureAndroidConsumer(root, targetId, cAbiPath);
@@ -155,11 +237,17 @@ function buildAndroid(targetId, cAbiPath, outputPath) {
     walk(resolve(root, "android/app/build"));
     const artifact = candidates.find((path) => path.includes(`/lib/${target.architecture}/`)) ?? candidates[0];
     if (!artifact) fail("Android appmodules artifact was not produced");
+    if (consumerApkOutput) {
+      const apk = resolve(root, "android/app/build/outputs/apk/release/app-release.apk");
+      if (!existsSync(apk)) fail("Android release consumer APK was not produced");
+      mkdirSync(dirname(consumerApkOutput), { recursive: true });
+      cpSync(apk, consumerApkOutput);
+    }
     mkdirSync(dirname(outputPath), { recursive: true });
     cpSync(artifact, outputPath);
     inspectReactNativeArtifact(outputPath, targetId);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
   }
 }
 
@@ -167,17 +255,27 @@ function buildIos(targetId, cAbiPath, outputPath) {
   const target = requireTarget(targetId);
   if (target.platform !== "ios") fail("iOS producer received a non-iOS target");
   if (!existsSync(cAbiPath)) fail("iOS C ABI artifact is missing");
-  const root = createConsumerRoot(targetId);
+  const consumer = createConsumerRoot(targetId);
+  const { root, workspace } = consumer;
   try {
     generateReactNativeConsumer(root);
-    installReactNativeConsumer(root);
+    rmSync(resolve(workspace, "packages/wallet-core/dist/react-native/ios/SymbolNemWalletCoreRN.xcframework"), {
+      recursive: true,
+      force: true,
+    });
+    cpSync(cAbiPath, resolve(workspace, "packages/wallet-core/ios/libsymbol_nem_wallet_core_native.a"));
+    installReactNativeConsumer(root, { SNWC_RN_POD_PATH: resolve(workspace, "packages/wallet-core/ios") });
+    installIosTooling(root);
     const podfile = resolve(root, "ios/Podfile");
     if (!existsSync(podfile)) fail("generated iOS consumer has no Podfile");
-    writeFileSync(podfile, `${readFileSync(podfile, "utf8")}\npod 'SymbolNemWalletCoreRN', :path => '${resolve(packageRoot, "ios")}'\n`);
     // This first pod install consumes the source pod only, so Codegen can
     // build the producer. The XCFramework-consuming pod install happens only
     // after both archives have been assembled by the release job.
-    execFileSync("bundle", ["exec", "pod", "install"], { cwd: resolve(root, "ios"), stdio: "inherit" });
+    execFileSync("bundle", ["exec", "pod", "install"], {
+      cwd: resolve(root, "ios"),
+      env: { ...process.env, SNWC_RN_POD_PATH: resolve(workspace, "packages/wallet-core/ios") },
+      stdio: "inherit",
+    });
     const sdk = target.environment === "simulator" ? "iphonesimulator" : "iphoneos";
     execFileSync("xcodebuild", [
       "-workspace", resolve(root, "ios/SnwcRnBuild.xcworkspace"),
@@ -203,7 +301,7 @@ function buildIos(targetId, cAbiPath, outputPath) {
       }
     }
     walk(resolve(root, "build"));
-    const artifact = candidates[0];
+    const artifact = candidates.find((path) => path.endsWith(".a")) ?? candidates[0];
     if (!artifact) fail("iOS RN archive was not produced");
     // The final static archive is deliberately combined with the approved C
     // ABI. The package podspec then consumes this XCFramework as one unit.
@@ -211,7 +309,7 @@ function buildIos(targetId, cAbiPath, outputPath) {
     execFileSync("libtool", ["-static", "-o", outputPath, artifact, resolve(cAbiPath)], { stdio: "inherit" });
     inspectReactNativeArtifact(outputPath, targetId);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
   }
 }
 
@@ -228,23 +326,44 @@ function createXcframework(deviceArchive, simulatorArchive, outputPath) {
   validateReactNativeXcframework(outputPath);
 }
 
-function consumeIosXcframework(xcframeworkPath) {
+function consumeIosXcframework(xcframeworkPath, simulatorAppOutput) {
   validateReactNativeXcframework(xcframeworkPath);
   const packageClone = mkdtempSync(resolve(tmpdir(), "snwc-rn-ios-package-"));
-  const consumerRoot = createConsumerRoot("ios-consumer");
+  const consumer = createConsumerRoot("ios-consumer");
+  const { root: consumerRoot, workspace } = consumer;
   try {
     cpSync(resolve(packageRoot, "ios"), resolve(packageClone, "ios"), { recursive: true });
     mkdirSync(resolve(packageClone, "dist/react-native/ios"), { recursive: true });
     cpSync(xcframeworkPath, resolve(packageClone, "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework"), { recursive: true });
     generateReactNativeConsumer(consumerRoot);
-    installReactNativeConsumer(consumerRoot);
-    const podfile = resolve(consumerRoot, "ios/Podfile");
-    writeFileSync(podfile, `${readFileSync(podfile, "utf8")}\npod 'SymbolNemWalletCoreRN', :path => '${resolve(packageClone, "ios")}'\n`);
+    installReactNativeConsumer(consumerRoot, { SNWC_RN_POD_PATH: resolve(packageClone, "ios") });
+    installIosTooling(consumerRoot);
     // This is the artifact-consuming install. It runs only after the
     // producer has generated and structurally inspected both slices.
-    execFileSync("bundle", ["exec", "pod", "install"], { cwd: resolve(consumerRoot, "ios"), stdio: "inherit" });
+    execFileSync("bundle", ["exec", "pod", "install"], {
+      cwd: resolve(consumerRoot, "ios"),
+      env: { ...process.env, SNWC_RN_POD_PATH: resolve(packageClone, "ios") },
+      stdio: "inherit",
+    });
+    execFileSync("xcodebuild", [
+      "-workspace", resolve(consumerRoot, "ios/SnwcRnBuild.xcworkspace"),
+      "-scheme", "SnwcRnBuild",
+      "-sdk", "iphonesimulator",
+      "-configuration", "Release",
+      "-derivedDataPath", resolve(consumerRoot, "ios-consumer-build"),
+      "ARCHS=arm64",
+      "ONLY_ACTIVE_ARCH=NO",
+      "CODE_SIGNING_ALLOWED=NO",
+      "build",
+    ], { cwd: consumerRoot, stdio: "inherit" });
+    if (simulatorAppOutput) {
+      const app = resolve(consumerRoot, "ios-consumer-build/Build/Products/Release-iphonesimulator/SnwcRnBuild.app");
+      if (!existsSync(app)) fail("iOS simulator consumer app was not produced");
+      mkdirSync(dirname(simulatorAppOutput), { recursive: true });
+      cpSync(app, simulatorAppOutput, { recursive: true });
+    }
   } finally {
-    rmSync(consumerRoot, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
     rmSync(packageClone, { recursive: true, force: true });
   }
 }
@@ -266,7 +385,10 @@ function run() {
   }
   if (command === "android") {
     const targetId = argv[argv.indexOf("--target-id") + 1];
-    buildAndroid(targetId, resolve(argv[argv.indexOf("--c-abi") + 1]), resolve(argv[argv.indexOf("--output") + 1]));
+    const consumerApk = argv.includes("--consumer-apk-output")
+      ? resolve(argv[argv.indexOf("--consumer-apk-output") + 1])
+      : undefined;
+    buildAndroid(targetId, resolve(argv[argv.indexOf("--c-abi") + 1]), resolve(argv[argv.indexOf("--output") + 1]), consumerApk);
     return;
   }
   if (command === "ios") {
@@ -285,7 +407,10 @@ function run() {
   if (command === "ios-consumer") {
     const xcframework = argv[argv.indexOf("--xcframework") + 1];
     if (!xcframework) fail("ios-consumer requires --xcframework");
-    consumeIosXcframework(resolve(xcframework));
+    const simulatorApp = argv.includes("--simulator-app-output")
+      ? resolve(argv[argv.indexOf("--simulator-app-output") + 1])
+      : undefined;
+    consumeIosXcframework(resolve(xcframework), simulatorApp);
     return;
   }
   fail("usage: verify | build-input | android | ios | xcframework | ios-consumer");

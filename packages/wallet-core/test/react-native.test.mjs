@@ -70,9 +70,12 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(nativeSource, /std::shared_lock<std::shared_mutex> deliveryLock/);
   assert.match(nativeSource, /coordinator_\.begin/);
   assert.match(nativeSource, /snwc_free_bytes/);
-  assert.match(coordinator, /getpid/);
+  assert.doesNotMatch(coordinator, /getpid|processGeneration/);
+  assert.match(coordinator, /registryLifetime/);
   assert.match(coordinator, /processTeardown/);
   assert.match(coordinator, /requestIdentity/);
+  assert.doesNotMatch(nativeSource, /jsInvoker\.get\(\)|registerModule\(jsInvoker/);
+  assert.match(nativeSource, /make_shared<NativeSymbolNemWalletCoreContext>/);
   assert.ok((nativeSource.match(/return ticket\.deliver\(\[&\]\(\) \{/g) ?? []).length >= 10);
   assert.doesNotMatch(nativeSource, /valid_\s*=|processGeneration_\s*=\s*1/);
 });
@@ -91,7 +94,7 @@ test("React Native entry uses the private synchronous TurboModule and preserves 
     );
     writeFileSync(
       resolve(moduleDirectory, "index.mjs"),
-      `export const calls = [];\nexport const TurboModuleRegistry = { getEnforcing(name) { if (name !== "NativeSymbolNemWalletCore") throw new Error("missing"); return { invoke(operation, args) { calls.push({ operation, args }); if (operation === "__snwc_runtime_identity") return { module_name: "NativeSymbolNemWalletCore", module_identity: "symbol-nem-wallet-core-react-native-v1", artifact_identity: "android|arm64-v8a|dist/react-native/android/jni/arm64-v8a/libsymbol_nem_wallet_core_rn.so", architecture: "new" }; if (operation === "create_empty_store") return new Uint8Array([1, 2, 3]); if (operation === "list_profiles") return { value: [], warnings: [] }; throw new Error("unexpected"); } }; } };\n`,
+      `export const calls = [];\nexport const TurboModuleRegistry = { getEnforcing(name) { if (name !== "NativeSymbolNemWalletCore") throw new Error("missing"); return { invoke(operation, args) { calls.push({ operation, args }); if (operation === "__snwc_runtime_identity") return { module_name: "NativeSymbolNemWalletCore", module_identity: "symbol-nem-wallet-core-react-native-v1", artifact_identity: "android|arm64-v8a|dist/react-native/android/jni/arm64-v8a/libsymbol_nem_wallet_core_rn.so", architecture: "new", target_id: "android-arm64-v8a" }; if (operation === "create_empty_store") return new Uint8Array([1, 2, 3]); if (operation === "list_profiles") return { value: [], warnings: [] }; throw new Error("unexpected"); } }; } };\n`,
     );
     const api = await import(pathToFileURL(resolve(packageCopy, "dist/react-native/index.js")).href);
     assert.equal(api.create_empty_store() instanceof Uint8Array, true);
@@ -177,7 +180,7 @@ test("React Native entry rejects a provider whose native artifact identity is no
     const moduleDirectory = resolve(packageCopy, "node_modules/react-native");
     mkdirSync(moduleDirectory, { recursive: true });
     writeFileSync(resolve(moduleDirectory, "package.json"), JSON.stringify({ name: "react-native", type: "module", exports: "./index.mjs" }));
-    writeFileSync(resolve(moduleDirectory, "index.mjs"), `export const TurboModuleRegistry = { getEnforcing() { return { invoke(operation) { if (operation === "__snwc_runtime_identity") return { module_name: "NativeSymbolNemWalletCore", module_identity: "symbol-nem-wallet-core-react-native-v1", artifact_identity: "android|armeabi-v7a|wrong", architecture: "new" }; throw new Error("unexpected"); } }; } };\n`);
+    writeFileSync(resolve(moduleDirectory, "index.mjs"), `export const TurboModuleRegistry = { getEnforcing() { return { invoke(operation) { if (operation === "__snwc_runtime_identity") return { module_name: "NativeSymbolNemWalletCore", module_identity: "symbol-nem-wallet-core-react-native-v1", artifact_identity: "android|x86_64|dist/react-native/android/jni/x86_64/libsymbol_nem_wallet_core_rn.so", architecture: "new", target_id: "android-arm64-v8a" }; throw new Error("unexpected"); } }; } };\n`);
     await assert.rejects(
       () => import(pathToFileURL(resolve(packageCopy, "dist/react-native/index.js")).href),
       (error) => error?.name === "WalletCoreBackendInitializationError",
@@ -201,7 +204,7 @@ test("React Native condition resolves the package root to the private entry", ()
     );
     writeFileSync(
       resolve(moduleDirectory, "index.mjs"),
-      `export const TurboModuleRegistry = { getEnforcing() { return { invoke(operation) { if (operation === "__snwc_runtime_identity") return { module_name: "NativeSymbolNemWalletCore", module_identity: "symbol-nem-wallet-core-react-native-v1", artifact_identity: "android|x86_64|dist/react-native/android/jni/x86_64/libsymbol_nem_wallet_core_rn.so", architecture: "new" }; if (operation === "create_empty_store") return new Uint8Array([7]); throw new Error("unexpected"); } }; } };\n`,
+      `export const TurboModuleRegistry = { getEnforcing() { return { invoke(operation) { if (operation === "__snwc_runtime_identity") return { module_name: "NativeSymbolNemWalletCore", module_identity: "symbol-nem-wallet-core-react-native-v1", artifact_identity: "android|x86_64|dist/react-native/android/jni/x86_64/libsymbol_nem_wallet_core_rn.so", architecture: "new", target_id: "android-x86_64" }; if (operation === "create_empty_store") return new Uint8Array([7]); throw new Error("unexpected"); } }; } };\n`,
     );
     const runner = resolve(directory, "runner.mjs");
     writeFileSync(

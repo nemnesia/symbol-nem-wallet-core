@@ -16,6 +16,7 @@ namespace facebook::react {
 
 extern "C" const char *snwc_rn_module_identity();
 extern "C" const char *snwc_rn_artifact_identity();
+extern "C" const char *snwc_rn_target_id();
 
 namespace {
 
@@ -617,7 +618,10 @@ Object publicAccountToJs(Runtime &runtime, const SnwcPublicAccountInfo &account,
 
 NativeSymbolNemWalletCore::NativeSymbolNemWalletCore(std::shared_ptr<CallInvoker> jsInvoker)
     : NativeSymbolNemWalletCoreCxxSpec(jsInvoker),
-      registration_(RnLifecycleCoordinator::shared().registerModule(jsInvoker.get(), this)) {}
+      context_(std::make_shared<NativeSymbolNemWalletCoreContext>()),
+      registration_(RnLifecycleCoordinator::shared().registerModule(
+          std::shared_ptr<const void>(std::move(jsInvoker)),
+          std::shared_ptr<const void>(context_))) {}
 
 NativeSymbolNemWalletCore::~NativeSymbolNemWalletCore() {
   invalidate();
@@ -637,13 +641,15 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
       exactArgumentCount(runtime, args, 0);
       const char *moduleIdentity = snwc_rn_module_identity();
       const char *artifactIdentity = snwc_rn_artifact_identity();
-      if (moduleIdentity == nullptr || artifactIdentity == nullptr) fail(kBindingFailure);
+      const char *targetId = snwc_rn_target_id();
+      if (moduleIdentity == nullptr || artifactIdentity == nullptr || targetId == nullptr) fail(kBindingFailure);
       return ticket.deliver([&]() {
         Object result(runtime);
         setValue(runtime, result, "module_name", String::createFromUtf8(runtime, NativeSymbolNemWalletCore::kModuleName));
         setValue(runtime, result, "module_identity", String::createFromUtf8(runtime, moduleIdentity));
         setValue(runtime, result, "artifact_identity", String::createFromUtf8(runtime, artifactIdentity));
         setValue(runtime, result, "architecture", String::createFromUtf8(runtime, "new"));
+        setValue(runtime, result, "target_id", String::createFromUtf8(runtime, targetId));
         return result;
       });
     }
