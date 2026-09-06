@@ -297,7 +297,11 @@ function inspectElf(bytes, target) {
   };
 }
 
-function machOIdentity(bytes, target, { requireRequiredSymbols = true } = {}) {
+function machOIdentity(
+  bytes,
+  target,
+  { requireRequiredSymbols = true, requireArtifactIdentity = true } = {},
+) {
   if (bytes.length < 32) return null;
   const magic = bytes.readUInt32LE(0);
   if (magic !== 0xfeedfacf) return null;
@@ -352,9 +356,11 @@ function machOIdentity(bytes, target, { requireRequiredSymbols = true } = {}) {
     }
     offset += commandSize;
   }
-  if (offset !== 32 + commandsSize || platform === undefined || symbolTable === null || sectionCount === 0) assemblyError();
-  const expectedPlatform = target.environment === "simulator" ? 7 : 2;
-  if (platform !== expectedPlatform) assemblyError();
+  if (offset !== 32 + commandsSize || symbolTable === null || sectionCount === 0) assemblyError();
+  if (platform !== undefined) {
+    const expectedPlatform = target.environment === "simulator" ? 7 : 2;
+    if (platform !== expectedPlatform) assemblyError();
+  }
   const exported = new Set();
   let artifactIdentity;
   for (let index = 0; index < symbolTable.symbolCount; index += 1) {
@@ -374,7 +380,8 @@ function machOIdentity(bytes, target, { requireRequiredSymbols = true } = {}) {
       artifactIdentity = cString(bytes, fileOffset, section.fileOffset + section.size);
     }
   }
-  if (artifactIdentity === undefined || artifactIdentity !== target.artifactIdentity) assemblyError();
+  if (requireArtifactIdentity && artifactIdentity === undefined) assemblyError();
+  if (artifactIdentity !== undefined && artifactIdentity !== target.artifactIdentity) assemblyError();
   if (requireRequiredSymbols) {
     for (const symbol of REQUIRED_RN_SYMBOLS) if (!exported.has(symbol)) assemblyError();
   }
@@ -409,10 +416,19 @@ function inspectStaticArchive(bytes, target) {
     const memberEnd = memberStart + memberSize;
     if (!Number.isSafeInteger(memberSize) || memberEnd > bytes.length) assemblyError();
     const member = bytes.subarray(memberStart, memberEnd);
-    const identity = machOIdentity(member, target, { requireRequiredSymbols: false });
+    const identity = machOIdentity(member, target, {
+      requireRequiredSymbols: false,
+      requireArtifactIdentity: false,
+    });
     if (identity !== null) {
       identities.push(identity.identity);
-      for (const symbol of identity.requiredSymbols) exportedSymbols.add(symbol);
+      // Bind the required RN exports to the object that carries the exact
+      // embedded target identity. Other members may be C ABI objects emitted
+      // without LC_BUILD_VERSION, but they cannot satisfy the RN identity
+      // contract on their own.
+      if (identity.identity.artifact_identity !== undefined) {
+        for (const symbol of identity.requiredSymbols) exportedSymbols.add(symbol);
+      }
     } else {
       const memberName = bytes.toString("ascii", offset, offset + 16).trim();
       if (identities.length !== 0 || !["/", "/SYM64/", "//", "__.SYMDEF", "__.SYMDEF SORTED"].includes(memberName)) assemblyError();
@@ -420,10 +436,12 @@ function inspectStaticArchive(bytes, target) {
     offset = memberEnd + (memberSize % 2);
   }
   if (identities.length === 0 || exportedSymbols.size !== REQUIRED_RN_SYMBOLS.length) assemblyError();
-  const first = identities[0];
+  const first = identities.find((identity) => identity.artifact_identity !== undefined);
+  if (first === undefined) assemblyError();
   if (identities.some((identity) =>
     identity.format !== first.format || identity.architecture !== first.architecture || identity.platform !== first.platform ||
-    identity.artifact_identity !== first.artifact_identity || identity.artifact_identity !== target.artifactIdentity
+    (identity.artifact_identity !== undefined && identity.artifact_identity !== first.artifact_identity) ||
+    (identity.artifact_identity !== undefined && identity.artifact_identity !== target.artifactIdentity)
   )) assemblyError();
   if (exportedSymbols.size !== REQUIRED_RN_SYMBOLS.length) assemblyError();
   return {

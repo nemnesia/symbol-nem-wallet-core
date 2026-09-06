@@ -130,6 +130,8 @@ function machOObject(
   {
     symbols = REQUIRED_SYMBOLS,
     exported = true,
+    includeBuildVersion = true,
+    includeArtifactIdentity = true,
     artifactIdentity = platform === 2
       ? "ios|ios|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64/libsymbol_nem_wallet_core_rn.a"
       : "ios|ios-simulator|arm64|dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a",
@@ -139,20 +141,21 @@ function machOObject(
   const segmentCommandSize = 72 + 80;
   const buildCommandSize = 24;
   const symbolCommandSize = 24;
-  const commandSize = segmentCommandSize + buildCommandSize + symbolCommandSize;
+  const commandSize = segmentCommandSize + (includeBuildVersion ? buildCommandSize : 0) + symbolCommandSize;
   const codeOffset = headerSize + commandSize;
   const identityOffset = codeOffset + 16;
   const identityBytes = Buffer.from(`${artifactIdentity}\0`, "utf8");
+  const symbolNames = includeArtifactIdentity ? [...symbols, EMBEDDED_IDENTITY_SYMBOL] : symbols;
   const symbolOffset = align(identityOffset + identityBytes.length, 8);
-  const stringTable = Buffer.from(`\0${symbols.map((name) => `_${name}`).join("\0")}\0_${EMBEDDED_IDENTITY_SYMBOL}\0`, "utf8");
-  const stringOffset = symbolOffset + (symbols.length + 2) * 16;
+  const stringTable = Buffer.from(`\0${symbolNames.map((name) => `_${name}`).join("\0")}\0`, "utf8");
+  const stringOffset = symbolOffset + (symbolNames.length + 1) * 16;
   const totalSize = stringOffset + stringTable.length;
   const bytes = Buffer.alloc(totalSize);
   bytes.writeUInt32LE(0xfeedfacf, 0);
   bytes.writeUInt32LE(0x0100000c, 4);
   bytes.writeUInt32LE(0, 8);
   bytes.writeUInt32LE(1, 12);
-  bytes.writeUInt32LE(3, 16);
+  bytes.writeUInt32LE(includeBuildVersion ? 3 : 2, 16);
   bytes.writeUInt32LE(commandSize, 20);
   bytes.writeUInt32LE(0x2000000, 24);
   const segment = 32;
@@ -174,17 +177,19 @@ function machOObject(
   bytes.writeBigUInt64LE(BigInt(identityOffset + identityBytes.length - codeOffset), section + 40);
   bytes.writeUInt32LE(codeOffset, section + 48);
   const build = segment + segmentCommandSize;
-  bytes.writeUInt32LE(0x32, build);
-  bytes.writeUInt32LE(buildCommandSize, build + 4);
-  bytes.writeUInt32LE(platform, build + 8);
-  bytes.writeUInt32LE(0x000f0000, build + 12);
-  bytes.writeUInt32LE(0, build + 16);
-  bytes.writeUInt32LE(0, build + 20);
-  const symtab = build + buildCommandSize;
+  if (includeBuildVersion) {
+    bytes.writeUInt32LE(0x32, build);
+    bytes.writeUInt32LE(buildCommandSize, build + 4);
+    bytes.writeUInt32LE(platform, build + 8);
+    bytes.writeUInt32LE(0x000f0000, build + 12);
+    bytes.writeUInt32LE(0, build + 16);
+    bytes.writeUInt32LE(0, build + 20);
+  }
+  const symtab = build + (includeBuildVersion ? buildCommandSize : 0);
   bytes.writeUInt32LE(0x2, symtab);
   bytes.writeUInt32LE(symbolCommandSize, symtab + 4);
   bytes.writeUInt32LE(symbolOffset, symtab + 8);
-  bytes.writeUInt32LE(symbols.length + 2, symtab + 12);
+  bytes.writeUInt32LE(symbolNames.length + 1, symtab + 12);
   bytes.writeUInt32LE(stringOffset, symtab + 16);
   bytes.writeUInt32LE(stringTable.length, symtab + 20);
   for (let index = 0; index < symbols.length; index += 1) {
@@ -196,13 +201,15 @@ function machOObject(
     bytes.writeUInt8(1, offset + 5);
     bytes.writeBigUInt64LE(BigInt(codeOffset + index), offset + 8);
   }
-  const identitySymbolOffset = symbolOffset + (symbols.length + 1) * 16;
-  let identityNameOffset = 1;
-  for (const symbol of symbols) identityNameOffset += Buffer.byteLength(`_${symbol}`) + 1;
-  bytes.writeUInt32LE(identityNameOffset, identitySymbolOffset);
-  bytes.writeUInt8(0x0f, identitySymbolOffset + 4);
-  bytes.writeUInt8(1, identitySymbolOffset + 5);
-  bytes.writeBigUInt64LE(BigInt(identityOffset), identitySymbolOffset + 8);
+  if (includeArtifactIdentity) {
+    const identitySymbolOffset = symbolOffset + (symbols.length + 1) * 16;
+    let identityNameOffset = 1;
+    for (const symbol of symbols) identityNameOffset += Buffer.byteLength(`_${symbol}`) + 1;
+    bytes.writeUInt32LE(identityNameOffset, identitySymbolOffset);
+    bytes.writeUInt8(0x0f, identitySymbolOffset + 4);
+    bytes.writeUInt8(1, identitySymbolOffset + 5);
+    bytes.writeBigUInt64LE(BigInt(identityOffset), identitySymbolOffset + 8);
+  }
   stringTable.copy(bytes, stringOffset);
   identityBytes.copy(bytes, identityOffset);
   return bytes;
@@ -211,7 +218,10 @@ function machOObject(
 export function validArchive(platform, options = {}) {
   const objects = options.objectPlatforms ?? [platform];
   const members = objects.map((objectPlatform, index) => {
-    const content = machOObject(objectPlatform, options);
+    const content = machOObject(objectPlatform, {
+      ...options,
+      ...(options.objectOptions?.[index] ?? {}),
+    });
     const header = Buffer.alloc(60, " ");
     header.write(`snwc${index}.o/`, 0, "ascii");
     header.write(String(content.length).padEnd(10, " "), 48, "ascii");

@@ -42,6 +42,7 @@ set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
 # exact embedded identity part of this load unit's dynamic symbol contract.
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
     "-Wl,-soname,libsymbol_nem_wallet_core_rn.so"
+    "-Wl,--export-dynamic"
     "-Wl,--export-dynamic-symbol=snwc_rn_module_identity"
     "-Wl,--export-dynamic-symbol=snwc_rn_artifact_identity"
     "-Wl,--export-dynamic-symbol=snwc_rn_target_id"
