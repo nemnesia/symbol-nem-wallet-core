@@ -695,8 +695,8 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
       Warnings warnings;
       const char *error = nullptr;
       if (operation == "finalize_generated_profile") {
-        Object confirmation = objectValue(runtime, arrayItem(runtime, args, 3));
-        SnwcHandoffConfirmation handoff{exportStatus(runtime, property(runtime, confirmation, "status"), "unconfirmed", "confirmed")};
+        SnwcHandoffConfirmation handoff{
+            exportStatus(runtime, arrayItem(runtime, args, 3), "unconfirmed", "confirmed")};
         error = snwc_finalize_generated_profile(
             store.cBytes(), second.cBytes(), password.cBytes(), handoff, &replacement.value, &profile, &warnings.value);
       } else {
