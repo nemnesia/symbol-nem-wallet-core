@@ -649,7 +649,15 @@ jobs:
           xcrun simctl bootstatus "$simulator_udid" -b
           xcrun simctl install "$simulator_udid" release-ios-output/SnwcRnBuild.app
           xcrun simctl terminate "$simulator_udid" com.snwcrnbuild >/dev/null 2>&1 || true
-          xcrun simctl launch "$simulator_udid" com.snwcrnbuild
+          if ! launch_output="$(xcrun simctl launch "$simulator_udid" com.snwcrnbuild 2>&1)"; then
+            echo "$launch_output"
+            echo "Installed app container:"
+            xcrun simctl get_app_container "$simulator_udid" com.snwcrnbuild app || true
+            echo "Recent simulator diagnostics:"
+            xcrun simctl spawn "$simulator_udid" log show --last 5m --style compact || true
+            exit 1
+          fi
+          echo "$launch_output"
           for attempt in $(seq 1 60); do
             if xcrun simctl spawn "$simulator_udid" log show --last 2m --style compact --predicate 'eventMessage CONTAINS "SNWC_RN_NATIVE_SMOKE_PASS:16"' | grep -q 'SNWC_RN_NATIVE_SMOKE_PASS:16'; then
               exit 0
