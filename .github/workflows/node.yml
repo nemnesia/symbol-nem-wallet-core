@@ -346,6 +346,11 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0" \
             "ndk;27.1.12297006"
+          if [[ "${{ matrix.target_id }}" == "android-x86_64" ]]; then
+            sdkmanager \
+              "emulator" \
+              "system-images;android-35;google_apis;x86_64"
+          fi
 
       - name: Configure the NDK linker for the C ABI target
         if: matrix.platform == 'android'
@@ -395,40 +400,61 @@ jobs:
       - name: Load the x86_64 provider in a clean Android emulator
         if: matrix.target_id == 'android-x86_64'
         shell: bash
-        run: mkdir -p "$RUNNER_TEMP/snwc-android-sdk/licenses"
-
-      - name: Run the x86_64 provider in a clean Android emulator
-        if: matrix.target_id == 'android-x86_64'
-        uses: reactivecircus/android-emulator-runner@e93c997dcab69054e999e3924af3d21c4a736e13 # v2.9.0
-        env:
-          # v2.9.0 installs its own command-line tools. Keep that installation
-          # isolated from the preinstalled runner SDK, whose cmdline-tools
-          # directory otherwise makes the action fail before the emulator is
-          # created.
-          ANDROID_HOME: ${{ runner.temp }}/snwc-android-sdk
-          ANDROID_SDK_ROOT: ${{ runner.temp }}/snwc-android-sdk
-          # v2.9.0 uses the deprecated ::add-path command. Supply the paths
-          # through the environment as well so sdkmanager/adb remain usable
-          # on current GitHub-hosted runners.
-          PATH: ${{ runner.temp }}/snwc-android-sdk/cmdline-tools/tools/bin:${{ runner.temp }}/snwc-android-sdk/platform-tools:${{ runner.temp }}/snwc-android-sdk/emulator:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-        with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          disable-animations: true
-          script: |
-            set -euo pipefail
-            timeout 120s adb install -r "release-react-native/${{ matrix.target_id }}/consumer.apk"
-            timeout 30s adb logcat -c
-            timeout 30s adb shell monkey -p com.snwcrnbuild 1
-            for attempt in $(seq 1 60); do
-              if timeout 2s adb logcat -d -v brief -t 200 | grep -q 'SNWC_RN_NATIVE_SMOKE_PASS:16'; then
-                exit 0
-              fi
-              sleep 2
-            done
-            timeout 30s adb logcat -d -v brief -t 500
-            exit 1
+        run: |
+          set -euo pipefail
+          avd_name="snwc-rn-x86-64"
+          avd_home="$RUNNER_TEMP/snwc-android-avd"
+          emulator_log="$RUNNER_TEMP/snwc-android-emulator.log"
+          mkdir -p "$avd_home"
+          export ANDROID_AVD_HOME="$avd_home"
+          command -v avdmanager
+          command -v emulator
+          command -v adb
+          printf 'no\n' | avdmanager create avd \
+            --force \
+            --name "$avd_name" \
+            --package "system-images;android-35;google_apis;x86_64" \
+            --device "pixel_2"
+          emulator -avd "$avd_name" \
+            -no-window \
+            -gpu swiftshader_indirect \
+            -no-snapshot \
+            -noaudio \
+            -no-boot-anim \
+            -accel off >"$emulator_log" 2>&1 &
+          emulator_pid=$!
+          cleanup() {
+            adb emu kill >/dev/null 2>&1 || true
+            kill "$emulator_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          timeout 180s adb wait-for-device
+          booted=false
+          for attempt in $(seq 1 90); do
+            boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if [[ "$boot_completed" == "1" ]]; then
+              booted=true
+              break
+            fi
+            sleep 2
+          done
+          test "$booted" = true
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+          timeout 120s adb install -r "release-react-native/${{ matrix.target_id }}/consumer.apk"
+          timeout 30s adb logcat -c
+          timeout 30s adb shell monkey -p com.snwcrnbuild 1
+          for attempt in $(seq 1 60); do
+            logcat_output="$(timeout 5s adb logcat -d -v brief -t 300 2>/dev/null || true)"
+            if [[ "$logcat_output" == *"SNWC_RN_NATIVE_SMOKE_PASS:16"* ]]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          timeout 30s adb logcat -d -v brief -t 1000 || true
+          cat "$emulator_log" || true
+          exit 1
 
       - name: Build iOS static archive for the approved slice
         if: matrix.platform == 'ios'
