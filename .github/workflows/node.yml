@@ -395,7 +395,7 @@ jobs:
       - name: Load the x86_64 provider in a clean Android emulator
         if: matrix.target_id == 'android-x86_64'
         shell: bash
-        run: mkdir -p "$RUNNER_TEMP/snwc-android-sdk"
+        run: mkdir -p "$RUNNER_TEMP/snwc-android-sdk/licenses"
 
       - name: Run the x86_64 provider in a clean Android emulator
         if: matrix.target_id == 'android-x86_64'
@@ -407,6 +407,10 @@ jobs:
           # created.
           ANDROID_HOME: ${{ runner.temp }}/snwc-android-sdk
           ANDROID_SDK_ROOT: ${{ runner.temp }}/snwc-android-sdk
+          # v2.9.0 uses the deprecated ::add-path command. Supply the paths
+          # through the environment as well so sdkmanager/adb remain usable
+          # on current GitHub-hosted runners.
+          PATH: ${{ runner.temp }}/snwc-android-sdk/cmdline-tools/tools/bin:${{ runner.temp }}/snwc-android-sdk/platform-tools:${{ runner.temp }}/snwc-android-sdk/emulator:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         with:
           api-level: 35
           target: google_apis
