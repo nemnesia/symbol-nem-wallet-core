@@ -347,6 +347,17 @@ jobs:
             "build-tools;35.0.0" \
             "ndk;27.1.12297006"
 
+      - name: Configure the NDK linker for the C ABI target
+        if: matrix.platform == 'android'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ndk_toolchain="$ANDROID_HOME/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64"
+          test -x "$ndk_toolchain/bin/aarch64-linux-android24-clang"
+          test -x "$ndk_toolchain/bin/x86_64-linux-android24-clang"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$ndk_toolchain/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER=$ndk_toolchain/bin/x86_64-linux-android24-clang" >> "$GITHUB_ENV"
+
       - name: Prepare the macOS runner Ruby for the CocoaPods consumer
         if: matrix.platform == 'ios'
         shell: bash
