@@ -645,14 +645,17 @@ jobs:
           set -euo pipefail
           simulator_udid="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /Booted|Shutdown/ { print $2; exit }')"
           test -n "$simulator_udid"
+          app_path=release-ios-output/SnwcRnBuild.app
+          bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Info.plist")"
+          test -n "$bundle_id"
           xcrun simctl boot "$simulator_udid" >/dev/null 2>&1 || true
           xcrun simctl bootstatus "$simulator_udid" -b
-          xcrun simctl install "$simulator_udid" release-ios-output/SnwcRnBuild.app
-          xcrun simctl terminate "$simulator_udid" com.snwcrnbuild >/dev/null 2>&1 || true
-          if ! launch_output="$(xcrun simctl launch "$simulator_udid" com.snwcrnbuild 2>&1)"; then
+          xcrun simctl install "$simulator_udid" "$app_path"
+          xcrun simctl terminate "$simulator_udid" "$bundle_id" >/dev/null 2>&1 || true
+          if ! launch_output="$(xcrun simctl launch "$simulator_udid" "$bundle_id" 2>&1)"; then
             echo "$launch_output"
             echo "Installed app container:"
-            xcrun simctl get_app_container "$simulator_udid" com.snwcrnbuild app || true
+            xcrun simctl get_app_container "$simulator_udid" "$bundle_id" app || true
             echo "Recent simulator diagnostics:"
             xcrun simctl spawn "$simulator_udid" log show --last 5m --style compact || true
             exit 1
