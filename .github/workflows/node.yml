@@ -419,7 +419,7 @@ jobs:
           script: |
             set -euo pipefail
             timeout 120s adb install -r "release-react-native/${{ matrix.target_id }}/consumer.apk"
-            adb logcat -c
+            timeout 30s adb logcat -c
             timeout 30s adb shell monkey -p com.snwcrnbuild 1
             for attempt in $(seq 1 60); do
               if timeout 2s adb logcat -d -v brief -t 200 | grep -q 'SNWC_RN_NATIVE_SMOKE_PASS:16'; then
