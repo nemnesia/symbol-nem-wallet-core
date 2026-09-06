@@ -222,11 +222,15 @@ export function validArchive(platform, options = {}) {
       ...options,
       ...(options.objectOptions?.[index] ?? {}),
     });
+    const archiveMemberName = options.memberNames?.[index] ?? `snwc${index}.o`;
+    const memberNameBytes = Buffer.from(archiveMemberName, "utf8");
+    const usesExtendedName = memberNameBytes.length > 15;
+    const member = usesExtendedName ? Buffer.concat([memberNameBytes, content]) : content;
     const header = Buffer.alloc(60, " ");
-    header.write(`snwc${index}.o/`, 0, "ascii");
-    header.write(String(content.length).padEnd(10, " "), 48, "ascii");
+    header.write(usesExtendedName ? `#1/${memberNameBytes.length}` : `${archiveMemberName}/`, 0, "ascii");
+    header.write(String(member.length).padEnd(10, " "), 48, "ascii");
     header.write("`\n", 58, "ascii");
-    return Buffer.concat([header, content, content.length % 2 === 1 ? Buffer.from("\n") : Buffer.alloc(0)]);
+    return Buffer.concat([header, member, member.length % 2 === 1 ? Buffer.from("\n") : Buffer.alloc(0)]);
   });
   return Buffer.concat([Buffer.from("!<arch>\n"), ...members]);
 }

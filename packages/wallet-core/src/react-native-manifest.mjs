@@ -415,7 +415,16 @@ function inspectStaticArchive(bytes, target) {
     const memberStart = offset + 60;
     const memberEnd = memberStart + memberSize;
     if (!Number.isSafeInteger(memberSize) || memberEnd > bytes.length) assemblyError();
-    const member = bytes.subarray(memberStart, memberEnd);
+    const rawMember = bytes.subarray(memberStart, memberEnd);
+    let memberName = bytes.toString("ascii", offset, offset + 16).trim();
+    let member = rawMember;
+    const extendedName = /^#1\/(\d+)$/.exec(memberName);
+    if (extendedName !== null) {
+      const nameLength = Number(extendedName[1]);
+      if (!Number.isSafeInteger(nameLength) || nameLength > rawMember.length) assemblyError();
+      memberName = rawMember.toString("utf8", 0, nameLength);
+      member = rawMember.subarray(nameLength);
+    }
     const identity = machOIdentity(member, target, {
       requireRequiredSymbols: false,
       requireArtifactIdentity: false,
@@ -430,7 +439,6 @@ function inspectStaticArchive(bytes, target) {
         for (const symbol of identity.requiredSymbols) exportedSymbols.add(symbol);
       }
     } else {
-      const memberName = bytes.toString("ascii", offset, offset + 16).trim();
       if (identities.length !== 0 || !["/", "/SYM64/", "//", "__.SYMDEF", "__.SYMDEF SORTED"].includes(memberName)) assemblyError();
     }
     offset = memberEnd + (memberSize % 2);
