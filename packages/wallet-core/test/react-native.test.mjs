@@ -79,6 +79,8 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(cmake, /CXX_STANDARD 20/);
   assert.match(metroConfig, /extraNodeModules/);
   assert.match(metroConfig, /@nemnesia\/symbol-nem-wallet-core/);
+  assert.match(metroConfig, /@babel\/runtime/);
+  assert.match(metroConfig, /consumerNodeModules/);
   assert.match(podspec, /s\.dependency "ReactCodegen"/);
   assert.match(podspec, /SnwcNativeSymbolNemWalletCore\.cpp/);
   assert.match(podspec, /SnwcRnLifecycleCoordinator\.cpp/);

@@ -6,6 +6,7 @@ const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 // native build and Podfile intentionally consume the same source-controlled
 // package copy. Make the package root explicit for the clean consumer.
 const walletCoreRoot = path.resolve(__dirname, '../../../packages/wallet-core');
+const consumerNodeModules = path.resolve(__dirname, 'node_modules');
 
 /**
  * Metro configuration
@@ -23,6 +24,8 @@ module.exports = mergeConfig(getDefaultConfig(__dirname), {
     extraNodeModules: {
       ...config.resolver?.extraNodeModules,
       '@nemnesia/symbol-nem-wallet-core': walletCoreRoot,
+      '@babel/runtime': path.join(consumerNodeModules, '@babel/runtime'),
+      'react-native': path.join(consumerNodeModules, 'react-native'),
     },
   },
 });
