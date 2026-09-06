@@ -22,15 +22,11 @@ Pod::Spec.new do |s|
     s.vendored_libraries = "libsymbol_nem_wallet_core_native.a"
     s.source_files = [
       "NativeSymbolNemWalletCoreProvider.{h,mm}",
-      "../cpp/NativeSymbolNemWalletCore.cpp",
-      "../cpp/NativeSymbolNemWalletCore.h",
-      "../cpp/NativeSymbolNemWalletCoreProvider.cpp",
-      "../cpp/NativeSymbolNemWalletCoreProvider.h",
-      "../cpp/RnLifecycleCoordinator.cpp",
-      "../cpp/RnLifecycleCoordinator.h",
+      "SnwcNativeSymbolNemWalletCore.cpp",
+      "SnwcNativeSymbolNemWalletCoreProvider.cpp",
+      "SnwcRnLifecycleCoordinator.cpp",
     ]
   end
-  s.header_mappings_dir = "../cpp"
   s.pod_target_xcconfig = {
     "CLANG_CXX_LANGUAGE_STANDARD" => "c++17",
     "CLANG_CXX_LIBRARY" => "libc++",
@@ -41,6 +37,8 @@ Pod::Spec.new do |s|
       "$(inherited)",
       '"$(PODS_ROOT)/Headers/Public/ReactCodegen"',
       '"$(PODS_ROOT)/../build/generated/ios/ReactCodegen"',
+      '"$(PODS_TARGET_SRCROOT)/../cpp"',
+      '"$(PODS_TARGET_SRCROOT)/../cpp/include"',
     ].join(" "),
   }
   s.dependency "React-Core"
