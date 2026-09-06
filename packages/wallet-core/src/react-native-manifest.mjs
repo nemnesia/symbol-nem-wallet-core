@@ -430,7 +430,7 @@ function inspectStaticArchive(bytes, target) {
       assemblyError(`static archive member is truncated at ${offset}`);
     }
     const rawMember = bytes.subarray(memberStart, memberEnd);
-    let memberName = bytes.toString("ascii", offset, offset + 16).trim();
+    let memberName = bytes.toString("ascii", offset, offset + 16).replace(/\0+$/, "").trim();
     let member = rawMember;
     const extendedName = /^#1\/(\d+)$/.exec(memberName);
     if (extendedName !== null) {
