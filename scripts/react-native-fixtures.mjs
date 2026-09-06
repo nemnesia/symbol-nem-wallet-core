@@ -232,7 +232,17 @@ export function validArchive(platform, options = {}) {
     header.write("`\n", 58, "ascii");
     return Buffer.concat([header, member, member.length % 2 === 1 ? Buffer.from("\n") : Buffer.alloc(0)]);
   });
-  return Buffer.concat([Buffer.from("!<arch>\n"), ...members]);
+  const archiveIndex = options.includeSymdef
+    ? (() => {
+      const header = Buffer.alloc(60, " ");
+      header.fill(0, 0, 16);
+      header.write("__.SYMDEF", 0, "ascii");
+      header.write("0".padEnd(10, " "), 48, "ascii");
+      header.write("`\n", 58, "ascii");
+      return Buffer.concat([header, Buffer.alloc(0)]);
+    })()
+    : undefined;
+  return Buffer.concat([Buffer.from("!<arch>\n"), ...(archiveIndex === undefined ? [] : [archiveIndex]), ...members]);
 }
 
 export function validReactNativeArtifact(targetId) {

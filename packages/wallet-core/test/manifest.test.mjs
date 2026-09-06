@@ -200,6 +200,7 @@ test("React Native assembly hashes only supplied canonical artifacts and rejects
     const extraMachOPath = resolve(directory, "ios-extra", REACT_NATIVE_TARGETS["ios-arm64"].artifactFilename);
     const cAbiMachOPath = resolve(directory, "ios-c-abi", REACT_NATIVE_TARGETS["ios-arm64"].artifactFilename);
     const longMemberMachOPath = resolve(directory, "ios-long-member", REACT_NATIVE_TARGETS["ios-arm64"].artifactFilename);
+    const indexedArchivePath = resolve(directory, "ios-indexed", REACT_NATIVE_TARGETS["ios-arm64"].artifactFilename);
     const missingSymbolPath = resolve(directory, "missing-symbol", REACT_NATIVE_TARGETS["android-arm64-v8a"].artifactFilename);
     const nonExportedPath = resolve(directory, "non-exported", REACT_NATIVE_TARGETS["android-arm64-v8a"].artifactFilename);
     const wrongEmbeddedIdentityPath = resolve(directory, "wrong-embedded-identity", REACT_NATIVE_TARGETS["android-arm64-v8a"].artifactFilename);
@@ -208,6 +209,7 @@ test("React Native assembly hashes only supplied canonical artifacts and rejects
     mkdirSync(resolve(directory, "ios-extra"), { recursive: true });
     mkdirSync(resolve(directory, "ios-c-abi"), { recursive: true });
     mkdirSync(resolve(directory, "ios-long-member"), { recursive: true });
+    mkdirSync(resolve(directory, "ios-indexed"), { recursive: true });
     mkdirSync(resolve(directory, "missing-symbol"), { recursive: true });
     mkdirSync(resolve(directory, "non-exported"), { recursive: true });
     mkdirSync(resolve(directory, "wrong-embedded-identity"), { recursive: true });
@@ -223,6 +225,7 @@ test("React Native assembly hashes only supplied canonical artifacts and rejects
     writeFileSync(longMemberMachOPath, validArchive(2, {
       memberNames: ["rustc_symbol_nem_wallet_core_provider_object.o"],
     }));
+    writeFileSync(indexedArchivePath, validArchive(2, { includeSymdef: true }));
     writeFileSync(missingSymbolPath, validElf(183, "libsymbol_nem_wallet_core_rn.so", { symbols: ["snwc_rn_module_identity"] }));
     writeFileSync(nonExportedPath, validElf(183, "libsymbol_nem_wallet_core_rn.so", { exported: false }));
     writeFileSync(
@@ -251,6 +254,9 @@ test("React Native assembly hashes only supplied canonical artifacts and rejects
     ]));
     assert.doesNotThrow(() => validateReactNativeArtifactInputs([
       { targetId: "ios-arm64", path: longMemberMachOPath },
+    ]));
+    assert.doesNotThrow(() => validateReactNativeArtifactInputs([
+      { targetId: "ios-arm64", path: indexedArchivePath },
     ]));
     assert.throws(() => validateReactNativeArtifactInputs([
       { targetId: "android-arm64-v8a", path: missingSymbolPath },
