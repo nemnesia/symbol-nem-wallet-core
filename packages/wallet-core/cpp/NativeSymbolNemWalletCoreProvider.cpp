@@ -61,7 +61,7 @@ extern "C" SNWC_RN_EXPORT const char *snwc_rn_target_id() {
 #endif
 }
 
-extern "C" SNWC_RN_EXPORT std::shared_ptr<TurboModule> symbolNemWalletCoreCxxModuleProvider(
+SNWC_RN_EXPORT std::shared_ptr<TurboModule> symbolNemWalletCoreCxxModuleProvider(
     const std::string &name,
     const std::shared_ptr<CallInvoker> &jsInvoker) {
   if (name == NativeSymbolNemWalletCore::kModuleName) {

@@ -10,6 +10,13 @@
 #include <fbjni/fbjni.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 
+#ifdef REACT_NATIVE_APP_CODEGEN_HEADER
+#include REACT_NATIVE_APP_CODEGEN_HEADER
+#endif
+#ifdef REACT_NATIVE_APP_COMPONENT_DESCRIPTORS_HEADER
+#include REACT_NATIVE_APP_COMPONENT_DESCRIPTORS_HEADER
+#endif
+
 #include "../cpp/NativeSymbolNemWalletCoreProvider.h"
 
 namespace facebook::react {

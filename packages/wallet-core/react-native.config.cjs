@@ -10,7 +10,9 @@ module.exports = {
         sourceDir: path.join(__dirname, "android"),
         cxxModuleCMakeListsPath: "CMakeLists.txt",
         cxxModuleCMakeListsModuleName: "symbol_nem_wallet_core_rn",
-        cxxModuleHeaderName: "NativeSymbolNemWalletCore.h",
+        // RN CLI appends .h to this base name when it generates
+        // autolinking.cpp.
+        cxxModuleHeaderName: "NativeSymbolNemWalletCore",
       },
     },
   },
