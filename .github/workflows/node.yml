@@ -412,6 +412,13 @@ jobs:
           command -v avdmanager
           command -v emulator
           command -v adb
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
           accel_check_log="$RUNNER_TEMP/snwc-android-accel-check.log"
           if ! emulator -accel-check >"$accel_check_log" 2>&1; then
             echo "Android Emulator hardware acceleration check failed:"
