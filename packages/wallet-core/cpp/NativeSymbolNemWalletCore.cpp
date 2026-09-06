@@ -645,7 +645,7 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
       if (moduleIdentity == nullptr || artifactIdentity == nullptr || targetId == nullptr) fail(kBindingFailure);
       return ticket.deliver([&]() {
         Object result(runtime);
-        setValue(runtime, result, "module_name", String::createFromUtf8(runtime, NativeSymbolNemWalletCore::kModuleName));
+        setValue(runtime, result, "module_name", String::createFromUtf8(runtime, std::string(NativeSymbolNemWalletCore::kModuleName)));
         setValue(runtime, result, "module_identity", String::createFromUtf8(runtime, moduleIdentity));
         setValue(runtime, result, "artifact_identity", String::createFromUtf8(runtime, artifactIdentity));
         setValue(runtime, result, "architecture", String::createFromUtf8(runtime, "new"));
