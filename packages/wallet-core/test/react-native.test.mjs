@@ -107,6 +107,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(onLoad, /symbolNemWalletCoreCxxModuleProvider/);
   assert.match(providerHeader, /extern "C" std::shared_ptr<TurboModule> symbolNemWalletCoreCxxModuleProvider/);
   assert.match(providerSource, /extern "C" SNWC_RN_EXPORT std::shared_ptr<TurboModule> symbolNemWalletCoreCxxModuleProvider/);
+  assert.match(providerSource, /extern "C" \{\s+extern const char snwc_rn_artifact_identity_value\[\];\s+\}/);
   assert.match(onLoad, /autolinking_cxxModuleProvider/);
   assert.match(nativeSource, /std::shared_lock<std::shared_mutex> deliveryLock/);
   assert.match(nativeSource, /coordinator_\.begin/);

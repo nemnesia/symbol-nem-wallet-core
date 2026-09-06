@@ -29,7 +29,9 @@ extern "C" SNWC_RN_EXPORT const char *snwc_rn_module_identity() {
   return "symbol-nem-wallet-core-react-native-v1";
 }
 
-extern "C" SNWC_RN_EXPORT const char snwc_rn_artifact_identity_value[];
+extern "C" {
+extern const char snwc_rn_artifact_identity_value[];
+}
 
 extern "C" SNWC_RN_EXPORT const char *snwc_rn_artifact_identity() {
   return snwc_rn_artifact_identity_value[0] == '\0' ? nullptr : snwc_rn_artifact_identity_value;
