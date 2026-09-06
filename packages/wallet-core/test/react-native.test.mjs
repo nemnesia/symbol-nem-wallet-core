@@ -68,7 +68,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(config, /NativeSymbolNemWalletCore\.h/);
   assert.match(consumerCmake, /add_subdirectory\(/);
   assert.match(consumerCmake, /node_modules\/@nemnesia\/symbol-nem-wallet-core/);
-  assert.match(consumerCmake, /target_link_libraries\(\$\{CMAKE_PROJECT_NAME\} PRIVATE symbol_nem_wallet_core_rn\)/);
+  assert.match(consumerCmake, /target_link_libraries\(\$\{CMAKE_PROJECT_NAME\} symbol_nem_wallet_core_rn\)/);
   assert.match(podspec, /s\.dependency "ReactCodegen"/);
   assert.match(podspec, /generated\/ios\/ReactCodegen/);
   assert.match(nativeModuleSource, /PACKAGE_REACT_NATIVE_MANIFEST/);

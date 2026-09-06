@@ -285,7 +285,6 @@ function buildIos(targetId, cAbiPath, outputPath) {
       "-configuration", "Release",
       "ARCHS=arm64",
       "ONLY_ACTIVE_ARCH=NO",
-      "BUILD_LIBRARY_FOR_DISTRIBUTION=YES",
       "CODE_SIGNING_ALLOWED=NO",
     ], { cwd: root, stdio: "inherit" });
     const candidates = [];

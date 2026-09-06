@@ -25,7 +25,7 @@ endif()
 if(NOT TARGET symbol_nem_wallet_core_rn)
     message(FATAL_ERROR "SymbolNemWalletCoreRN CMake target was not registered")
 endif()
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE symbol_nem_wallet_core_rn)
+target_link_libraries(${CMAKE_PROJECT_NAME} symbol_nem_wallet_core_rn)
 
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
     LINK_FLAGS "-Wl,-soname,libsymbol_nem_wallet_core_rn.so"
