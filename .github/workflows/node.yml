@@ -344,8 +344,7 @@ jobs:
           sdkmanager \
             "platform-tools" \
             "platforms;android-35" \
-            "platforms;android-37" \
-            "build-tools;37.0.0" \
+            "build-tools;35.0.0" \
             "ndk;27.1.12297006"
 
       - name: Prepare the macOS runner Ruby for the CocoaPods consumer
