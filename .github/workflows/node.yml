@@ -412,25 +412,59 @@ jobs:
           command -v avdmanager
           command -v emulator
           command -v adb
+          accel_check_log="$RUNNER_TEMP/snwc-android-accel-check.log"
+          if ! emulator -accel-check >"$accel_check_log" 2>&1; then
+            echo "Android Emulator hardware acceleration check failed:"
+            cat "$accel_check_log" || true
+            exit 1
+          fi
+          cat "$accel_check_log"
+          if ! grep -Eiq 'KVM.*is installed and usable' "$accel_check_log"; then
+            echo "KVM is not usable on this runner; refusing software emulation."
+            exit 1
+          fi
           printf 'no\n' | avdmanager create avd \
             --force \
             --name "$avd_name" \
             --package "system-images;android-35;google_apis;x86_64" \
             --device "pixel_2"
+          adb start-server
+          adb devices
           emulator -avd "$avd_name" \
             -no-window \
             -gpu swiftshader_indirect \
             -no-snapshot \
             -noaudio \
             -no-boot-anim \
-            -accel off >"$emulator_log" 2>&1 &
+            -accel on >"$emulator_log" 2>&1 &
           emulator_pid=$!
           cleanup() {
             adb emu kill >/dev/null 2>&1 || true
             kill "$emulator_pid" >/dev/null 2>&1 || true
           }
+          diagnostics() {
+            echo "::group::Android emulator diagnostics"
+            echo "adb devices -l:"
+            timeout 10s adb devices -l || true
+            echo "adb shell getprop:"
+            timeout 10s adb shell getprop || true
+            echo "emulator process status:"
+            if kill -0 "$emulator_pid" 2>/dev/null; then
+              echo "emulator process $emulator_pid is running"
+            else
+              echo "emulator process $emulator_pid is not running"
+            fi
+            ps -p "$emulator_pid" -o pid=,stat=,cmd= || true
+            echo "emulator log:"
+            cat "$emulator_log" || true
+            echo "::endgroup::"
+          }
           trap cleanup EXIT
-          timeout 180s adb wait-for-device
+          if ! timeout 180s adb wait-for-device; then
+            echo "Android emulator did not become available before timeout."
+            diagnostics
+            exit 1
+          fi
           booted=false
           for attempt in $(seq 1 90); do
             boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
@@ -440,7 +474,11 @@ jobs:
             fi
             sleep 2
           done
-          test "$booted" = true
+          if [[ "$booted" != true ]]; then
+            echo "Android emulator did not report sys.boot_completed=1 before timeout."
+            diagnostics
+            exit 1
+          fi
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
