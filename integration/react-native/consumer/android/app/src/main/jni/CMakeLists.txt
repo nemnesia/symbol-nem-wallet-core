@@ -36,6 +36,3 @@ target_link_libraries(${CMAKE_PROJECT_NAME} symbol_nem_wallet_core_rn)
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
     LINK_FLAGS "-Wl,-soname,libsymbol_nem_wallet_core_rn.so"
 )
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    "${SNWC_RN_PACKAGE_ROOT}/android/OnLoad.cpp"
-)
