@@ -57,7 +57,8 @@ function manifestError() {
 }
 
 function assemblyError() {
-  throw new Error("React Native artifact assembly failed");
+  const reason = arguments[0];
+  throw new Error(reason ? `React Native artifact assembly failed: ${reason}` : "React Native artifact assembly failed");
 }
 
 function isPlainObject(value) {
@@ -276,10 +277,17 @@ function inspectElf(bytes, target) {
     (segment) => dynamic.fileOffset >= segment.fileOffset && dynamic.fileOffset + dynamic.fileSize <= segment.fileOffset + segment.fileSize,
   );
   if (!dynamicInLoad) assemblyError();
-  const parsed = parseElfDynamicSymbols(bytes, { programHeaders, loadSegments, dynamic });
-  for (const symbol of REQUIRED_RN_SYMBOLS) if (!parsed.exported.has(symbol)) assemblyError();
-  if (parsed.soname !== target.artifactFilename) assemblyError();
-  if (parsed.artifactIdentity !== target.artifactIdentity) assemblyError();
+  let parsed;
+  try {
+    parsed = parseElfDynamicSymbols(bytes, { programHeaders, loadSegments, dynamic });
+  } catch {
+    assemblyError(`ELF dynamic metadata is malformed for ${target.architecture}`);
+  }
+  for (const symbol of REQUIRED_RN_SYMBOLS) {
+    if (!parsed.exported.has(symbol)) assemblyError(`ELF required export is missing: ${symbol}`);
+  }
+  if (parsed.soname !== target.artifactFilename) assemblyError(`ELF SONAME is not ${target.artifactFilename}`);
+  if (parsed.artifactIdentity !== target.artifactIdentity) assemblyError(`ELF embedded identity does not match ${target.artifactIdentity}`);
   return {
     format: "ELF64",
     identity: {
@@ -425,10 +433,17 @@ function inspectStaticArchive(bytes, target) {
       memberName = rawMember.toString("utf8", 0, nameLength);
       member = rawMember.subarray(nameLength);
     }
-    const identity = machOIdentity(member, target, {
-      requireRequiredSymbols: false,
-      requireArtifactIdentity: false,
-    });
+    let identity;
+    try {
+      identity = machOIdentity(member, target, {
+        requireRequiredSymbols: false,
+        requireArtifactIdentity: false,
+      });
+    } catch {
+      assemblyError(
+        `invalid Mach-O archive member ${memberName} (payload=${member.length}, magic=${member.subarray(0, 4).toString("hex")})`,
+      );
+    }
     if (identity !== null) {
       identities.push(identity.identity);
       // Bind the required RN exports to the object that carries the exact
@@ -443,15 +458,18 @@ function inspectStaticArchive(bytes, target) {
     }
     offset = memberEnd + (memberSize % 2);
   }
-  if (identities.length === 0 || exportedSymbols.size !== REQUIRED_RN_SYMBOLS.length) assemblyError();
+  if (identities.length === 0) assemblyError("static archive contains no Mach-O object members");
+  if (exportedSymbols.size !== REQUIRED_RN_SYMBOLS.length) {
+    assemblyError(`static archive required exports are incomplete (${[...exportedSymbols].join(",")})`);
+  }
   const first = identities.find((identity) => identity.artifact_identity !== undefined);
-  if (first === undefined) assemblyError();
+  if (first === undefined) assemblyError("static archive contains no embedded RN artifact identity");
   if (identities.some((identity) =>
     identity.format !== first.format || identity.architecture !== first.architecture || identity.platform !== first.platform ||
     (identity.artifact_identity !== undefined && identity.artifact_identity !== first.artifact_identity) ||
     (identity.artifact_identity !== undefined && identity.artifact_identity !== target.artifactIdentity)
-  )) assemblyError();
-  if (exportedSymbols.size !== REQUIRED_RN_SYMBOLS.length) assemblyError();
+  )) assemblyError("static archive object metadata is inconsistent");
+  if (exportedSymbols.size !== REQUIRED_RN_SYMBOLS.length) assemblyError("static archive required exports are incomplete");
   return {
     format: "Mach-O-64-static-archive",
     identity: {
