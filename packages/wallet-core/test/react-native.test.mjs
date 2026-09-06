@@ -48,6 +48,8 @@ test("React Native native integration registers appmodules and gates JSI deliver
   const gradle = readFileSync(resolve(packageRoot, "android/build.gradle"), "utf8");
   const onLoad = readFileSync(resolve(packageRoot, "android/OnLoad.cpp"), "utf8");
   const nativeSource = readFileSync(resolve(packageRoot, "cpp/NativeSymbolNemWalletCore.cpp"), "utf8");
+  const providerHeader = readFileSync(resolve(packageRoot, "cpp/NativeSymbolNemWalletCoreProvider.h"), "utf8");
+  const providerSource = readFileSync(resolve(packageRoot, "cpp/NativeSymbolNemWalletCoreProvider.cpp"), "utf8");
   const coordinator = readFileSync(resolve(packageRoot, "cpp/RnLifecycleCoordinator.cpp"), "utf8");
   const config = readFileSync(resolve(packageRoot, "react-native.config.cjs"), "utf8");
   const metroConfig = readFileSync(
@@ -103,6 +105,8 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(onLoad, /DefaultTurboModuleManagerDelegate::cxxModuleProvider/);
   assert.match(onLoad, /REACT_NATIVE_APP_CODEGEN_HEADER/);
   assert.match(onLoad, /symbolNemWalletCoreCxxModuleProvider/);
+  assert.match(providerHeader, /extern "C" std::shared_ptr<TurboModule> symbolNemWalletCoreCxxModuleProvider/);
+  assert.match(providerSource, /extern "C" SNWC_RN_EXPORT std::shared_ptr<TurboModule> symbolNemWalletCoreCxxModuleProvider/);
   assert.match(onLoad, /autolinking_cxxModuleProvider/);
   assert.match(nativeSource, /std::shared_lock<std::shared_mutex> deliveryLock/);
   assert.match(nativeSource, /coordinator_\.begin/);
