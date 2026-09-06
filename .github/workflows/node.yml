@@ -407,6 +407,8 @@ jobs:
           emulator_log="$RUNNER_TEMP/snwc-android-emulator.log"
           mkdir -p "$avd_home"
           export ANDROID_AVD_HOME="$avd_home"
+          android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?ANDROID_SDK_ROOT is not set}}"
+          export PATH="$android_sdk/emulator:$android_sdk/platform-tools:$PATH"
           command -v avdmanager
           command -v emulator
           command -v adb
