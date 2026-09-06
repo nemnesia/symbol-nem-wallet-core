@@ -50,6 +50,11 @@ test("React Native native integration registers appmodules and gates JSI deliver
   const nativeSource = readFileSync(resolve(packageRoot, "cpp/NativeSymbolNemWalletCore.cpp"), "utf8");
   const coordinator = readFileSync(resolve(packageRoot, "cpp/RnLifecycleCoordinator.cpp"), "utf8");
   const config = readFileSync(resolve(packageRoot, "react-native.config.cjs"), "utf8");
+  const consumerCmake = readFileSync(
+    resolve(packageRoot, "../../integration/react-native/consumer/android/app/src/main/jni/CMakeLists.txt"),
+    "utf8",
+  );
+  const podspec = readFileSync(resolve(packageRoot, "ios/SymbolNemWalletCoreRN.podspec"), "utf8");
   const nativeModuleSource = readFileSync(resolve(packageRoot, "src/react-native/native-module.mjs"), "utf8");
 
   assert.doesNotMatch(cmake, /project\(appmodules\)/);
@@ -61,9 +66,14 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.doesNotMatch(gradle, /externalNativeBuild/);
   assert.match(config, /cxxModuleCMakeListsPath/);
   assert.match(config, /NativeSymbolNemWalletCore\.h/);
+  assert.match(consumerCmake, /add_subdirectory\(/);
+  assert.match(consumerCmake, /node_modules\/@nemnesia\/symbol-nem-wallet-core/);
+  assert.match(consumerCmake, /target_link_libraries\(\$\{CMAKE_PROJECT_NAME\} PRIVATE symbol_nem_wallet_core_rn\)/);
+  assert.match(podspec, /s\.dependency "ReactCodegen"/);
+  assert.match(podspec, /generated\/ios\/ReactCodegen/);
   assert.match(nativeModuleSource, /PACKAGE_REACT_NATIVE_MANIFEST/);
   assert.match(nativeModuleSource, /invalid React Native artifact manifest/);
-  assert.match(readFileSync(resolve(packageRoot, "../../integration/react-native/consumer/android/app/src/main/jni/CMakeLists.txt"), "utf8"), /ReactNative-application\.cmake/);
+  assert.match(consumerCmake, /ReactNative-application\.cmake/);
   assert.match(onLoad, /DefaultTurboModuleManagerDelegate::cxxModuleProvider/);
   assert.match(onLoad, /symbolNemWalletCoreCxxModuleProvider/);
   assert.match(onLoad, /autolinking_cxxModuleProvider/);

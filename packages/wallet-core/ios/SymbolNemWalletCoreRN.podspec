@@ -29,8 +29,17 @@ Pod::Spec.new do |s|
   s.pod_target_xcconfig = {
     "CLANG_CXX_LANGUAGE_STANDARD" => "c++17",
     "CLANG_CXX_LIBRARY" => "libc++",
+    # React Native generates this header during the ReactCodegen before-
+    # compile phase.  The source Pod must consume that exact generated output,
+    # rather than relying on a header-map side effect of the app target.
+    "HEADER_SEARCH_PATHS" => [
+      "$(inherited)",
+      '"$(PODS_ROOT)/Headers/Public/ReactCodegen"',
+      '"$(PODS_ROOT)/../build/generated/ios/ReactCodegen"',
+    ].join(" "),
   }
   s.dependency "React-Core"
+  s.dependency "ReactCodegen"
   s.dependency "React-jsi"
   s.dependency "ReactCommon/turbomodule/core"
 end
