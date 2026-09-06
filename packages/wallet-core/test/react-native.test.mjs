@@ -50,6 +50,10 @@ test("React Native native integration registers appmodules and gates JSI deliver
   const nativeSource = readFileSync(resolve(packageRoot, "cpp/NativeSymbolNemWalletCore.cpp"), "utf8");
   const coordinator = readFileSync(resolve(packageRoot, "cpp/RnLifecycleCoordinator.cpp"), "utf8");
   const config = readFileSync(resolve(packageRoot, "react-native.config.cjs"), "utf8");
+  const metroConfig = readFileSync(
+    resolve(packageRoot, "../../integration/react-native/consumer/metro.config.js"),
+    "utf8",
+  );
   const consumerCmake = readFileSync(
     resolve(packageRoot, "../../integration/react-native/consumer/android/app/src/main/jni/CMakeLists.txt"),
     "utf8",
@@ -71,6 +75,10 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(consumerCmake, /node_modules\/@nemnesia\/symbol-nem-wallet-core/);
   assert.match(consumerCmake, /target_link_libraries\(\$\{CMAKE_PROJECT_NAME\} symbol_nem_wallet_core_rn\)/);
   assert.match(consumerCmake, /\$\{SNWC_RN_PACKAGE_ROOT\}\/android\/OnLoad\.cpp/);
+  assert.match(consumerCmake, /CMAKE_CXX_STANDARD 20/);
+  assert.match(cmake, /CXX_STANDARD 20/);
+  assert.match(metroConfig, /extraNodeModules/);
+  assert.match(metroConfig, /@nemnesia\/symbol-nem-wallet-core/);
   assert.match(podspec, /s\.dependency "ReactCodegen"/);
   assert.match(podspec, /SnwcNativeSymbolNemWalletCore\.cpp/);
   assert.match(podspec, /SnwcRnLifecycleCoordinator\.cpp/);

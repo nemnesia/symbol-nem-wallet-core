@@ -4,6 +4,12 @@ cmake_minimum_required(VERSION 3.13)
 # target is supplied by the published npm package and is linked once per ABI.
 project(appmodules)
 
+# React Native 0.87 Codegen itself requires C++20. Set this before the
+# application CMake entry point creates the generated targets.
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 include(${REACT_ANDROID_DIR}/cmake-utils/ReactNative-application.cmake)
 
 # RN CLI's C++ autolinking metadata is not part of the application source

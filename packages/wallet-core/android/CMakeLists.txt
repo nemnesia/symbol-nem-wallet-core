@@ -23,6 +23,14 @@ if(SNWC_RN_C_ABI_LIBRARY)
         ../cpp/NativeSymbolNemWalletCoreProvider.cpp
         ../cpp/RnLifecycleCoordinator.cpp
     )
+    # RN 0.87's generated C++ bridge uses C++20 concepts and std::span. Keep
+    # the package target self-contained instead of inheriting the consumer's
+    # default (which is commonly still C++17).
+    set_target_properties(symbol_nem_wallet_core_rn PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO
+    )
     if(TARGET react_codegen_symbolnemwalletcore)
         target_link_libraries(symbol_nem_wallet_core_rn PUBLIC react_codegen_symbolnemwalletcore)
     elseif(TARGET react_codegen_SymbolNemWalletCoreSpec)
