@@ -617,10 +617,19 @@ jobs:
           test -n "$device_archive"
           test -n "$simulator_archive"
           mkdir -p release-ios-output
-          node scripts/build-react-native-release.mjs xcframework \
+          if ! node scripts/build-react-native-release.mjs xcframework \
             --device "$device_archive" \
             --simulator "$simulator_archive" \
-            --output release-ios-output/SymbolNemWalletCoreRN.xcframework
+            --output release-ios-output/SymbolNemWalletCoreRN.xcframework; then
+            echo "Generated XCFramework layout:"
+            find release-ios-output/SymbolNemWalletCoreRN.xcframework -maxdepth 2 -print | sort || true
+            echo "Generated XCFramework Info.plist format:"
+            file release-ios-output/SymbolNemWalletCoreRN.xcframework/Info.plist || true
+            od -An -tx1 -N16 release-ios-output/SymbolNemWalletCoreRN.xcframework/Info.plist || true
+            echo "Generated XCFramework Info.plist metadata:"
+            plutil -p release-ios-output/SymbolNemWalletCoreRN.xcframework/Info.plist || true
+            exit 1
+          fi
 
       - name: Install the generated XCFramework through the consumer Podfile
         shell: bash
