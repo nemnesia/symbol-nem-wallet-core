@@ -445,16 +445,42 @@ jobs:
             -no-boot-anim \
             -accel on >"$emulator_log" 2>&1 &
           emulator_pid=$!
+          logcat_log="$RUNNER_TEMP/snwc-android-logcat.log"
+          launch_log="$RUNNER_TEMP/snwc-android-launch.log"
+          smoke_ui_dump="$RUNNER_TEMP/snwc-android-ui.xml"
+          logcat_pid=""
+          stop_logcat() {
+            if [[ -n "$logcat_pid" ]]; then
+              kill "$logcat_pid" >/dev/null 2>&1 || true
+              wait "$logcat_pid" >/dev/null 2>&1 || true
+              logcat_pid=""
+            fi
+          }
           cleanup() {
+            stop_logcat
             adb emu kill >/dev/null 2>&1 || true
             kill "$emulator_pid" >/dev/null 2>&1 || true
           }
           diagnostics() {
+            stop_logcat
             echo "::group::Android emulator diagnostics"
             echo "adb devices -l:"
             timeout 10s adb devices -l || true
             echo "adb shell getprop:"
             timeout 10s adb shell getprop || true
+            echo "application pid:"
+            timeout 10s adb shell pidof com.snwcrnbuild || true
+            echo "application process:"
+            timeout 10s adb shell ps -A | grep com.snwcrnbuild || true
+            echo "activity state:"
+            timeout 10s adb shell dumpsys activity top || true
+            echo "application exit-info:"
+            timeout 10s adb shell dumpsys activity exit-info com.snwcrnbuild || true
+            echo "launch result:"
+            cat "$launch_log" || true
+            echo "smoke UI hierarchy:"
+            timeout 10s adb shell uiautomator dump /sdcard/snwc-rn-smoke.xml || true
+            timeout 10s adb shell cat /sdcard/snwc-rn-smoke.xml || true
             echo "emulator process status:"
             if kill -0 "$emulator_pid" 2>/dev/null; then
               echo "emulator process $emulator_pid is running"
@@ -464,6 +490,10 @@ jobs:
             ps -p "$emulator_pid" -o pid=,stat=,cmd= || true
             echo "emulator log:"
             cat "$emulator_log" || true
+            echo "React Native / Hermes / TurboModule / native loader logcat:"
+            grep -Ei 'SNWC_RN|ReactNative|Hermes|TurboModule|SoLoader|linker|dlopen|UnsatisfiedLinkError|FATAL EXCEPTION|AndroidRuntime|com\.snwcrnbuild' "$logcat_log" || true
+            echo "continuous logcat:"
+            cat "$logcat_log" || true
             echo "::endgroup::"
           }
           trap cleanup EXIT
@@ -490,18 +520,40 @@ jobs:
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
           timeout 120s adb install -r "release-react-native/${{ matrix.target_id }}/consumer.apk"
+          : > "$logcat_log"
           timeout 30s adb logcat -c
-          timeout 30s adb shell monkey -p com.snwcrnbuild 1
-          for attempt in $(seq 1 60); do
-            logcat_output="$(timeout 5s adb logcat -d -v brief -t 300 2>/dev/null || true)"
-            if [[ "$logcat_output" == *"SNWC_RN_NATIVE_SMOKE_PASS:16"* ]]; then
-              exit 0
+          adb logcat -v threadtime >"$logcat_log" 2>&1 &
+          logcat_pid=$!
+          if ! timeout 30s adb shell am start -W -n com.snwcrnbuild/.MainActivity >"$launch_log" 2>&1; then
+            echo "Android MainActivity did not start successfully."
+            diagnostics
+            exit 1
+          fi
+          cat "$launch_log"
+          if ! grep -Eq '^Status: ok$' "$launch_log"; then
+            echo "Android MainActivity launch did not report Status: ok."
+            diagnostics
+            exit 1
+          fi
+          smoke_pass=false
+          for attempt in $(seq 1 90); do
+            if timeout 10s adb shell uiautomator dump /sdcard/snwc-rn-smoke.xml >/dev/null 2>&1 \
+              && timeout 10s adb shell cat /sdcard/snwc-rn-smoke.xml >"$smoke_ui_dump" 2>/dev/null \
+              && grep -Fq 'SNWC_RN_NATIVE_SMOKE_PASS:16' "$smoke_ui_dump"; then
+              smoke_pass=true
+              break
             fi
             sleep 2
           done
-          timeout 30s adb logcat -d -v brief -t 1000 || true
-          cat "$emulator_log" || true
-          exit 1
+          if [[ "$smoke_pass" != true ]]; then
+            echo "Android RN native smoke did not report SNWC_RN_NATIVE_SMOKE_PASS:16."
+            diagnostics
+            exit 1
+          fi
+          echo "Android RN native smoke completion signal:"
+          grep -E 'SNWC_RN_NATIVE_PROVIDER_READY|SNWC_RN_NATIVE_SMOKE_PASS:16' "$smoke_ui_dump"
+          echo "Android RN provider/runtime log markers:"
+          grep -Ei 'SNWC_RN|ReactNative|Hermes|TurboModule|SoLoader|linker|dlopen|UnsatisfiedLinkError|FATAL EXCEPTION|AndroidRuntime|com\.snwcrnbuild' "$logcat_log" || true
 
       - name: Build iOS static archive for the approved slice
         if: matrix.platform == 'ios'
