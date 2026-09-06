@@ -22,7 +22,12 @@ Pod::Spec.new do |s|
     s.vendored_libraries = "libsymbol_nem_wallet_core_native.a"
     s.source_files = [
       "NativeSymbolNemWalletCoreProvider.{h,mm}",
-      "../cpp/**/*.{h,cpp}",
+      "../cpp/NativeSymbolNemWalletCore.cpp",
+      "../cpp/NativeSymbolNemWalletCore.h",
+      "../cpp/NativeSymbolNemWalletCoreProvider.cpp",
+      "../cpp/NativeSymbolNemWalletCoreProvider.h",
+      "../cpp/RnLifecycleCoordinator.cpp",
+      "../cpp/RnLifecycleCoordinator.h",
     ]
   end
   s.header_mappings_dir = "../cpp"

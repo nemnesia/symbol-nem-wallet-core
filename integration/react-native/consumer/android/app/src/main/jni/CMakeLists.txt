@@ -31,5 +31,5 @@ set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
     LINK_FLAGS "-Wl,-soname,libsymbol_nem_wallet_core_rn.so"
 )
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../../../../node_modules/@nemnesia/symbol-nem-wallet-core/android/OnLoad.cpp"
+    "${SNWC_RN_PACKAGE_ROOT}/android/OnLoad.cpp"
 )
