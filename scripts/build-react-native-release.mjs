@@ -295,14 +295,13 @@ function buildIos(targetId, cAbiPath, outputPath) {
         const path = resolve(directory, entry.name);
         if (entry.isDirectory()) walk(path);
         else if (
-          entry.name === "libsymbol_nem_wallet_core_rn.a" ||
-          entry.name.toLowerCase() === "libsymbolnemwalletcorern.a" ||
-          (entry.name === "SymbolNemWalletCoreRN" && path.includes(".framework/"))
+          (entry.name === "libSymbolNemWalletCoreRN.a" && path.includes("/SymbolNemWalletCoreRN/")) ||
+          (entry.name === "SymbolNemWalletCoreRN" && path.endsWith("/SymbolNemWalletCoreRN.framework/SymbolNemWalletCoreRN"))
         ) candidates.push(path);
       }
     }
     walk(resolve(root, "build"));
-    const artifact = candidates.find((path) => path.endsWith(".a")) ?? candidates[0];
+    const artifact = candidates[0];
     if (!artifact) fail("iOS RN archive was not produced");
     // The final static archive is deliberately combined with the approved C
     // ABI. The package podspec then consumes this XCFramework as one unit.

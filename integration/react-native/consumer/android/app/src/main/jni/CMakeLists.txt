@@ -36,3 +36,15 @@ target_link_libraries(${CMAKE_PROJECT_NAME} symbol_nem_wallet_core_rn)
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
     LINK_FLAGS "-Wl,-soname,libsymbol_nem_wallet_core_rn.so"
 )
+
+# The appmodules shared object is the Android RN load unit.  RN/AGP may link
+# package static archives with hidden visibility, so make the provider and
+# exact embedded identity part of this load unit's dynamic symbol contract.
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    "-Wl,-soname,libsymbol_nem_wallet_core_rn.so"
+    "-Wl,--export-dynamic-symbol=snwc_rn_module_identity"
+    "-Wl,--export-dynamic-symbol=snwc_rn_artifact_identity"
+    "-Wl,--export-dynamic-symbol=snwc_rn_target_id"
+    "-Wl,--export-dynamic-symbol=snwc_rn_artifact_identity_value"
+    "-Wl,--export-dynamic-symbol=symbolNemWalletCoreCxxModuleProvider"
+)

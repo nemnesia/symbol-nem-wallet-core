@@ -64,6 +64,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   );
   const podspec = readFileSync(resolve(packageRoot, "ios/SymbolNemWalletCoreRN.podspec"), "utf8");
   const nativeModuleSource = readFileSync(resolve(packageRoot, "src/react-native/native-module.mjs"), "utf8");
+  const releaseProducer = readFileSync(resolve(packageRoot, "../../scripts/build-react-native-release.mjs"), "utf8");
 
   assert.doesNotMatch(cmake, /project\(appmodules\)/);
   assert.doesNotMatch(cmake, /REACT_ANDROID_DIR/);
@@ -78,6 +79,9 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(consumerCmake, /add_subdirectory\(/);
   assert.match(consumerCmake, /node_modules\/@nemnesia\/symbol-nem-wallet-core/);
   assert.match(consumerCmake, /target_link_libraries\(\$\{CMAKE_PROJECT_NAME\} symbol_nem_wallet_core_rn\)/);
+  assert.match(consumerCmake, /target_link_options\(\$\{CMAKE_PROJECT_NAME\} PRIVATE/);
+  assert.match(consumerCmake, /--export-dynamic-symbol=snwc_rn_artifact_identity_value/);
+  assert.match(consumerCmake, /-soname,libsymbol_nem_wallet_core_rn\.so/);
   assert.doesNotMatch(consumerCmake, /target_sources/);
   assert.match(consumerOnLoad, /node_modules\/@nemnesia\/symbol-nem-wallet-core\/android\/OnLoad\.cpp/);
   assert.match(consumerCmake, /CMAKE_CXX_STANDARD 20/);
@@ -91,6 +95,8 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(podspec, /SnwcRnLifecycleCoordinator\.cpp/);
   assert.match(podspec, /PODS_TARGET_SRCROOT.*cpp\/include/);
   assert.match(podspec, /generated\/ios\/ReactCodegen/);
+  assert.match(releaseProducer, /SymbolNemWalletCoreRN\.framework\/SymbolNemWalletCoreRN/);
+  assert.doesNotMatch(releaseProducer, /candidates\.find\(\(path\) => path\.endsWith\("\.a"\)\)/);
   assert.match(nativeModuleSource, /PACKAGE_REACT_NATIVE_MANIFEST/);
   assert.match(nativeModuleSource, /invalid React Native artifact manifest/);
   assert.match(consumerCmake, /ReactNative-application\.cmake/);
