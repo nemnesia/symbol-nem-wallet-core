@@ -418,16 +418,16 @@ jobs:
           disable-animations: true
           script: |
             set -euo pipefail
-            adb install -r "release-react-native/${{ matrix.target_id }}/consumer.apk"
+            timeout 120s adb install -r "release-react-native/${{ matrix.target_id }}/consumer.apk"
             adb logcat -c
-            adb shell monkey -p com.snwcrnbuild 1
+            timeout 30s adb shell monkey -p com.snwcrnbuild 1
             for attempt in $(seq 1 60); do
-              if adb logcat -d -v brief | grep -q 'SNWC_RN_NATIVE_SMOKE_PASS:16'; then
+              if timeout 15s adb logcat -d -v brief | grep -q 'SNWC_RN_NATIVE_SMOKE_PASS:16'; then
                 exit 0
               fi
               sleep 2
             done
-            adb logcat -d -v brief
+            timeout 30s adb logcat -d -v brief
             exit 1
 
       - name: Build iOS static archive for the approved slice
