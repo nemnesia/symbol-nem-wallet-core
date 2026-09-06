@@ -9,8 +9,8 @@ Pod::Spec.new do |s|
   s.platforms        = { :ios => "15.1" }
   s.requires_arc     = true
   s.static_framework = true
-  xcframework = File.expand_path("../dist/react-native/ios/SymbolNemWalletCoreRN.xcframework", __dir__)
-  if File.directory?(xcframework)
+  xcframework = "../dist/react-native/ios/SymbolNemWalletCoreRN.xcframework"
+  if File.directory?(File.expand_path(xcframework, __dir__))
     s.vendored_frameworks = xcframework
   else
     # A source Pod is only valid when the target-specific C ABI archive has
