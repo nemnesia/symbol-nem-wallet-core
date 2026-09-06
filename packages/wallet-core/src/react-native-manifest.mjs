@@ -563,13 +563,14 @@ export function validateReactNativeXcframework(path) {
   if (JSON.stringify(actualDirectories) !== JSON.stringify(["Info.plist", "ios-arm64", "ios-arm64-simulator"])) assemblyError();
   for (const item of expected) {
     const info = entries.find((entry) => entry.LibraryIdentifier === item.identifier);
+    const requiredKeys = item.variant === undefined
+      ? ["LibraryIdentifier", "LibraryPath", "SupportedArchitectures", "SupportedPlatform"]
+      : ["LibraryIdentifier", "LibraryPath", "SupportedArchitectures", "SupportedPlatform", "SupportedPlatformVariant"];
     if (
       info === undefined ||
-      !exactKeys(info, item.variant === undefined
-        ? ["LibraryIdentifier", "LibraryPath", "SupportedArchitectures", "SupportedPlatform"]
-        : ["LibraryIdentifier", "LibraryPath", "SupportedArchitectures", "SupportedPlatform", "SupportedPlatformVariant"],
-      ) ||
+      (!exactKeys(info, requiredKeys) && !exactKeys(info, [...requiredKeys, "BinaryPath"])) ||
       info.LibraryPath !== "libsymbol_nem_wallet_core_rn.a" ||
+      (info.BinaryPath !== undefined && info.BinaryPath !== info.LibraryPath) ||
       info.SupportedPlatform !== item.platform ||
       JSON.stringify(info.SupportedArchitectures) !== JSON.stringify([item.architecture]) ||
       (item.variant === undefined ? info.SupportedPlatformVariant !== undefined : info.SupportedPlatformVariant !== item.variant)

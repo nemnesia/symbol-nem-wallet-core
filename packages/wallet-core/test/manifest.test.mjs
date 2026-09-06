@@ -278,8 +278,8 @@ test("React Native assembly hashes only supplied canonical artifacts and rejects
     }
     writeFileSync(resolve(xcframework, "Info.plist"), `<?xml version="1.0"?>
 <plist version="1.0"><dict><key>AvailableLibraries</key><array>
-<dict><key>LibraryIdentifier</key><string>ios-arm64</string><key>LibraryPath</key><string>libsymbol_nem_wallet_core_rn.a</string><key>SupportedArchitectures</key><array><string>arm64</string></array><key>SupportedPlatform</key><string>ios</string></dict>
-<dict><key>LibraryIdentifier</key><string>ios-arm64-simulator</string><key>LibraryPath</key><string>libsymbol_nem_wallet_core_rn.a</string><key>SupportedArchitectures</key><array><string>arm64</string></array><key>SupportedPlatform</key><string>ios</string><key>SupportedPlatformVariant</key><string>simulator</string></dict>
+<dict><key>BinaryPath</key><string>libsymbol_nem_wallet_core_rn.a</string><key>LibraryIdentifier</key><string>ios-arm64</string><key>LibraryPath</key><string>libsymbol_nem_wallet_core_rn.a</string><key>SupportedArchitectures</key><array><string>arm64</string></array><key>SupportedPlatform</key><string>ios</string></dict>
+<dict><key>BinaryPath</key><string>libsymbol_nem_wallet_core_rn.a</string><key>LibraryIdentifier</key><string>ios-arm64-simulator</string><key>LibraryPath</key><string>libsymbol_nem_wallet_core_rn.a</string><key>SupportedArchitectures</key><array><string>arm64</string></array><key>SupportedPlatform</key><string>ios</string><key>SupportedPlatformVariant</key><string>simulator</string></dict>
 </array><key>CFBundlePackageType</key><string>XFWK</string><key>XCFrameworkFormatVersion</key><string>1.0</string></dict></plist>`);
     assert.deepEqual(validateReactNativeXcframework(xcframework).slices, ["ios-arm64", "ios-arm64-simulator"]);
     writeFileSync(resolve(xcframework, "unexpected.txt"), "extra");
