@@ -438,7 +438,7 @@ function inspectStaticArchive(bytes, target) {
       if (!Number.isSafeInteger(nameLength) || nameLength > rawMember.length) {
         assemblyError(`static archive extended member name is invalid: ${memberName}`);
       }
-      memberName = rawMember.toString("utf8", 0, nameLength);
+      memberName = rawMember.toString("utf8", 0, nameLength).replace(/\0/g, "").trim();
       member = rawMember.subarray(nameLength);
     }
     let identity;

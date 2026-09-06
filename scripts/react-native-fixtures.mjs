@@ -235,11 +235,12 @@ export function validArchive(platform, options = {}) {
   const archiveIndex = options.includeSymdef
     ? (() => {
       const header = Buffer.alloc(60, " ");
-      header.fill(0, 0, 16);
-      header.write("__.SYMDEF", 0, "ascii");
-      header.write("0".padEnd(10, " "), 48, "ascii");
+      const name = Buffer.alloc(16, 0);
+      name.write("__.SYMDEF", 0, "ascii");
+      header.write("#1/16", 0, "ascii");
+      header.write("16".padEnd(10, " "), 48, "ascii");
       header.write("`\n", 58, "ascii");
-      return Buffer.concat([header, Buffer.alloc(0)]);
+      return Buffer.concat([header, name]);
     })()
     : undefined;
   return Buffer.concat([Buffer.from("!<arch>\n"), ...(archiveIndex === undefined ? [] : [archiveIndex]), ...members]);
