@@ -1,5 +1,7 @@
 #import "NativeSymbolNemWalletCoreProvider.h"
 
+#if !defined(SNWC_RN_ARTIFACT_MODE)
+
 #import <ReactCommon/TurboModule.h>
 #import <ReactCommon/RCTHost.h>
 #import <React/RCTInvalidating.h>
@@ -138,3 +140,5 @@ void snwc_ios_set_integration_reload_callback(
 }
 
 @end
+
+#endif

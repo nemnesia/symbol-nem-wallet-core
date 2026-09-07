@@ -1,5 +1,7 @@
 #import "SnwcRnLifecycleDelegate.h"
 
+#if !defined(SNWC_RN_ARTIFACT_MODE)
+
 #import <ReactCommon/RCTHost.h>
 #import <ReactCommon/RCTHost+Internal.h>
 
@@ -47,3 +49,5 @@ static void snwcRequestIntegrationReload() {
 }
 
 @end
+
+#endif

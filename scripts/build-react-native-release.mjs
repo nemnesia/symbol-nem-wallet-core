@@ -374,6 +374,7 @@ function buildIos(targetId, cAbiPath, outputPath) {
       COMPILER_INDEX_STORE_ENABLE: "NO",
     };
     const sdk = target.environment === "simulator" ? "iphonesimulator" : "iphoneos";
+    const cAbiForceLoad = resolve(workspace, "packages/wallet-core/ios/libsymbol_nem_wallet_core_native.a");
     const lifecycleTestBuildSettings = process.env.SNWC_RN_LIFECYCLE_INTEGRATION_TEST === "1"
       ? [
           "GCC_PREPROCESSOR_DEFINITIONS=$(inherited) SNWC_RN_LIFECYCLE_INTEGRATION_TEST=1",
@@ -395,6 +396,7 @@ function buildIos(targetId, cAbiPath, outputPath) {
       // time instead of normalizing it after the artifact is produced.
       "GCC_GENERATE_DEBUGGING_SYMBOLS=NO",
       "CLANG_ENABLE_MODULE_DEBUGGING=NO",
+      `OTHER_LDFLAGS=$(inherited) -force_load ${cAbiForceLoad}`,
       ...lifecycleTestBuildSettings,
     ], { cwd: root, env: reproducibleBuildEnv, stdio: "inherit" });
     const candidates = [];
@@ -475,12 +477,17 @@ function consumeIosXcframework(xcframeworkPath, simulatorAppOutput) {
     // This is the artifact-consuming install. It runs only after the
     // producer has generated and structurally inspected both slices.
     runBundledCocoaPods(consumerRoot, ["install"]);
-    const lifecycleTestBuildSettings = process.env.SNWC_RN_LIFECYCLE_INTEGRATION_TEST === "1"
-      ? [
-          "GCC_PREPROCESSOR_DEFINITIONS=$(inherited) SNWC_RN_LIFECYCLE_INTEGRATION_TEST=1",
-          "OTHER_CPLUSPLUSFLAGS=$(inherited) -DSNWC_RN_LIFECYCLE_INTEGRATION_TEST=1",
-        ]
-      : [];
+    const consumerBuildDefinitions = [
+      "SNWC_RN_ARTIFACT_MODE=1",
+      ...(process.env.SNWC_RN_LIFECYCLE_INTEGRATION_TEST === "1"
+        ? ["SNWC_RN_LIFECYCLE_INTEGRATION_TEST=1"]
+        : []),
+    ];
+    const consumerCxxDefinitions = consumerBuildDefinitions.map((definition) => `-D${definition}`).join(" ");
+    const artifactBuildSettings = [
+      `GCC_PREPROCESSOR_DEFINITIONS=$(inherited) ${consumerBuildDefinitions.join(" ")}`,
+      `OTHER_CPLUSPLUSFLAGS=$(inherited) ${consumerCxxDefinitions}`,
+    ];
     execFileSync("xcodebuild", [
       "-workspace", resolve(consumerRoot, "ios/SnwcRnBuild.xcworkspace"),
       "-scheme", "SnwcRnBuild",
@@ -490,7 +497,7 @@ function consumeIosXcframework(xcframeworkPath, simulatorAppOutput) {
       "ARCHS=arm64",
       "ONLY_ACTIVE_ARCH=NO",
       "CODE_SIGNING_ALLOWED=NO",
-      ...lifecycleTestBuildSettings,
+      ...artifactBuildSettings,
       "build",
     ], { cwd: consumerRoot, stdio: "inherit" });
     if (simulatorAppOutput) {
