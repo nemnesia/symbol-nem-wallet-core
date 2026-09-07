@@ -58,7 +58,7 @@ expectFailure("Podfile and Podfile.lock mismatch", iosRoot => {
 });
 expectFailure("source-controlled graph mismatch", iosRoot => {
   const path = resolve(iosRoot, "Podfile.lock");
-  writeFileSync(path, readFileSync(path, "utf8").replace("SymbolNemWalletCoreRN: 3c409f1d68c8c66e054ad31d44cde678c8c6b422", "SymbolNemWalletCoreRN: 0000000000000000000000000000000000000000"));
+  writeFileSync(path, readFileSync(path, "utf8").replace("SymbolNemWalletCoreRN: 9e5dc63a01c55fdda9cfbaf1ff2bab7188ef62e1", "SymbolNemWalletCoreRN: 0000000000000000000000000000000000000000"));
 });
 
 const canonicalBytes = readFileSync(sourceLockfile);

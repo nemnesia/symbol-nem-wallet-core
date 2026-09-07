@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 export const EXPECTED_COCOAPODS_VERSION = "1.16.2";
 export const EXPECTED_PODFILE_SHA256 = "49a8c3ad8c3317d1838bbb3752ab0f0ce6dde6ee19bb1524086785fda25a3506";
-export const EXPECTED_PODFILE_LOCK_SHA256 = "7b2227eb222275c16ead9446b08d045c6c7ac7cf1414e40cdb7300698b81edbd";
+export const EXPECTED_PODFILE_LOCK_SHA256 = "e2137d64f52631521ea913e56674373b8c587b6709f8416536fd990069e0a21c";
 
 function fail(message) {
   throw new Error(`React Native Pod graph validation failed: ${message}`);
