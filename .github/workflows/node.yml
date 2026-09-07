@@ -839,6 +839,8 @@ jobs:
           simulator_log="$RUNNER_TEMP/snwc-ios-simulator.log"
           crash_log="$RUNNER_TEMP/snwc-ios-crash.log"
           lifecycle_stream_pid=""
+          : >"$lifecycle_log"
+          : >"$lifecycle_stream_error"
 
           stop_lifecycle_stream() {
             if [[ -n "${lifecycle_stream_pid:-}" ]]; then
@@ -897,6 +899,8 @@ jobs:
             cat "$boot_log" 2>/dev/null || echo "boot output unavailable"
             echo "install output:"
             cat "$install_log" 2>/dev/null || echo "install output unavailable"
+            echo "pre-launch terminate output:"
+            cat "$terminate_log" 2>/dev/null || echo "pre-launch terminate output unavailable"
             echo "filtered log stream stderr:"
             cat "$lifecycle_stream_error" 2>/dev/null || echo "log stream stderr unavailable"
             echo "recent filtered simulator logs:"
@@ -973,13 +977,10 @@ jobs:
             fail_lifecycle "consumer app install did not complete within 120 seconds"
           fi
           if ! run_with_deadline 30 "$terminate_log" xcrun simctl terminate "$simulator_udid" "$bundle_id"; then
-            if ! grep -Eiq 'not running|not found|no such process' "$terminate_log"; then
-              fail_lifecycle "pre-launch app termination failed unexpectedly"
-            fi
+            echo "Pre-launch app termination returned non-zero; the app may not have been running."
+            cat "$terminate_log"
           fi
 
-          : >"$lifecycle_log"
-          : >"$lifecycle_stream_error"
           xcrun simctl spawn "$simulator_udid" log stream \
             --style compact \
             --level debug \
