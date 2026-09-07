@@ -50,4 +50,15 @@ static void snwcRequestIntegrationReload() {
 
 @end
 
+@implementation SnwcRnReactNativeFactory
+
+- (void)host:(RCTHost *)host didInitializeRuntime:(facebook::jsi::Runtime &)runtime {
+  id<RCTReactNativeFactoryDelegate> delegate = self.delegate;
+  if ([delegate respondsToSelector:@selector(host:didInitializeRuntime:)]) {
+    [delegate host:host didInitializeRuntime:runtime];
+  }
+}
+
+@end
+
 #endif

@@ -205,8 +205,11 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(iosLifecycle, /moduleRegistry/);
   assert.match(iosLifecycle, /SNWC_RN_LIFECYCLE_EXPORT.*visibility\("default"\)/s);
   assert.match(iosLifecycleDelegate, /didInitializeRuntime/);
+  assert.match(iosLifecycleDelegate, /SnwcRnReactNativeFactory/);
+  assert.match(iosLifecycleDelegate, /self\.delegate/);
   assert.match(iosLifecycleDelegate, /host\.moduleRegistry/);
   assert.match(iosConsumerAppDelegate, /SnwcRnLifecycleDelegate/);
+  assert.match(iosConsumerAppDelegate, /SnwcRnReactNativeFactory/);
   assert.match(podspec, /SnwcRnLifecycleDelegate/);
   assert.ok((nativeSource.match(/return ticket\.deliver\(\[&\]\(\) \{/g) ?? []).length >= 10);
   assert.doesNotMatch(nativeSource, /valid_\s*=|processGeneration_\s*=\s*1/);

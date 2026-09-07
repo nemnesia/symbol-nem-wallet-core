@@ -889,7 +889,7 @@ jobs:
               echo "application container unavailable"
             fi
             echo "application process state:"
-            if ! run_with_deadline 15 "$process_log" xcrun simctl spawn "$simulator_udid" ps -axo pid,ppid,user,state,command; then
+            if ! run_with_deadline 15 "$process_log" xcrun simctl spawn "$simulator_udid" ps -A -o pid=,ppid=,state=,comm=; then
               echo "application process inspection timed out or failed"
             fi
             grep -E "SnwcRnBuild|$bundle_id" "$process_log" || echo "application process not observed"
@@ -961,6 +961,13 @@ jobs:
             return 124
           }
 
+          application_process_is_running() {
+            if ! run_with_deadline 10 "$process_log" xcrun simctl spawn "$simulator_udid" ps -A -o pid=,comm=; then
+              return 1
+            fi
+            grep -E '[[:space:]]SnwcRnBuild([[:space:]]|$)' "$process_log" >/dev/null
+          }
+
           trap stop_lifecycle_stream EXIT
 
           boot_request_log="$RUNNER_TEMP/snwc-ios-boot-request.log"
@@ -1001,7 +1008,10 @@ jobs:
           fi
 
           if ! run_with_deadline 60 "$launch_log" xcrun simctl launch "$simulator_udid" "$bundle_id"; then
-            fail_lifecycle "consumer app launch did not complete within 60 seconds"
+            if ! application_process_is_running; then
+              fail_lifecycle "consumer app launch did not complete and no app process was observed within 60 seconds"
+            fi
+            echo "simctl launch did not return within 60 seconds after the app process was observed; continuing to marker gates"
           fi
           cat "$launch_log"
           if ! wait_for_markers 120 \
