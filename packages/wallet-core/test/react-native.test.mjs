@@ -176,6 +176,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(androidConsumerApplication, /cxxReactPackageProviders/);
   assert.match(androidConsumerApplication, /SymbolNemWalletCoreRnLifecycle\.attach/);
   assert.match(iosLifecycle, /moduleRegistry/);
+  assert.match(iosLifecycle, /SNWC_RN_LIFECYCLE_EXPORT.*visibility\("default"\)/s);
   assert.match(iosLifecycleDelegate, /didInitializeRuntime/);
   assert.match(iosLifecycleDelegate, /host\.moduleRegistry/);
   assert.match(iosConsumerAppDelegate, /SnwcRnLifecycleDelegate/);
