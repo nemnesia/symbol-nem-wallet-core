@@ -645,7 +645,14 @@ jobs:
             diagnostics
             exit 1
           fi
-          smoke_count="$(grep -Fc 'SNWC_RN_NATIVE_SMOKE_PASS:16' "$logcat_log" || true)"
+          smoke_count=0
+          for attempt in $(seq 1 90); do
+            smoke_count="$(grep -Fc 'SNWC_RN_NATIVE_SMOKE_PASS:16' "$logcat_log" || true)"
+            if [[ "$smoke_count" -ge 2 ]]; then
+              break
+            fi
+            sleep 2
+          done
           if [[ "$smoke_count" -lt 2 ]]; then
             echo "Android RN did not complete 16 API smoke in both generations."
             diagnostics
