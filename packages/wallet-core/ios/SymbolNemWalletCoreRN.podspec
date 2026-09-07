@@ -29,7 +29,7 @@ Pod::Spec.new do |s|
         "#{xcframework}/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a",
       ],
       :output_files => [
-        "$(BUILT_PRODUCTS_DIR)/SymbolNemWalletCoreRN/libsymbol_nem_wallet_core_rn.a",
+        "$(BUILT_PRODUCTS_DIR)/libsymbol_nem_wallet_core_rn.a",
       ],
       :script => <<-'SCRIPT'
 set -eu
@@ -48,7 +48,7 @@ case "$PLATFORM_NAME" in
 esac
 
 input="$PODS_TARGET_SRCROOT/../dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/$slice/libsymbol_nem_wallet_core_rn.a"
-output="$BUILT_PRODUCTS_DIR/SymbolNemWalletCoreRN/libsymbol_nem_wallet_core_rn.a"
+output="$BUILT_PRODUCTS_DIR/libsymbol_nem_wallet_core_rn.a"
 test -f "$input"
 mkdir -p "$(dirname "$output")"
 rm -f "$output"

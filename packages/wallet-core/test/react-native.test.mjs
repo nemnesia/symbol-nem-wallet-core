@@ -128,7 +128,9 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(podspec, /PLATFORM_NAME/);
   assert.match(podspec, /slice="ios-arm64"/);
   assert.match(podspec, /slice="ios-arm64-simulator"/);
+  assert.match(podspec, /:output_files => \[\s+"\$\(BUILT_PRODUCTS_DIR\)\/libsymbol_nem_wallet_core_rn\.a"/);
   assert.match(podspec, /BUILT_PRODUCTS_DIR/);
+  assert.match(podspec, /output="\$BUILT_PRODUCTS_DIR\/libsymbol_nem_wallet_core_rn\.a"/);
   assert.match(podspec, /-force_load/);
   assert.match(podspec, /libsymbol_nem_wallet_core_rn\.a/);
   assert.doesNotMatch(podspec, /s\.vendored_libraries = xcframework/);
