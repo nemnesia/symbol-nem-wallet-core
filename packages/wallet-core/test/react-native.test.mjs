@@ -139,6 +139,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(podspec, /SnwcRnLifecycleDelegate\.\{h,mm\}/);
   assert.match(podspec, /SnwcRnLifecycleModuleAnchor\.m/);
   assert.match(podspec, /if test -d "\$xcframework"/);
+  assert.match(podspec, /\/usr\/bin\/clang -x c -c \/dev\/null -o "\$empty_object"/);
   assert.match(podspec, /\/usr\/bin\/ar -rc/);
   assert.doesNotMatch(podspec, /s\.vendored_libraries/);
   assert.match(iosLifecycleModuleAnchor, /SnwcRnLifecycleDelegate\.h/);

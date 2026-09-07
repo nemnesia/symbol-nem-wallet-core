@@ -60,8 +60,11 @@ else
   # emitted by this Pod target. Keep the common force-load output valid but
   # empty so the source producer does not link that same archive twice.
   mkdir -p "$(dirname "$output")"
+  empty_object="$BUILT_PRODUCTS_DIR/symbol_nem_wallet_core_rn_empty.o"
   rm -f "$output"
-  /usr/bin/ar -rc "$output"
+  /usr/bin/clang -x c -c /dev/null -o "$empty_object"
+  /usr/bin/ar -rc "$output" "$empty_object"
+  rm -f "$empty_object"
   test -f "$output"
   exit 0
 fi
