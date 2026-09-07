@@ -562,12 +562,6 @@ jobs:
           fi
           echo "Android RN native smoke completion signal:"
           grep -E 'SNWC_RN_NATIVE_PROVIDER_READY|SNWC_RN_NATIVE_SMOKE_PASS:16' "$logcat_log"
-          initial_runtime_count="$(grep -Fc 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true)"
-          if [[ "$initial_runtime_count" -ne 1 ]]; then
-            echo "Android RN did not produce exactly one initial runtime identity before reload: $initial_runtime_count"
-            diagnostics
-            exit 1
-          fi
           stale_gate=false
           for attempt in $(seq 1 60); do
             if grep -Fq 'SNWC_RN_NATIVE_STALE_GATE_ARMED' "$logcat_log"; then
@@ -578,6 +572,12 @@ jobs:
           done
           if [[ "$stale_gate" != true ]]; then
             echo "Android RN stale-output gate was not armed after the initial 16 API smoke."
+            diagnostics
+            exit 1
+          fi
+          initial_runtime_count="$(grep -Fc 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true)"
+          if [[ "$initial_runtime_count" -ne 1 ]]; then
+            echo "Android RN did not produce exactly one initial runtime identity before reload: $initial_runtime_count"
             diagnostics
             exit 1
           fi
