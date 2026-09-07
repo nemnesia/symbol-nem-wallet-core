@@ -19,7 +19,14 @@ import {
   REACT_NATIVE_TARGETS,
   inspectReactNativeArtifact,
 } from "../packages/wallet-core/src/react-native-manifest.mjs";
-import { consumerManifestSha256, reactNativeBuildInputSha256 } from "./react-native-evidence.mjs";
+import {
+  consumerGemfileLockSha256,
+  consumerGemfileSha256,
+  consumerManifestSha256,
+  consumerPodfileLockSha256,
+  consumerPodfileSha256,
+  reactNativeBuildInputSha256,
+} from "./react-native-evidence.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PACKAGE_NAME = "@nemnesia/symbol-nem-wallet-core";
@@ -470,6 +477,15 @@ function validateReactNativeEvidence(releaseDir, manifest, sourceCommit) {
       evidence.controlled_build.package_version !== manifest.package_version ||
       evidence.controlled_build.target_id !== targetId ||
       evidence.controlled_build.toolchain_identifier !== evidence.toolchain_identifier ||
+      evidence.controlled_build.package_name !== PACKAGE_NAME ||
+      !HASH_PATTERN.test(evidence.controlled_build.consumer_gemfile_sha256) ||
+      !HASH_PATTERN.test(evidence.controlled_build.consumer_gemfile_lock_sha256) ||
+      !HASH_PATTERN.test(evidence.controlled_build.consumer_podfile_sha256) ||
+      !HASH_PATTERN.test(evidence.controlled_build.consumer_podfile_lock_sha256) ||
+      evidence.controlled_build.consumer_gemfile_sha256 !== consumerGemfileSha256() ||
+      evidence.controlled_build.consumer_gemfile_lock_sha256 !== consumerGemfileLockSha256() ||
+      evidence.controlled_build.consumer_podfile_sha256 !== consumerPodfileSha256() ||
+      evidence.controlled_build.consumer_podfile_lock_sha256 !== consumerPodfileLockSha256() ||
       evidence.controlled_build.consumer_manifest_sha256 !== consumerManifestSha256() ||
       evidence.controlled_build.build_input_sha256 !== reactNativeBuildInputSha256({
         sourceCommit,

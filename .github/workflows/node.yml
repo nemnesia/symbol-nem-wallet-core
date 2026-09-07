@@ -374,6 +374,8 @@ jobs:
       - name: Verify the source-controlled Ruby/CocoaPods lock input
         if: matrix.platform == 'ios'
         shell: bash
+        env:
+          SNWC_PODFILE_LOCK_BOOTSTRAP: "1"
         run: |
           set -euo pipefail
           test "$(ruby -e 'print RUBY_VERSION')" = "3.3.8"
@@ -387,6 +389,8 @@ jobs:
           targets: ${{ matrix.rust_target }}
 
       - name: Verify source-controlled React Native consumer producer
+        env:
+          SNWC_PODFILE_LOCK_BOOTSTRAP: ${{ matrix.platform == 'ios' && '1' || '0' }}
         run: node scripts/build-react-native-release.mjs verify
 
       - name: Build the existing C ABI for the RN target
@@ -580,6 +584,9 @@ jobs:
       - name: Build iOS static archive for the approved slice
         if: matrix.platform == 'ios'
         shell: bash
+        env:
+          SNWC_PODFILE_LOCK_BOOTSTRAP: "1"
+          SNWC_PODFILE_LOCK_OUTPUT: ${{ github.workspace }}/release-react-native/Podfile.lock
         run: |
           set -euo pipefail
           node scripts/build-react-native-release.mjs ios \

@@ -19,7 +19,15 @@ import {
   REACT_NATIVE_TARGETS,
   validateReactNativeManifest,
 } from "../packages/wallet-core/src/react-native-manifest.mjs";
-import { validateReactNativeEvidenceSet } from "./react-native-evidence.mjs";
+import {
+  consumerGemfileLockSha256,
+  consumerGemfileSha256,
+  consumerManifestSha256,
+  consumerPodfileLockSha256,
+  consumerPodfileSha256,
+  reactNativeBuildInputSha256,
+  validateReactNativeEvidenceSet,
+} from "./react-native-evidence.mjs";
 import {
   cargoLockSha256,
   pnpmLockSha256,
@@ -677,6 +685,7 @@ function validateReactNativeReleaseIdentity(reactNative, manifest) {
     }
     exactKeys(artifact.controlled_build, [
       "workflow", "runner", "build_mode", "source_commit", "package_version", "target_id", "toolchain_identifier",
+      "package_name", "consumer_gemfile_sha256", "consumer_gemfile_lock_sha256", "consumer_podfile_sha256", "consumer_podfile_lock_sha256",
       "consumer_manifest_sha256", "build_input_sha256",
     ], `React Native controlled build ${targetId}`);
     if (
@@ -688,8 +697,24 @@ function validateReactNativeReleaseIdentity(reactNative, manifest) {
       artifact.controlled_build.package_version !== manifest.package_version ||
       artifact.controlled_build.target_id !== targetId ||
       artifact.controlled_build.toolchain_identifier !== artifact.toolchain_identifier ||
+      artifact.controlled_build.package_name !== packageName ||
+      !HASH_PATTERN.test(artifact.controlled_build.consumer_gemfile_sha256) ||
+      !HASH_PATTERN.test(artifact.controlled_build.consumer_gemfile_lock_sha256) ||
+      !HASH_PATTERN.test(artifact.controlled_build.consumer_podfile_sha256) ||
+      !HASH_PATTERN.test(artifact.controlled_build.consumer_podfile_lock_sha256) ||
       !HASH_PATTERN.test(artifact.controlled_build.consumer_manifest_sha256) ||
-      !HASH_PATTERN.test(artifact.controlled_build.build_input_sha256)
+      !HASH_PATTERN.test(artifact.controlled_build.build_input_sha256) ||
+      artifact.controlled_build.consumer_gemfile_sha256 !== consumerGemfileSha256() ||
+      artifact.controlled_build.consumer_gemfile_lock_sha256 !== consumerGemfileLockSha256() ||
+      artifact.controlled_build.consumer_podfile_sha256 !== consumerPodfileSha256() ||
+      artifact.controlled_build.consumer_podfile_lock_sha256 !== consumerPodfileLockSha256() ||
+      artifact.controlled_build.consumer_manifest_sha256 !== consumerManifestSha256() ||
+      artifact.controlled_build.build_input_sha256 !== reactNativeBuildInputSha256({
+        sourceCommit: manifest.source_commit,
+        packageVersion: manifest.package_version,
+        targetId,
+        toolchainIdentifier: artifact.toolchain_identifier,
+      })
     ) {
       fail(`React Native controlled build identity mismatch: ${targetId}`);
     }

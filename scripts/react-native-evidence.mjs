@@ -37,6 +37,11 @@ const CONTROLLED_BUILD_KEYS = [
   "package_version",
   "target_id",
   "toolchain_identifier",
+  "package_name",
+  "consumer_gemfile_sha256",
+  "consumer_gemfile_lock_sha256",
+  "consumer_podfile_sha256",
+  "consumer_podfile_lock_sha256",
   "consumer_manifest_sha256",
   "build_input_sha256",
 ];
@@ -61,7 +66,11 @@ const SUMMARY_TARGET_KEYS = [
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const consumerManifestPath = resolve(repositoryRoot, "integration/react-native/consumer/manifest.json");
+const packageJsonPath = resolve(repositoryRoot, "packages/wallet-core/package.json");
+const consumerGemfilePath = resolve(repositoryRoot, "integration/react-native/consumer/Gemfile");
 const consumerGemfileLockPath = resolve(repositoryRoot, "integration/react-native/consumer/Gemfile.lock");
+const consumerPodfilePath = resolve(repositoryRoot, "integration/react-native/consumer/ios/Podfile");
+const consumerPodfileLockPath = resolve(repositoryRoot, "integration/react-native/consumer/ios/Podfile.lock");
 
 export const REACT_NATIVE_EVIDENCE_FILENAMES = Object.freeze({
   summary: "react-native-summary.json",
@@ -145,6 +154,34 @@ export function consumerGemfileLockSha256() {
   }
 }
 
+function digest(path, label) {
+  try {
+    return createHash("sha256").update(readFileSync(path)).digest("hex");
+  } catch {
+    fail(`source-controlled React Native ${label} is unreadable`);
+  }
+}
+
+export function consumerGemfileSha256() {
+  return digest(consumerGemfilePath, "Gemfile");
+}
+
+export function consumerPodfileSha256() {
+  return digest(consumerPodfilePath, "Podfile");
+}
+
+export function consumerPodfileLockSha256() {
+  return digest(consumerPodfileLockPath, "Podfile.lock");
+}
+
+function packageIdentity() {
+  const metadata = readJson(packageJsonPath, "React Native package metadata");
+  if (metadata.name !== "@nemnesia/symbol-nem-wallet-core" || typeof metadata.version !== "string") {
+    fail("React Native package identity is invalid");
+  }
+  return metadata.name;
+}
+
 export function reactNativeBuildInputSha256({
   sourceCommit,
   packageVersion,
@@ -156,8 +193,12 @@ export function reactNativeBuildInputSha256({
     package_version: packageVersion,
     target_id: targetId,
     toolchain_identifier: toolchainIdentifier,
+    package_name: packageIdentity(),
     consumer_manifest_sha256: consumerManifestSha256(),
+    consumer_gemfile_sha256: consumerGemfileSha256(),
     consumer_gemfile_lock_sha256: consumerGemfileLockSha256(),
+    consumer_podfile_sha256: consumerPodfileSha256(),
+    consumer_podfile_lock_sha256: consumerPodfileLockSha256(),
   };
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
@@ -173,7 +214,12 @@ function validateControlledBuild(value, evidence) {
     value.package_version !== evidence.package_version ||
     value.target_id !== evidence.target_id ||
     value.toolchain_identifier !== evidence.toolchain_identifier ||
+    value.package_name !== "@nemnesia/symbol-nem-wallet-core" ||
     value.consumer_manifest_sha256 !== consumerManifestSha256() ||
+    value.consumer_gemfile_sha256 !== consumerGemfileSha256() ||
+    value.consumer_gemfile_lock_sha256 !== consumerGemfileLockSha256() ||
+    value.consumer_podfile_sha256 !== consumerPodfileSha256() ||
+    value.consumer_podfile_lock_sha256 !== consumerPodfileLockSha256() ||
     value.build_input_sha256 !== reactNativeBuildInputSha256({
       sourceCommit: evidence.source_commit,
       packageVersion: evidence.package_version,
@@ -232,6 +278,11 @@ export function createReactNativeArtifactEvidence({
       package_version: packageVersion,
       target_id: targetId,
       toolchain_identifier: toolchainIdentifier,
+      package_name: packageIdentity(),
+      consumer_gemfile_sha256: consumerGemfileSha256(),
+      consumer_gemfile_lock_sha256: consumerGemfileLockSha256(),
+      consumer_podfile_sha256: consumerPodfileSha256(),
+      consumer_podfile_lock_sha256: consumerPodfileLockSha256(),
       consumer_manifest_sha256: consumerManifestSha256(),
       build_input_sha256: reactNativeBuildInputSha256({
         sourceCommit,
