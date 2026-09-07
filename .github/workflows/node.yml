@@ -113,8 +113,8 @@ jobs:
           set -euo pipefail
           consumer="$RUNNER_TEMP/snwc-podfile-lock/integration/react-native/consumer"
           (
-            cd "$consumer"
-            BUNDLE_DEPLOYMENT=true BUNDLE_FROZEN=true BUNDLE_PATH="$consumer/.bundle-cache" \
+            cd "$consumer/ios"
+            BUNDLE_DEPLOYMENT=true BUNDLE_FROZEN=true BUNDLE_GEMFILE="$consumer/Gemfile" BUNDLE_PATH="$consumer/.bundle-cache" \
               bundle install --deployment --frozen --jobs 4 --retry 3
             BUNDLE_DEPLOYMENT=true BUNDLE_FROZEN=true BUNDLE_GEMFILE="$consumer/Gemfile" BUNDLE_PATH="$consumer/.bundle-cache" \
               ruby -rbundler/setup -e "load Gem.bin_path('cocoapods', 'pod', '1.16.2')" -- \
