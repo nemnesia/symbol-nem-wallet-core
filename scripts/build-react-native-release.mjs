@@ -413,6 +413,10 @@ function consumeIosXcframework(xcframeworkPath, simulatorAppOutput) {
   const { root: consumerRoot, workspace } = consumer;
   try {
     cpSync(resolve(packageRoot, "ios"), resolve(packageClone, "ios"), { recursive: true });
+    // The pod's lifecycle delegate includes the coordinator through the
+    // package's real ios/../cpp layout. Preserve that layout in the
+    // artifact-consuming clone instead of creating a validation-only path.
+    cpSync(resolve(packageRoot, "cpp"), resolve(packageClone, "cpp"), { recursive: true });
     mkdirSync(resolve(packageClone, "dist/react-native/ios"), { recursive: true });
     cpSync(xcframeworkPath, resolve(packageClone, "dist/react-native/ios/SymbolNemWalletCoreRN.xcframework"), { recursive: true });
     generateReactNativeConsumer(consumerRoot);

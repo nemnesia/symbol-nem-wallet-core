@@ -130,6 +130,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(releaseProducer, /GCC_GENERATE_DEBUGGING_SYMBOLS=NO/);
   assert.match(releaseProducer, /CLANG_ENABLE_MODULE_DEBUGGING=NO/);
   assert.doesNotMatch(releaseProducer, /bundle", \["exec", "pod", "install"\]/);
+  assert.match(releaseProducer, /cpSync\(resolve\(packageRoot, "cpp"\), resolve\(packageClone, "cpp"\)/);
   assert.doesNotMatch(releaseProducer, /candidates\.find\(\(path\) => path\.endsWith\("\.a"\)\)/);
   assert.match(nativeModuleSource, /PACKAGE_REACT_NATIVE_MANIFEST/);
   assert.match(nativeModuleSource, /invalid React Native artifact manifest/);
