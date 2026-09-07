@@ -354,6 +354,12 @@ function buildIos(targetId, cAbiPath, outputPath) {
       "ARCHS=arm64",
       "ONLY_ACTIVE_ARCH=NO",
       "CODE_SIGNING_ALLOWED=NO",
+      // The source Pod is the shipped native artifact. Xcode's default
+      // release settings still emit package-object debug metadata containing
+      // the randomized clean-checkout path; disable that input at compile
+      // time instead of normalizing it after the artifact is produced.
+      "GCC_GENERATE_DEBUGGING_SYMBOLS=NO",
+      "CLANG_ENABLE_MODULE_DEBUGGING=NO",
     ], { cwd: root, env: reproducibleBuildEnv, stdio: "inherit" });
     const candidates = [];
     function walk(directory) {
