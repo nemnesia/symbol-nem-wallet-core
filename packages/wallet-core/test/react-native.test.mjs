@@ -88,6 +88,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   );
   const podspec = readFileSync(resolve(packageRoot, "ios/SymbolNemWalletCoreRN.podspec"), "utf8");
   const nativeModuleSource = readFileSync(resolve(packageRoot, "src/react-native/native-module.mjs"), "utf8");
+  const consumerApp = readFileSync(resolve(packageRoot, "../../integration/react-native/consumer/App.tsx"), "utf8");
   const releaseProducer = readFileSync(resolve(packageRoot, "../../scripts/build-react-native-release.mjs"), "utf8");
 
   assert.doesNotMatch(cmake, /project\(appmodules\)/);
@@ -207,9 +208,11 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(iosLifecycleDelegate, /didInitializeRuntime/);
   assert.match(iosLifecycleDelegate, /SnwcRnReactNativeFactory/);
   assert.match(iosLifecycleDelegate, /self\.delegate/);
+  assert.match(iosLifecycleDelegate, /RCTTriggerReloadCommandListeners/);
   assert.match(iosLifecycleDelegate, /host\.moduleRegistry/);
   assert.match(iosConsumerAppDelegate, /SnwcRnLifecycleDelegate/);
   assert.match(iosConsumerAppDelegate, /SnwcRnReactNativeFactory/);
+  assert.match(consumerApp, /SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED/);
   assert.match(podspec, /SnwcRnLifecycleDelegate/);
   assert.ok((nativeSource.match(/return ticket\.deliver\(\[&\]\(\) \{/g) ?? []).length >= 10);
   assert.doesNotMatch(nativeSource, /valid_\s*=|processGeneration_\s*=\s*1/);

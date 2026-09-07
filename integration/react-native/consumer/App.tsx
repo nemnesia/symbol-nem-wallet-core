@@ -241,6 +241,7 @@ export default function App() {
       const lifecycle = lifecycleProbe(module);
       console.log(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
       if (lifecycle.integration_test && lifecycle.provider_generation > 1) {
+        console.log('SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED');
         const cleanup = cleanupEvidence(module);
         if (
           !cleanup.cleanup_complete ||
