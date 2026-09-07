@@ -61,6 +61,7 @@ const SUMMARY_TARGET_KEYS = [
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const consumerManifestPath = resolve(repositoryRoot, "integration/react-native/consumer/manifest.json");
+const consumerGemfileLockPath = resolve(repositoryRoot, "integration/react-native/consumer/Gemfile.lock");
 
 export const REACT_NATIVE_EVIDENCE_FILENAMES = Object.freeze({
   summary: "react-native-summary.json",
@@ -136,6 +137,14 @@ export function consumerManifestSha256() {
   }
 }
 
+export function consumerGemfileLockSha256() {
+  try {
+    return createHash("sha256").update(readFileSync(consumerGemfileLockPath)).digest("hex");
+  } catch {
+    fail("source-controlled React Native Gemfile.lock is unreadable");
+  }
+}
+
 export function reactNativeBuildInputSha256({
   sourceCommit,
   packageVersion,
@@ -148,6 +157,7 @@ export function reactNativeBuildInputSha256({
     target_id: targetId,
     toolchain_identifier: toolchainIdentifier,
     consumer_manifest_sha256: consumerManifestSha256(),
+    consumer_gemfile_lock_sha256: consumerGemfileLockSha256(),
   };
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
@@ -385,6 +395,85 @@ export function validateReactNativeEvidenceSet({
   return { summary, entries };
 }
 
+export function compareReactNativeArtifacts({
+  targetId,
+  firstArtifactPath,
+  secondArtifactPath,
+  sourceCommit,
+  packageVersion,
+}) {
+  const target = REACT_NATIVE_TARGETS[targetId];
+  if (target === undefined || target.platform !== "ios") fail(`reproducibility target is not an approved iOS target: ${targetId}`);
+  validCommit(sourceCommit, "source commit");
+  validVersion(packageVersion, "package version");
+  let first;
+  let second;
+  try {
+    first = inspectReactNativeArtifact(firstArtifactPath, targetId);
+    second = inspectReactNativeArtifact(secondArtifactPath, targetId);
+  } catch {
+    fail(`iOS producer artifact identity is invalid: ${targetId}`);
+  }
+  const firstDigest = fileDigest(firstArtifactPath);
+  const secondDigest = fileDigest(secondArtifactPath);
+  const binaryIdentityIdentical = JSON.stringify(first.binaryIdentity) === JSON.stringify(second.binaryIdentity);
+  const metadataIdentical =
+    first.binaryFormat === second.binaryFormat &&
+    JSON.stringify(first.requiredSymbols) === JSON.stringify(second.requiredSymbols) &&
+    first.binaryIdentity.architecture === second.binaryIdentity.architecture &&
+    first.binaryIdentity.platform === second.binaryIdentity.platform;
+  if (
+    firstDigest.sha256 !== secondDigest.sha256 ||
+    firstDigest.size !== secondDigest.size ||
+    first.binaryFormat !== second.binaryFormat ||
+    !binaryIdentityIdentical ||
+    !metadataIdentical ||
+    JSON.stringify(first.requiredSymbols) !== JSON.stringify(second.requiredSymbols)
+  ) {
+    fail(`independent iOS producer outputs differ: ${targetId}`);
+  }
+  const result = {
+    schema_version: 1,
+    kind: "react-native-ios-reproducibility",
+    target_id: targetId,
+    platform: target.platform,
+    environment: target.environment,
+    architecture: target.architecture,
+    source_commit: sourceCommit,
+    package_version: packageVersion,
+    artifact_filename: target.artifactFilename,
+    artifact_identity: target.artifactIdentity,
+    producer_runs: [
+      {
+        run_id: "producer-1",
+        artifact_filename: basename(firstArtifactPath),
+        artifact_sha256: firstDigest.sha256,
+        artifact_size: firstDigest.size,
+        binary_format: first.binaryFormat,
+        binary_identity: first.binaryIdentity,
+        required_symbols: first.requiredSymbols,
+      },
+      {
+        run_id: "producer-2",
+        artifact_filename: basename(secondArtifactPath),
+        artifact_sha256: secondDigest.sha256,
+        artifact_size: secondDigest.size,
+        binary_format: second.binaryFormat,
+        binary_identity: second.binaryIdentity,
+        required_symbols: second.requiredSymbols,
+      },
+    ],
+    comparison: {
+      bytes_identical: firstDigest.sha256 === secondDigest.sha256 && firstDigest.size === secondDigest.size,
+      native_identity_identical: binaryIdentityIdentical,
+      architecture_identical: first.binaryIdentity.architecture === second.binaryIdentity.architecture,
+      metadata_identical: metadataIdentical,
+      digest_identical: firstDigest.sha256 === secondDigest.sha256,
+    },
+  };
+  return result;
+}
+
 export function writeReactNativeEvidence(path, evidence) {
   writeFileSync(path, `${JSON.stringify(evidence, null, 2)}\n`);
 }
@@ -424,7 +513,19 @@ function run() {
     process.stdout.write(`${JSON.stringify(summary)}\n`);
     return;
   }
-  fail("usage: artifact | summary");
+  if (command === "compare") {
+    const result = compareReactNativeArtifacts({
+      targetId: argument(argv, "--target-id"),
+      firstArtifactPath: argument(argv, "--first"),
+      secondArtifactPath: argument(argv, "--second"),
+      sourceCommit: argument(argv, "--source-commit"),
+      packageVersion: argument(argv, "--package-version"),
+    });
+    writeReactNativeEvidence(argument(argv, "--output"), result);
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+  fail("usage: artifact | summary | compare");
 }
 
 if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {

@@ -29,6 +29,7 @@ import { validReactNativeArtifact } from "./react-native-fixtures.mjs";
 import {
   createReactNativeArtifactEvidence,
   createReactNativeSummary,
+  compareReactNativeArtifacts,
   writeReactNativeEvidence,
 } from "./react-native-evidence.mjs";
 
@@ -178,6 +179,22 @@ function fixture() {
       toolchainIdentifier: toolchain,
       runner: "fixture-runner",
     });
+    if (target.platform === "ios") {
+      const secondArtifactPath = resolve(reactNativeArtifactRoot, targetId, "producer-2.a");
+      writeFileSync(secondArtifactPath, artifactBytes);
+      const reproducibility = compareReactNativeArtifacts({
+        targetId,
+        firstArtifactPath: artifactInputPath,
+        secondArtifactPath,
+        sourceCommit,
+        packageVersion: metadata.version,
+      });
+      assert.equal(reproducibility.comparison.bytes_identical, true);
+      assert.equal(reproducibility.comparison.native_identity_identical, true);
+      assert.equal(reproducibility.comparison.architecture_identical, true);
+      assert.equal(reproducibility.comparison.metadata_identical, true);
+      assert.equal(reproducibility.comparison.digest_identical, true);
+    }
     writeReactNativeEvidence(resolve(reactNativeEvidenceRoot, `${targetId}.json`), evidence);
     return {
       target_id: targetId,

@@ -365,14 +365,20 @@ jobs:
 
       - name: Prepare the macOS runner Ruby for the CocoaPods consumer
         if: matrix.platform == 'ios'
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3.8"
+          bundler: "2.5.22"
+          bundler-cache: false
+
+      - name: Verify the source-controlled Ruby/CocoaPods lock input
+        if: matrix.platform == 'ios'
         shell: bash
         run: |
           set -euo pipefail
-          ruby --version
-          if ! command -v bundle >/dev/null 2>&1; then
-            gem install bundler --no-document
-          fi
+          test "$(ruby -e 'print RUBY_VERSION')" = "3.3.8"
           bundle --version
+          node scripts/build-react-native-release.mjs verify
 
       - name: Install pinned Rust toolchain for the existing C ABI
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
@@ -564,6 +570,24 @@ jobs:
             --target-id "${{ matrix.target_id }}" \
             --c-abi "$GITHUB_WORKSPACE/target/${{ matrix.rust_target }}/release/libsymbol_nem_wallet_core_native.a" \
             --output "release-react-native/${{ matrix.target_id }}/libsymbol_nem_wallet_core_rn.a"
+
+      - name: Independently reproduce and compare the iOS producer archive
+        if: matrix.platform == 'ios'
+        shell: bash
+        run: |
+          set -euo pipefail
+          second_archive="release-react-native/${{ matrix.target_id }}/reproducibility/producer-2.a"
+          node scripts/build-react-native-release.mjs ios \
+            --target-id "${{ matrix.target_id }}" \
+            --c-abi "$GITHUB_WORKSPACE/target/${{ matrix.rust_target }}/release/libsymbol_nem_wallet_core_native.a" \
+            --output "$second_archive"
+          node scripts/react-native-evidence.mjs compare \
+            --target-id "${{ matrix.target_id }}" \
+            --first "release-react-native/${{ matrix.target_id }}/libsymbol_nem_wallet_core_rn.a" \
+            --second "$second_archive" \
+            --source-commit "$GITHUB_SHA" \
+            --package-version "$(node -p "require('./packages/wallet-core/package.json').version")" \
+            --output "release-react-native/${{ matrix.target_id }}/${{ matrix.target_id }}-reproducibility.json"
 
       - name: Normalize and record RN artifact identity/provenance
         shell: bash
@@ -786,6 +810,23 @@ jobs:
         with:
           name: release-react-native-xcframework-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-input/react-native-xcframework
+
+      - name: Recheck the independent iOS producer comparison before npm assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./packages/wallet-core/package.json').version")"
+          for target in ios-arm64 ios-simulator-arm64; do
+            node scripts/react-native-evidence.mjs compare \
+              --target-id "$target" \
+              --first "release-input/react-native/$target/libsymbol_nem_wallet_core_rn.a" \
+              --second "release-input/react-native/$target/reproducibility/producer-2.a" \
+              --source-commit "$GITHUB_SHA" \
+              --package-version "$package_version" \
+              --output "$RUNNER_TEMP/$target-reproducibility.json"
+            cmp -- "$RUNNER_TEMP/$target-reproducibility.json" \
+              "release-input/react-native/$target/$target-reproducibility.json"
+          done
 
       - name: Validate all artifact evidence before assembly
         shell: bash

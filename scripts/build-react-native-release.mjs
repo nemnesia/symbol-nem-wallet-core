@@ -26,6 +26,8 @@ import { inlineReactNativeRuntime } from "./react-native-runtime.mjs";
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const consumerTemplate = resolve(repositoryRoot, "integration/react-native/consumer");
 const consumerManifestPath = resolve(consumerTemplate, "manifest.json");
+const consumerGemfilePath = resolve(consumerTemplate, "Gemfile");
+const consumerGemfileLockPath = resolve(consumerTemplate, "Gemfile.lock");
 const packageRoot = resolve(repositoryRoot, "packages/wallet-core");
 
 function fail(message) {
@@ -43,6 +45,15 @@ function readJson(path, label) {
 function sourceCommit() {
   const value = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
   if (!/^[0-9a-f]{40}$/.test(value)) fail("checked out source commit is invalid");
+  return value;
+}
+
+function sourceDateEpoch() {
+  const value = execFileSync("git", ["show", "-s", "--format=%ct", sourceCommit()], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  }).trim();
+  if (!/^\d+$/.test(value)) fail("source commit timestamp is invalid");
   return value;
 }
 
@@ -70,6 +81,20 @@ function verifyTemplate() {
     packageLock.packages?.[""]?.devDependencies?.["@react-native-community/cli"] !== "20.2.0" ||
     packageLock.packages?.["node_modules/react-native"]?.version !== "0.87.0"
   ) fail("consumer template is not the approved RN 0.87.0 New Architecture baseline");
+  const gemfile = readFileSync(consumerGemfilePath, "utf8");
+  const gemfileLock = readFileSync(consumerGemfileLockPath, "utf8");
+  if (
+    !/^ruby\s+"3\.3\.8"\s*$/m.test(gemfile) ||
+    !/^gem\s+"cocoapods",\s*"1\.16\.2"\s*$/m.test(gemfile) ||
+    !/^gem\s+"xcodeproj",\s*"1\.27\.0"\s*$/m.test(gemfile) ||
+    !/^  arm64-darwin-24$/m.test(gemfileLock) ||
+    !/^  x86_64-darwin-24$/m.test(gemfileLock) ||
+    !/^   ruby 3\.3\.8/m.test(gemfileLock) ||
+    !/^   2\.5\.22$/m.test(gemfileLock) ||
+    !/^    cocoapods \(1\.16\.2\)$/m.test(gemfileLock) ||
+    !/^    xcodeproj \(1\.27\.0\)$/m.test(gemfileLock) ||
+    !/^    CFPropertyList \(3\.0\.8\)$/m.test(gemfileLock)
+  ) fail("iOS Ruby/CocoaPods dependency input is not the approved exact lockfile");
   for (const relativePath of [
     "package.json",
     "manifest.json",
@@ -84,6 +109,7 @@ function verifyTemplate() {
     "android/settings.gradle",
     "ios/SnwcRnBuild.xcodeproj/project.pbxproj",
     "Gemfile",
+    "Gemfile.lock",
     "index.js",
   ]) {
     const path = resolve(consumerTemplate, relativePath);
@@ -160,8 +186,23 @@ function installReactNativeConsumer(root, env = {}) {
 }
 
 function installIosTooling(root) {
-  if (!existsSync(resolve(root, "Gemfile"))) fail("generated iOS consumer has no Gemfile");
-  execFileSync("bundle", ["install", "--jobs", "4", "--retry", "3"], { cwd: root, stdio: "inherit" });
+  if (!existsSync(resolve(root, "Gemfile")) || !existsSync(resolve(root, "Gemfile.lock"))) {
+    fail("generated iOS consumer has no source-controlled Gemfile.lock");
+  }
+  const bundleEnv = {
+    ...process.env,
+    BUNDLE_DEPLOYMENT: "true",
+    BUNDLE_FROZEN: "true",
+    BUNDLE_PATH: resolve(root, ".bundle-cache"),
+  };
+  execFileSync("bundle", [
+    "install",
+    "--deployment",
+    "--frozen",
+    "--jobs", "4",
+    "--retry", "3",
+  ], { cwd: root, env: bundleEnv, stdio: "inherit" });
+  execFileSync("bundle", ["check"], { cwd: root, env: bundleEnv, stdio: "inherit" });
 }
 
 function configureAndroidConsumer(root, targetId, cAbiPath) {
@@ -278,6 +319,12 @@ function buildIos(targetId, cAbiPath, outputPath) {
       env: { ...process.env, SNWC_RN_POD_PATH: resolve(workspace, "packages/wallet-core/ios") },
       stdio: "inherit",
     });
+    const reproducibleBuildEnv = {
+      ...process.env,
+      SOURCE_DATE_EPOCH: sourceDateEpoch(),
+      ZERO_AR_DATE: "1",
+      COMPILER_INDEX_STORE_ENABLE: "NO",
+    };
     const sdk = target.environment === "simulator" ? "iphonesimulator" : "iphoneos";
     execFileSync("xcodebuild", [
       "-workspace", resolve(root, "ios/SnwcRnBuild.xcworkspace"),
@@ -288,7 +335,7 @@ function buildIos(targetId, cAbiPath, outputPath) {
       "ARCHS=arm64",
       "ONLY_ACTIVE_ARCH=NO",
       "CODE_SIGNING_ALLOWED=NO",
-    ], { cwd: root, stdio: "inherit" });
+    ], { cwd: root, env: reproducibleBuildEnv, stdio: "inherit" });
     const candidates = [];
     function walk(directory) {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -301,12 +348,16 @@ function buildIos(targetId, cAbiPath, outputPath) {
       }
     }
     walk(resolve(root, "build"));
+    candidates.sort();
     const artifact = candidates[0];
     if (!artifact) fail("iOS RN archive was not produced");
     // The final static archive is deliberately combined with the approved C
     // ABI. The package podspec then consumes this XCFramework as one unit.
     mkdirSync(dirname(outputPath), { recursive: true });
-    execFileSync("libtool", ["-static", "-o", outputPath, artifact, resolve(cAbiPath)], { stdio: "inherit" });
+    execFileSync("libtool", ["-static", "-o", outputPath, artifact, resolve(cAbiPath)], {
+      env: reproducibleBuildEnv,
+      stdio: "inherit",
+    });
     inspectReactNativeArtifact(outputPath, targetId);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
