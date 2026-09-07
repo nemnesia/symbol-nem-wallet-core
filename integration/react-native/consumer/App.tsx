@@ -444,6 +444,7 @@ export default function App() {
         }
       }
       if (!lifecycle.integration_test || lifecycle.provider_generation === 1) {
+        await yieldToUi();
         setStatus(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
       }
     };
