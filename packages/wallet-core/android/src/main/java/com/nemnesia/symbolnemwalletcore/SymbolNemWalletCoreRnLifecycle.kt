@@ -41,10 +41,18 @@ public object SymbolNemWalletCoreRnLifecycle {
         beforeDestroy?.let { oldListener -> oldHost.removeBeforeDestroyListener(oldListener) }
         oldHost.removeReactInstanceEventListener(instanceListener)
       }
-      val listener: () -> Unit = listener@{
-        val context = host.currentReactContext ?: return@listener
-        val packageInstance = synchronized(lock) { packages.remove(context) }
-        if (packageInstance != null) packageInstance.invalidateFromReactHost()
+      val listener: () -> Unit = {
+        // ReactHost invokes this callback before the old ReactContext is
+        // destroyed, but currentReactContext is nullable during the same
+        // transition. Invalidation is owned by the package instances we
+        // registered for this host, so a null context must never skip it.
+        val packageInstances = synchronized(lock) {
+          val values = packages.values.toList()
+          packages.clear()
+          lastInitializedContext = null
+          values
+        }
+        packageInstances.forEach { it.invalidateFromReactHost() }
       }
       beforeDestroy = listener
       attachedHost = host

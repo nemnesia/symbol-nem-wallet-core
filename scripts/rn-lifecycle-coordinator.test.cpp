@@ -70,6 +70,27 @@ int main() {
 
   const auto request = coordinator.begin(first, &runtimeOne);
   assert(coordinator.isLive(request));
+  auto differentRuntime = request;
+  differentRuntime.runtime = &runtimeTwo;
+  assert(!coordinator.isLive(differentRuntime));
+  auto differentRegistry = request;
+  differentRegistry.moduleRegistry = &registryTwo;
+  assert(!coordinator.isLive(differentRegistry));
+  auto differentContext = request;
+  differentContext.logicalContext = &contextTwo;
+  assert(!coordinator.isLive(differentContext));
+  auto differentProvider = request;
+  differentProvider.provider = &providerTwo;
+  assert(!coordinator.isLive(differentProvider));
+  auto differentProviderGeneration = request;
+  differentProviderGeneration.providerGeneration += 1;
+  assert(!coordinator.isLive(differentProviderGeneration));
+  auto differentProcess = request;
+  differentProcess.processGeneration = nullptr;
+  assert(!coordinator.isLive(differentProcess));
+  auto differentRequest = request;
+  differentRequest.requestIdentity = 0;
+  assert(!coordinator.isLive(differentRequest));
   bool reentryRejected = false;
   try {
     coordinator.begin(first, &runtimeOne);
@@ -78,13 +99,20 @@ int main() {
   }
   assert(reentryRejected);
   coordinator.finish(request);
+  // Android's pending registration is bound by the first actual JSI
+  // Runtime&. A different runtime is never admitted through a null
+  // wildcard; RN must construct a new package/provider registration first.
+  bool androidRuntimeReplacementRejected = false;
+  try {
+    coordinator.begin(first, &runtimeTwo);
+  } catch (const std::runtime_error &) {
+    androidRuntimeReplacementRejected = true;
+  }
+  assert(androidRuntimeReplacementRejected);
 
-  // Android's actual runtime is supplied by each JSI invocation. A second
-  // actual runtime is not captured into the old registration; its RN host
-  // callback must invalidate the old provider before replacement.
-  const auto androidRuntimeReplacement = coordinator.begin(first, &runtimeTwo);
-  assert(coordinator.isLive(androidRuntimeReplacement));
-  coordinator.finish(androidRuntimeReplacement);
+  const auto secondRequest = coordinator.begin(second, &runtimeTwo);
+  assert(coordinator.isLive(secondRequest));
+  coordinator.finish(secondRequest);
 
   bool iosRuntimeReplacementRejected = false;
   RnLifecycleCoordinator::RegistrationIdentity iosIdentity{

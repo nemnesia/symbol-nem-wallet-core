@@ -398,6 +398,8 @@ jobs:
 
       - name: Build Android appmodules and register the C++ provider
         if: matrix.platform == 'android'
+        env:
+          SNWC_RN_LIFECYCLE_INTEGRATION_TEST: "1"
         shell: bash
         run: |
           set -euo pipefail
@@ -534,8 +536,7 @@ jobs:
           timeout 30s adb logcat -c
           adb logcat -v threadtime >"$logcat_log" 2>&1 &
           logcat_pid=$!
-          if ! timeout 30s adb shell am start -W -n com.snwcrnbuild/.MainActivity \
-            --ez snwc_rn_lifecycle_reload true >"$launch_log" 2>&1; then
+          if ! timeout 30s adb shell am start -W -n com.snwcrnbuild/.MainActivity >"$launch_log" 2>&1; then
             echo "Android MainActivity did not start successfully."
             diagnostics
             exit 1
@@ -563,6 +564,31 @@ jobs:
           fi
           echo "Android RN native smoke completion signal:"
           grep -E 'SNWC_RN_NATIVE_PROVIDER_READY|SNWC_RN_NATIVE_SMOKE_PASS:16' "$smoke_ui_dump"
+          initial_runtime_count="$(grep -Fc 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true)"
+          if [[ "$initial_runtime_count" -ne 1 ]]; then
+            echo "Android RN did not produce exactly one initial runtime identity before reload: $initial_runtime_count"
+            diagnostics
+            exit 1
+          fi
+          stale_gate=false
+          for attempt in $(seq 1 60); do
+            if grep -Fq 'SNWC_RN_NATIVE_STALE_GATE_ARMED' "$logcat_log"; then
+              stale_gate=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$stale_gate" != true ]]; then
+            echo "Android RN stale-output gate was not armed after the initial 16 API smoke."
+            diagnostics
+            exit 1
+          fi
+          if ! timeout 30s adb shell am start -W -n com.snwcrnbuild/.MainActivity \
+            --ez snwc_rn_lifecycle_reload_request true >"$launch_log" 2>&1; then
+            echo "Android RN lifecycle reload request did not reach MainActivity."
+            diagnostics
+            exit 1
+          fi
           echo "Android RN provider/runtime log markers:"
           grep -Ei 'SNWC_RN|ReactNative|Hermes|TurboModule|SoLoader|linker|dlopen|UnsatisfiedLinkError|FATAL EXCEPTION|AndroidRuntime|com\.snwcrnbuild' "$logcat_log" || true
           lifecycle_reload=false
@@ -578,15 +604,68 @@ jobs:
             diagnostics
             exit 1
           fi
-          echo "Android RN actual ReactHost reload marker:"
-          grep -F 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED' "$logcat_log"
+          lifecycle_reload_completed=false
+          for attempt in $(seq 1 90); do
+            if grep -Fq 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED' "$logcat_log"; then
+              lifecycle_reload_completed=true
+              break
+            fi
+            if grep -Fq 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_FAILED' "$logcat_log"; then
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$lifecycle_reload_completed" != true ]]; then
+            echo "Android RN ReactHost reload did not complete successfully."
+            diagnostics
+            exit 1
+          fi
+          runtime_lines="$(grep 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true)"
+          runtime_count="$(printf '%s\n' "$runtime_lines" | sed '/^$/d' | wc -l | tr -d ' ')"
+          if [[ "$runtime_count" -lt 2 ]]; then
+            echo "Android RN did not report both old and new runtime identities."
+            diagnostics
+            exit 1
+          fi
+          first_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '1p')"
+          second_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '2p')"
+          runtime_identity() { printf '%s\n' "$1" | sed -E 's/.*"runtime_identity":"([^"]+)".*/\1/'; }
+          registration_identity() { printf '%s\n' "$1" | sed -E 's/.*"registration_identity":"([^"]+)".*/\1/'; }
+          provider_generation() { printf '%s\n' "$1" | sed -E 's/.*"provider_generation":([0-9]+).*/\1/'; }
+          test "$(runtime_identity "$first_runtime")" != "$(runtime_identity "$second_runtime")"
+          test "$(registration_identity "$first_runtime")" != "$(registration_identity "$second_runtime")"
+          test "$(provider_generation "$first_runtime")" != "$(provider_generation "$second_runtime")"
+          stale_rejected_count="$(grep -Fc 'SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED' "$logcat_log" || true)"
+          if [[ "$stale_rejected_count" -lt 1 ]]; then
+            echo "Android RN stale output-bearing completion was not rejected."
+            diagnostics
+            exit 1
+          fi
+          cleanup_pass_count="$(grep -Fc 'SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE' "$logcat_log" || true)"
+          if [[ "$cleanup_pass_count" -lt 1 ]]; then
+            echo "Android RN stale-output cleanup was not proven exactly once."
+            diagnostics
+            exit 1
+          fi
+          smoke_count="$(grep -Fc 'SNWC_RN_NATIVE_SMOKE_PASS:16' "$logcat_log" || true)"
+          if [[ "$smoke_count" -lt 2 ]]; then
+            echo "Android RN did not complete 16 API smoke in both generations."
+            diagnostics
+            exit 1
+          fi
+          if grep -Fq 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_FAILED' "$logcat_log"; then
+            echo "Android RN lifecycle reload reported failure."
+            diagnostics
+            exit 1
+          fi
+          echo "Android RN actual ReactHost reload and generation replacement evidence:"
+          grep -E 'SNWC_RN_NATIVE_(LIFECYCLE_RELOAD_REQUESTED|LIFECYCLE_RELOAD_COMPLETED|RUNTIME_READY|STALE_COMPLETION_REJECTED|SMOKE_PASS:16)' "$logcat_log"
 
       - name: Build iOS static archive for the approved slice
         if: matrix.platform == 'ios'
         shell: bash
         env:
-          SNWC_PODFILE_LOCK_BOOTSTRAP: "1"
-          SNWC_PODFILE_LOCK_OUTPUT: ${{ github.workspace }}/release-react-native/Podfile.lock
+          SNWC_RN_LIFECYCLE_INTEGRATION_TEST: "1"
         run: |
           set -euo pipefail
           node scripts/build-react-native-release.mjs ios \
@@ -596,6 +675,8 @@ jobs:
 
       - name: Independently reproduce and compare the iOS producer archive
         if: matrix.platform == 'ios'
+        env:
+          SNWC_RN_LIFECYCLE_INTEGRATION_TEST: "1"
         shell: bash
         run: |
           set -euo pipefail
@@ -686,6 +767,8 @@ jobs:
           fi
 
       - name: Install the generated XCFramework through the consumer Podfile
+        env:
+          SNWC_RN_LIFECYCLE_INTEGRATION_TEST: "1"
         shell: bash
         run: |
           set -euo pipefail
@@ -706,8 +789,7 @@ jobs:
           xcrun simctl bootstatus "$simulator_udid" -b
           xcrun simctl install "$simulator_udid" "$app_path"
           xcrun simctl terminate "$simulator_udid" "$bundle_id" >/dev/null 2>&1 || true
-          if ! launch_output="$(xcrun simctl launch "$simulator_udid" "$bundle_id" \
-            --snwc-rn-lifecycle-reload 2>&1)"; then
+          if ! launch_output="$(xcrun simctl launch "$simulator_udid" "$bundle_id" 2>&1)"; then
             echo "$launch_output"
             echo "Installed app container:"
             xcrun simctl get_app_container "$simulator_udid" "$bundle_id" app || true
@@ -716,15 +798,65 @@ jobs:
             exit 1
           fi
           echo "$launch_output"
-          for attempt in $(seq 1 60); do
-            if xcrun simctl spawn "$simulator_udid" log show --last 2m --style compact --predicate 'eventMessage CONTAINS "SNWC_RN_NATIVE_SMOKE_PASS:16"' | grep -q 'SNWC_RN_NATIVE_SMOKE_PASS:16' \
-              && xcrun simctl spawn "$simulator_udid" log show --last 2m --style compact --predicate 'eventMessage CONTAINS "SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED"' | grep -q 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED'; then
-              exit 0
+          lifecycle_log="$RUNNER_TEMP/snwc-ios-lifecycle.log"
+          refresh_lifecycle_log() {
+            xcrun simctl spawn "$simulator_udid" log show --last 5m --style compact >"$lifecycle_log"
+          }
+          initial_ready=false
+          for attempt in $(seq 1 120); do
+            refresh_lifecycle_log
+            if grep -Fq 'SNWC_RN_NATIVE_SMOKE_PASS:16' "$lifecycle_log" \
+              && grep -Fq 'SNWC_RN_NATIVE_STALE_GATE_ARMED' "$lifecycle_log"; then
+              initial_ready=true
+              break
             fi
-            sleep 2
+            sleep 1
           done
-          xcrun simctl spawn "$simulator_udid" log show --last 2m --style compact
-          exit 1
+          if [[ "$initial_ready" != true ]]; then
+            echo "iOS RN initial smoke or stale-output gate was not observed."
+            cat "$lifecycle_log"
+            exit 1
+          fi
+          lifecycle_complete=false
+          for attempt in $(seq 1 120); do
+            refresh_lifecycle_log
+            if grep -Fq 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED' "$lifecycle_log"; then
+              lifecycle_complete=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$lifecycle_complete" != true ]]; then
+            echo "iOS RN actual reload completion was not observed."
+            cat "$lifecycle_log"
+            exit 1
+          fi
+          grep -Fq 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED' "$lifecycle_log"
+          grep -Fq 'SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED' "$lifecycle_log"
+          grep -Fq 'SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE' "$lifecycle_log"
+          runtime_lines="$(grep 'SNWC_RN_NATIVE_RUNTIME_READY:' "$lifecycle_log" || true)"
+          runtime_count="$(printf '%s\n' "$runtime_lines" | sed '/^$/d' | wc -l | tr -d ' ')"
+          if [[ "$runtime_count" -lt 2 ]]; then
+            echo "iOS RN did not report both old and new runtime identities."
+            cat "$lifecycle_log"
+            exit 1
+          fi
+          first_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '1p')"
+          second_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '2p')"
+          runtime_identity() { printf '%s\n' "$1" | sed -E 's/.*"runtime_identity":"([^"]+)".*/\1/'; }
+          registration_identity() { printf '%s\n' "$1" | sed -E 's/.*"registration_identity":"([^"]+)".*/\1/'; }
+          provider_generation() { printf '%s\n' "$1" | sed -E 's/.*"provider_generation":([0-9]+).*/\1/'; }
+          test "$(runtime_identity "$first_runtime")" != "$(runtime_identity "$second_runtime")"
+          test "$(registration_identity "$first_runtime")" != "$(registration_identity "$second_runtime")"
+          test "$(provider_generation "$first_runtime")" != "$(provider_generation "$second_runtime")"
+          smoke_count="$(grep -Fc 'SNWC_RN_NATIVE_SMOKE_PASS:16' "$lifecycle_log" || true)"
+          if [[ "$smoke_count" -lt 2 ]]; then
+            echo "iOS RN did not complete 16 API smoke in both generations."
+            cat "$lifecycle_log"
+            exit 1
+          fi
+          echo "iOS RN actual reload and generation replacement evidence:"
+          grep -E 'SNWC_RN_NATIVE_(LIFECYCLE_RELOAD_REQUESTED|LIFECYCLE_RELOAD_COMPLETED|RUNTIME_READY|STALE_COMPLETION_REJECTED|SMOKE_PASS:16)' "$lifecycle_log"
 
       - name: Upload the independently produced XCFramework evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

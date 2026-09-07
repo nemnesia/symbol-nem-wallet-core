@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+#include <condition_variable>
+#endif
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -37,6 +40,11 @@ class RnLifecycleCoordinator final {
     } identity;
     std::shared_ptr<const ProcessGeneration> processGeneration;
     bool active = false;
+    // A null runtime is only the pre-admission state used by the Android
+    // CxxReactPackage. It may be bound exactly once by the actual JSI
+    // Runtime& at the invocation boundary; it is never a wildcard.
+    bool runtimeBound = false;
+    bool retired = false;
   };
 
   struct Registration final {
@@ -73,6 +81,15 @@ class RnLifecycleCoordinator final {
   bool hasActiveRequestOnCurrentThread() const;
   ProcessState processState() const;
 
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+  // Test-only synchronization for the actual RN stale-completion harness.
+  // It is not present in production artifacts and does not alter admission.
+  bool armIntegrationStaleGate();
+  void waitForIntegrationInvalidation();
+  using IntegrationReloadCallback = void (*)();
+  void setIntegrationReloadCallback(IntegrationReloadCallback callback);
+#endif
+
  private:
   RnLifecycleCoordinator() = default;
 
@@ -87,6 +104,15 @@ class RnLifecycleCoordinator final {
   std::vector<std::weak_ptr<RegistrationState>> registrations_;
   std::mutex executionMutex_;
   std::shared_mutex deliveryBarrier_;
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+  std::condition_variable integrationGateCondition_;
+  bool integrationGateArmed_ = false;
+  bool integrationGateReleased_ = false;
+  bool integrationGateConsumed_ = false;
+  IntegrationReloadCallback integrationReloadCallback_ = nullptr;
+
+  void releaseIntegrationGateLocked();
+#endif
 };
 
 } // namespace facebook::react

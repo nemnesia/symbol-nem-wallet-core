@@ -30,6 +30,9 @@ const smokePayload = Uint8Array.from([
 
 const expectedModuleIdentity = 'symbol-nem-wallet-core-react-native-v1';
 const expectedModuleName = 'NativeSymbolNemWalletCore';
+type NativeModule = {
+  invoke(operation: string, args: { args: unknown[] }): unknown;
+};
 
 function smokeAssertion(label: string): never {
   const error = new Error(label);
@@ -93,12 +96,15 @@ function errorCode(error: unknown): string {
   return 'UnknownError';
 }
 
-function providerIdentity(): { target_id: string; artifact_identity: string } {
-  const module = TurboModuleRegistry.getEnforcing(
+function nativeModule(): NativeModule {
+  return TurboModuleRegistry.getEnforcing(
     expectedModuleName,
-  ) as unknown as {
-    invoke(operation: string, args: { args: unknown[] }): unknown;
-  };
+  ) as unknown as NativeModule;
+}
+
+function providerIdentity(
+  module: NativeModule,
+): { target_id: string; artifact_identity: string } {
   const identity = module.invoke('__snwc_runtime_identity', { args: [] });
   if (identity === null || typeof identity !== 'object') {
     smokeAssertion('provider-identity:missing');
@@ -125,6 +131,58 @@ function providerIdentity(): { target_id: string; artifact_identity: string } {
   };
 }
 
+type LifecycleProbe = {
+  runtime_identity: string;
+  module_registry_identity: string;
+  logical_context_identity: string;
+  provider_identity: string;
+  registration_identity: string;
+  provider_generation: number;
+  integration_test: boolean;
+};
+
+type CleanupEvidence = {
+  owned_release_count: number;
+  secret_zeroize_count: number;
+  cleanup_complete: boolean;
+};
+
+function lifecycleProbe(module: NativeModule): LifecycleProbe {
+  const raw = module.invoke('__snwc_lifecycle_probe', { args: [] });
+  if (raw === null || typeof raw !== 'object') {
+    smokeAssertion('lifecycle-probe:missing');
+  }
+  const value = raw as Partial<LifecycleProbe>;
+  if (
+    typeof value.runtime_identity !== 'string' ||
+    typeof value.module_registry_identity !== 'string' ||
+    typeof value.logical_context_identity !== 'string' ||
+    typeof value.provider_identity !== 'string' ||
+    typeof value.registration_identity !== 'string' ||
+    typeof value.provider_generation !== 'number' ||
+    typeof value.integration_test !== 'boolean'
+  ) {
+    smokeAssertion('lifecycle-probe:mismatch');
+  }
+  return value as LifecycleProbe;
+}
+
+function cleanupEvidence(module: NativeModule): CleanupEvidence {
+  const raw = module.invoke('__snwc_test_cleanup_evidence', { args: [] });
+  if (raw === null || typeof raw !== 'object') {
+    smokeAssertion('cleanup-evidence:missing');
+  }
+  const value = raw as Partial<CleanupEvidence>;
+  if (
+    typeof value.owned_release_count !== 'number' ||
+    typeof value.secret_zeroize_count !== 'number' ||
+    typeof value.cleanup_complete !== 'boolean'
+  ) {
+    smokeAssertion('cleanup-evidence:mismatch');
+  }
+  return value as CleanupEvidence;
+}
+
 function exportRequest(profileId: string, keyId?: string): ExportRequest {
   const target: ExportRequest['target'] =
     keyId === undefined
@@ -149,6 +207,7 @@ export default function App() {
     const yieldToUi = () =>
       new Promise<void>(resolve => setTimeout(resolve, 0));
     const setStatus = (value: string) => {
+      console.log(value);
       if (active) setSmokeStatus(value);
     };
     const step = async <T,>(name: string, call: () => T): Promise<T> => {
@@ -168,7 +227,21 @@ export default function App() {
     };
 
     const run = async () => {
-      const identity = providerIdentity();
+      const module = nativeModule();
+      const identity = providerIdentity(module);
+      const lifecycle = lifecycleProbe(module);
+      console.log(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
+      if (lifecycle.integration_test && lifecycle.provider_generation > 1) {
+        const cleanup = cleanupEvidence(module);
+        if (
+          !cleanup.cleanup_complete ||
+          cleanup.owned_release_count !== 1 ||
+          cleanup.secret_zeroize_count !== 1
+        ) {
+          smokeAssertion('cleanup-evidence:not-exactly-once');
+        }
+        console.log('SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE');
+      }
       setProviderStatus(
         `SNWC_RN_NATIVE_PROVIDER_READY:${identity.target_id}:${identity.artifact_identity}`,
       );
@@ -350,6 +423,16 @@ export default function App() {
         walletCore.delete_profile(deletedKey.store, profileId, newPassword),
       );
       setStatus('SNWC_RN_NATIVE_SMOKE_PASS:16');
+      if (lifecycle.integration_test && lifecycle.provider_generation === 1) {
+        console.log('SNWC_RN_NATIVE_STALE_GATE_ARMED');
+        try {
+          module.invoke('__snwc_test_stale_output', { args: [] });
+          smokeAssertion('stale-completion:accepted');
+        } catch (error) {
+          if (errorCode(error) !== 'BindingFailure') throw error;
+          console.log('SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED');
+        }
+      }
     };
 
     run().catch(error => {

@@ -54,10 +54,14 @@ RnLifecycleCoordinator::Registration RnLifecycleCoordinator::registerModule(
   std::lock_guard<std::mutex> lock(stateMutex_);
   ensureReadyLocked();
   for (const auto &candidate : registrations_) {
-    if (auto state = candidate.lock(); state && state->active &&
+    if (auto state = candidate.lock(); state &&
         state->identity.moduleRegistry == identity.moduleRegistry &&
         state->identity.logicalContext == identity.logicalContext) {
       state->active = false;
+      state->retired = true;
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+      releaseIntegrationGateLocked();
+#endif
     }
   }
   identity.providerGeneration = ++nextRegistrationGeneration_;
@@ -65,7 +69,8 @@ RnLifecycleCoordinator::Registration RnLifecycleCoordinator::registerModule(
   auto state = std::make_shared<RegistrationState>();
   state->identity = identity;
   state->processGeneration = processGeneration_;
-  state->active = true;
+  state->runtimeBound = identity.runtime != nullptr;
+  state->active = state->runtimeBound;
   registrations_.push_back(state);
   return {std::move(state)};
 }
@@ -75,21 +80,29 @@ RnLifecycleCoordinator::Request RnLifecycleCoordinator::begin(
     const void *runtime) {
   if (registration.state == nullptr || runtime == nullptr || hasActiveRequest) failLifecycle();
   std::lock_guard<std::mutex> lock(stateMutex_);
-  if (
+  const bool invalidBasic =
       processState_ != ProcessState::ready ||
-      !registration.state->active ||
+      registration.state->retired ||
       registration.state->identity.moduleRegistry == nullptr ||
       registration.state->identity.logicalContext == nullptr ||
       registration.state->identity.provider == nullptr ||
       registration.state->processGeneration != processGeneration_ ||
       processGeneration_ == nullptr ||
-      processGeneration_->processId != static_cast<uint64_t>(::getpid())) {
+      processGeneration_->processId != static_cast<uint64_t>(::getpid());
+  if (invalidBasic) {
     failLifecycle();
   }
-  // Android obtains the actual runtime at the JSI boundary. iOS binds it
-  // from RCTHost::didInitializeRuntime before module construction. A request
-  // never mutates a registration to capture a replacement runtime.
-  if (registration.state->identity.runtime != nullptr && registration.state->identity.runtime != runtime) {
+  // Android obtains the actual runtime at this JSI boundary. The pending
+  // registration is not active before this point and is bound exactly once;
+  // a later runtime can never be admitted through a null wildcard.
+  if (!registration.state->runtimeBound) {
+    registration.state->identity.runtime = runtime;
+    registration.state->runtimeBound = true;
+    registration.state->active = true;
+  } else if (
+      registration.state->identity.runtime == nullptr ||
+      registration.state->identity.runtime != runtime ||
+      !registration.state->active) {
     failLifecycle();
   }
   const uint64_t requestIdentity = ++nextRequestIdentity_;
@@ -114,10 +127,15 @@ bool RnLifecycleCoordinator::isLive(const Request &request) const {
       processState_ == ProcessState::ready &&
       request.registration != nullptr &&
       request.registration->active &&
-      (request.registration->identity.runtime == nullptr ||
-       request.registration->identity.runtime == request.runtime) &&
+      !request.registration->retired &&
+      request.runtime != nullptr &&
+      request.registration->identity.runtime != nullptr &&
+      request.registration->identity.runtime == request.runtime &&
+      request.moduleRegistry != nullptr &&
       request.registration->identity.moduleRegistry == request.moduleRegistry &&
+      request.logicalContext != nullptr &&
       request.registration->identity.logicalContext == request.logicalContext &&
+      request.provider != nullptr &&
       request.registration->identity.provider == request.provider &&
       request.registration->identity.providerGeneration == request.providerGeneration &&
       request.processGeneration == processGeneration_ &&
@@ -139,6 +157,10 @@ void RnLifecycleCoordinator::invalidate(const Registration &registration) noexce
   std::unique_lock<std::shared_mutex> barrier(deliveryBarrier_);
   std::lock_guard<std::mutex> lock(stateMutex_);
   registration.state->active = false;
+  registration.state->retired = true;
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+  releaseIntegrationGateLocked();
+#endif
   registrations_.erase(
       std::remove_if(
           registrations_.begin(),
@@ -156,6 +178,10 @@ void RnLifecycleCoordinator::invalidateProvider(const void *provider) noexcept {
   for (const auto &candidate : registrations_) {
     if (auto state = candidate.lock(); state && state->identity.provider == provider) {
       state->active = false;
+      state->retired = true;
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+      releaseIntegrationGateLocked();
+#endif
     }
   }
   registrations_.erase(
@@ -172,6 +198,10 @@ void RnLifecycleCoordinator::invalidateContext(const void *logicalContext) noexc
   for (const auto &candidate : registrations_) {
     if (auto state = candidate.lock(); state && state->identity.logicalContext == logicalContext) {
       state->active = false;
+      state->retired = true;
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+      releaseIntegrationGateLocked();
+#endif
     }
   }
   registrations_.erase(
@@ -188,8 +218,14 @@ void RnLifecycleCoordinator::processTeardown() noexcept {
     if (processState_ == ProcessState::closed || processState_ == ProcessState::unavailable) return;
     processState_ = ProcessState::draining;
     for (const auto &candidate : registrations_) {
-      if (auto state = candidate.lock()) state->active = false;
+      if (auto state = candidate.lock()) {
+        state->active = false;
+        state->retired = true;
+      }
     }
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+    releaseIntegrationGateLocked();
+#endif
     registrations_.clear();
     processGeneration_.reset();
   }
@@ -207,5 +243,41 @@ RnLifecycleCoordinator::ProcessState RnLifecycleCoordinator::processState() cons
   std::lock_guard<std::mutex> lock(stateMutex_);
   return processState_;
 }
+
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+bool RnLifecycleCoordinator::armIntegrationStaleGate() {
+  IntegrationReloadCallback callback = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    if (integrationGateConsumed_) return false;
+    integrationGateConsumed_ = true;
+    integrationGateArmed_ = true;
+    integrationGateReleased_ = false;
+    callback = integrationReloadCallback_;
+  }
+  // The iOS integration harness dispatches the actual RCTHost reload to the
+  // main queue from this callback. Android drives the same gate from adb
+  // after observing the armed marker.
+  if (callback != nullptr) callback();
+  return true;
+}
+
+void RnLifecycleCoordinator::waitForIntegrationInvalidation() {
+  std::unique_lock<std::mutex> lock(stateMutex_);
+  integrationGateCondition_.wait(lock, [this] { return integrationGateReleased_; });
+  integrationGateArmed_ = false;
+}
+
+void RnLifecycleCoordinator::releaseIntegrationGateLocked() {
+  if (!integrationGateArmed_) return;
+  integrationGateReleased_ = true;
+  integrationGateCondition_.notify_all();
+}
+
+void RnLifecycleCoordinator::setIntegrationReloadCallback(IntegrationReloadCallback callback) {
+  std::lock_guard<std::mutex> lock(stateMutex_);
+  integrationReloadCallback_ = callback;
+}
+#endif
 
 } // namespace facebook::react

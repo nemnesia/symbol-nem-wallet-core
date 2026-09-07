@@ -246,12 +246,12 @@ function runBundledCocoaPods(root, args, env = {}) {
     ...podArgs,
   ], { cwd: resolve(root, "ios"), env: bundleEnv, stdio: "inherit" });
   const after = readFileSync(lockPath);
-  if (before !== null && !before.equals(after)) fail("CocoaPods changed Podfile.lock during frozen installation");
-  validatePodfileLock(root);
-  if (process.env.SNWC_PODFILE_LOCK_OUTPUT) {
-    mkdirSync(dirname(process.env.SNWC_PODFILE_LOCK_OUTPUT), { recursive: true });
-    cpSync(lockPath, process.env.SNWC_PODFILE_LOCK_OUTPUT);
+  try {
+    assertPodfileLockUnchanged(before, after);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : "CocoaPods changed Podfile.lock during frozen installation");
   }
+  validatePodfileLock(root);
 }
 
 function configureAndroidConsumer(root, targetId, cAbiPath) {
@@ -260,7 +260,10 @@ function configureAndroidConsumer(root, targetId, cAbiPath) {
   const gradlePropertiesPath = resolve(root, "android/gradle.properties");
   if (!existsSync(gradlePath)) fail("generated Android consumer has no app/build.gradle");
   if (!existsSync(gradlePropertiesPath)) fail("generated Android consumer has no gradle.properties");
-  writeFileSync(gradlePath, `${readFileSync(gradlePath, "utf8")}\nandroid {\n  defaultConfig {\n    ndk { abiFilters '${target.architecture}' }\n    externalNativeBuild { cmake { arguments '-DSNWC_C_ABI_LIBRARY=${resolve(cAbiPath)}' } }\n  }\n  externalNativeBuild { cmake { path file('src/main/jni/CMakeLists.txt') } }\n}\n`);
+  const lifecycleArgument = process.env.SNWC_RN_LIFECYCLE_INTEGRATION_TEST === "1"
+    ? ", '-DSNWC_RN_LIFECYCLE_INTEGRATION_TEST=ON'"
+    : "";
+  writeFileSync(gradlePath, `${readFileSync(gradlePath, "utf8")}\nandroid {\n  defaultConfig {\n    ndk { abiFilters '${target.architecture}' }\n    externalNativeBuild { cmake { arguments '-DSNWC_C_ABI_LIBRARY=${resolve(cAbiPath)}'${lifecycleArgument} } }\n  }\n  externalNativeBuild { cmake { path file('src/main/jni/CMakeLists.txt') } }\n}\n`);
   const properties = readFileSync(gradlePropertiesPath, "utf8").replace(
     /^reactNativeArchitectures=.*$/m,
     `reactNativeArchitectures=${target.architecture}`,
@@ -371,6 +374,12 @@ function buildIos(targetId, cAbiPath, outputPath) {
       COMPILER_INDEX_STORE_ENABLE: "NO",
     };
     const sdk = target.environment === "simulator" ? "iphonesimulator" : "iphoneos";
+    const lifecycleTestBuildSettings = process.env.SNWC_RN_LIFECYCLE_INTEGRATION_TEST === "1"
+      ? [
+          "GCC_PREPROCESSOR_DEFINITIONS=$(inherited) SNWC_RN_LIFECYCLE_INTEGRATION_TEST=1",
+          "OTHER_CPLUSPLUSFLAGS=$(inherited) -DSNWC_RN_LIFECYCLE_INTEGRATION_TEST=1",
+        ]
+      : [];
     execFileSync("xcodebuild", [
       "-workspace", resolve(root, "ios/SnwcRnBuild.xcworkspace"),
       "-scheme", "SnwcRnBuild",
@@ -386,6 +395,7 @@ function buildIos(targetId, cAbiPath, outputPath) {
       // time instead of normalizing it after the artifact is produced.
       "GCC_GENERATE_DEBUGGING_SYMBOLS=NO",
       "CLANG_ENABLE_MODULE_DEBUGGING=NO",
+      ...lifecycleTestBuildSettings,
     ], { cwd: root, env: reproducibleBuildEnv, stdio: "inherit" });
     const candidates = [];
     function walk(directory) {
@@ -465,6 +475,12 @@ function consumeIosXcframework(xcframeworkPath, simulatorAppOutput) {
     // This is the artifact-consuming install. It runs only after the
     // producer has generated and structurally inspected both slices.
     runBundledCocoaPods(consumerRoot, ["install"]);
+    const lifecycleTestBuildSettings = process.env.SNWC_RN_LIFECYCLE_INTEGRATION_TEST === "1"
+      ? [
+          "GCC_PREPROCESSOR_DEFINITIONS=$(inherited) SNWC_RN_LIFECYCLE_INTEGRATION_TEST=1",
+          "OTHER_CPLUSPLUSFLAGS=$(inherited) -DSNWC_RN_LIFECYCLE_INTEGRATION_TEST=1",
+        ]
+      : [];
     execFileSync("xcodebuild", [
       "-workspace", resolve(consumerRoot, "ios/SnwcRnBuild.xcworkspace"),
       "-scheme", "SnwcRnBuild",
@@ -474,6 +490,7 @@ function consumeIosXcframework(xcframeworkPath, simulatorAppOutput) {
       "ARCHS=arm64",
       "ONLY_ACTIVE_ARCH=NO",
       "CODE_SIGNING_ALLOWED=NO",
+      ...lifecycleTestBuildSettings,
       "build",
     ], { cwd: consumerRoot, stdio: "inherit" });
     if (simulatorAppOutput) {

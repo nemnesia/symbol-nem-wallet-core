@@ -20,6 +20,10 @@ SNWC_RN_LIFECYCLE_EXPORT void snwc_ios_runtime_did_initialize(
 SNWC_RN_LIFECYCLE_EXPORT RnLifecycleCoordinator::RegistrationIdentity snwc_ios_module_identity(
     const void *provider);
 SNWC_RN_LIFECYCLE_EXPORT void snwc_ios_provider_did_invalidate(const void *provider) noexcept;
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+SNWC_RN_LIFECYCLE_EXPORT void snwc_ios_set_integration_reload_callback(
+    RnLifecycleCoordinator::IntegrationReloadCallback callback) noexcept;
+#endif
 
 } // namespace facebook::react
 

@@ -55,6 +55,11 @@ if(SNWC_RN_C_ABI_LIBRARY)
         SNWC_RN_ANDROID_ABI="${ANDROID_ABI}"
         SNWC_RN_TARGET_ID="android-${ANDROID_ABI}"
     )
+    if(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+        target_compile_definitions(symbol_nem_wallet_core_rn PRIVATE
+            SNWC_RN_LIFECYCLE_INTEGRATION_TEST=1
+        )
+    endif()
 else()
     if(NOT EXISTS "${SNWC_RN_PREBUILT}")
         message(FATAL_ERROR "published RN artifact is missing for ${ANDROID_ABI}")

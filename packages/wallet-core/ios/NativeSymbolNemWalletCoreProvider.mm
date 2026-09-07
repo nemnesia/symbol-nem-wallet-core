@@ -58,6 +58,7 @@ std::unordered_map<std::thread::id, IosRuntimeBinding> &iosRuntimeBindings() {
 
 void snwc_ios_host_did_start(const void *host, const void *moduleRegistry) noexcept {
   if (host == nullptr || moduleRegistry == nullptr) return;
+  NSLog(@"SNWC_RN_NATIVE_HOST_DID_START:%p:%p", host, moduleRegistry);
   // RCTHost calls hostDidStart after it has invalidated the previous
   // RCTInstance during reload. Invalidate the old host registration before
   // the replacement runtime can execute JavaScript.
@@ -77,6 +78,7 @@ void snwc_ios_runtime_did_initialize(
     const void *moduleRegistry,
     const void *runtime) noexcept {
   if (host == nullptr || moduleRegistry == nullptr || runtime == nullptr) return;
+  NSLog(@"SNWC_RN_NATIVE_RUNTIME_INITIALIZED:%p:%p:%p", host, moduleRegistry, runtime);
   RnLifecycleCoordinator::shared().registerProcessLifecycle();
   std::lock_guard<std::mutex> lock(iosRuntimeMutex());
   iosRuntimeBindings()[std::this_thread::get_id()] = {host, moduleRegistry, runtime, nullptr};
@@ -89,6 +91,7 @@ RnLifecycleCoordinator::RegistrationIdentity snwc_ios_module_identity(const void
   if (iterator == iosRuntimeBindings().end()) throw std::runtime_error("BindingFailure");
   IosRuntimeBinding &binding = iterator->second;
   binding.provider = provider;
+  NSLog(@"SNWC_RN_NATIVE_PROVIDER_ADMITTED:%p:%p:%p", binding.runtime, binding.host, provider);
   return {
       .runtime = binding.runtime,
       .moduleRegistry = binding.moduleRegistry,
@@ -108,6 +111,13 @@ void snwc_ios_provider_did_invalidate(const void *provider) noexcept {
     }
   }
 }
+
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+void snwc_ios_set_integration_reload_callback(
+    RnLifecycleCoordinator::IntegrationReloadCallback callback) noexcept {
+  RnLifecycleCoordinator::shared().setIntegrationReloadCallback(callback);
+}
+#endif
 
 } // namespace facebook::react
 

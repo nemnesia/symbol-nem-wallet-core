@@ -4,9 +4,12 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstring>
+#include <iomanip>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -85,6 +88,8 @@ class AdmissionTicket final {
     if (!coordinator_.isLive(request_)) fail(kBindingFailure);
   }
 
+  const RnLifecycleCoordinator::Request &request() const { return request_; }
+
   template <typename Function>
   decltype(auto) deliver(Function &&function) const {
     std::shared_lock<std::shared_mutex> deliveryLock(coordinator_.deliveryBarrier());
@@ -97,6 +102,19 @@ class AdmissionTicket final {
   RnLifecycleCoordinator::Request request_{};
   std::unique_lock<std::mutex> lock_;
 };
+
+std::string pointerIdentity(const void *value) {
+  std::ostringstream stream;
+  stream << "0x" << std::hex << reinterpret_cast<uintptr_t>(value);
+  return stream.str();
+}
+
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+std::atomic<uint64_t> integrationOwnedBytesReleaseCount{0};
+std::atomic<uint64_t> integrationSecretZeroizeCount{0};
+std::atomic<uint64_t> integrationStaleOwnedBaseline{0};
+std::atomic<uint64_t> integrationStaleSecretBaseline{0};
+#endif
 
 class SecretBytes final {
  public:
@@ -112,7 +130,12 @@ class SecretBytes final {
     }
     return *this;
   }
-  ~SecretBytes() { wipeSecret(bytes_); }
+  ~SecretBytes() {
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+    if (!bytes_.empty()) integrationSecretZeroizeCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+    wipeSecret(bytes_);
+  }
 
   SnwcBytes cBytes() const {
     return {bytes_.empty() ? nullptr : bytes_.data(), bytes_.size()};
@@ -130,6 +153,11 @@ class OwnedBytes final {
   OwnedBytes &operator=(const OwnedBytes &) = delete;
   void release() noexcept {
     if (!released_) {
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+      if (value.ptr != nullptr || value.len != 0) {
+        integrationOwnedBytesReleaseCount.fetch_add(1, std::memory_order_relaxed);
+      }
+#endif
       snwc_free_bytes(&value);
       released_ = true;
     }
@@ -652,6 +680,66 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
         return result;
       });
     }
+    if (operation == "__snwc_lifecycle_probe") {
+      exactArgumentCount(runtime, args, 0);
+      return ticket.deliver([&]() {
+        Object result(runtime);
+        setValue(runtime, result, "runtime_identity",
+            String::createFromUtf8(runtime, pointerIdentity(ticket.request().runtime)));
+        setValue(runtime, result, "module_registry_identity",
+            String::createFromUtf8(runtime, pointerIdentity(ticket.request().moduleRegistry)));
+        setValue(runtime, result, "logical_context_identity",
+            String::createFromUtf8(runtime, pointerIdentity(ticket.request().logicalContext)));
+        setValue(runtime, result, "provider_identity",
+            String::createFromUtf8(runtime, pointerIdentity(ticket.request().provider)));
+        setValue(runtime, result, "registration_identity",
+            String::createFromUtf8(runtime, pointerIdentity(ticket.request().registration.get())));
+        setValue(runtime, result, "provider_generation",
+            Value(static_cast<double>(ticket.request().providerGeneration)));
+        setValue(runtime, result, "integration_test",
+            Value(
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+                true
+#else
+                false
+#endif
+            ));
+        return result;
+      });
+    }
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+    if (operation == "__snwc_test_cleanup_evidence") {
+      exactArgumentCount(runtime, args, 0);
+      return ticket.deliver([&]() {
+        const auto owned = integrationOwnedBytesReleaseCount.load(std::memory_order_relaxed) -
+            integrationStaleOwnedBaseline.load(std::memory_order_relaxed);
+        const auto zeroized = integrationSecretZeroizeCount.load(std::memory_order_relaxed) -
+            integrationStaleSecretBaseline.load(std::memory_order_relaxed);
+        Object result(runtime);
+        setValue(runtime, result, "owned_release_count", Value(static_cast<double>(owned)));
+        setValue(runtime, result, "secret_zeroize_count", Value(static_cast<double>(zeroized)));
+        setValue(runtime, result, "cleanup_complete", Value(owned == 1 && zeroized == 1));
+        return result;
+      });
+    }
+    if (operation == "__snwc_test_stale_output") {
+      exactArgumentCount(runtime, args, 0);
+      integrationStaleOwnedBaseline.store(
+          integrationOwnedBytesReleaseCount.load(std::memory_order_relaxed), std::memory_order_relaxed);
+      integrationStaleSecretBaseline.store(
+          integrationSecretZeroizeCount.load(std::memory_order_relaxed), std::memory_order_relaxed);
+      if (!RnLifecycleCoordinator::shared().armIntegrationStaleGate()) fail(kBindingFailure);
+      // This is the real C ABI path. The controlled gate is reached after
+      // the C ABI has allocated its output and before any JSI DTO is built.
+      OwnedBytes store;
+      checkCoreError(snwc_create_empty_store(&store.value));
+      SecretBytes nativeStore = copyOwnedBytes(store, ticket);
+      RnLifecycleCoordinator::shared().waitForIntegrationInvalidation();
+      return ticket.deliver([&]() {
+        return objectValue(runtime, bytesToJs(runtime, nativeStore));
+      });
+    }
+#endif
     if (operation == "create_empty_store") {
       exactArgumentCount(runtime, args, 0);
       OwnedBytes store;
