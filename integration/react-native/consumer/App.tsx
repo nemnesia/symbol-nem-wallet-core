@@ -239,14 +239,6 @@ export default function App() {
       const module = nativeModule();
       const identity = providerIdentity(module);
       const lifecycle = lifecycleProbe(module);
-      if (!lifecycle.integration_test || lifecycle.provider_generation === 1) {
-        // The Android stale-output invocation intentionally blocks this JS
-        // thread until the external lifecycle harness retires the provider.
-        // Record the actual runtime identity before arming that gate so the
-        // harness can request reload without relying on a marker emitted by a
-        // blocked completion.
-        setStatus(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
-      }
       if (lifecycle.integration_test && lifecycle.provider_generation > 1) {
         setStatus(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
         setStatus('SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED');
@@ -442,6 +434,13 @@ export default function App() {
       );
       setStatus('SNWC_RN_NATIVE_SMOKE_PASS:16');
       if (lifecycle.integration_test && lifecycle.provider_generation === 1) {
+        // The Android stale-output invocation intentionally blocks this JS
+        // thread until the external lifecycle harness retires the provider.
+        // Emit the actual runtime identity after the smoke but before arming
+        // that gate, so the harness can request reload without relying on a
+        // marker emitted by a blocked completion. The smoke also gives the
+        // iOS pre-launch log stream time to attach before this marker.
+        setStatus(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
         setStatus('SNWC_RN_NATIVE_STALE_GATE_ARMED');
         try {
           module.invoke('__snwc_test_stale_output', { args: [] });
