@@ -147,7 +147,8 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(releaseProducer, /execFileSync\("ar", \["-t", artifact\]/);
   assert.match(releaseProducer, /execFileSync\("ar", \["-d", artifact, producerDummy\]/);
   assert.doesNotMatch(releaseProducer, /bundle", \["exec", "pod", "install"\]/);
-  assert.match(releaseProducer, /cpSync\(resolve\(packageRoot, "cpp"\), resolve\(packageClone, "cpp"\)/);
+  assert.match(releaseProducer, /const consumerPackageRoot = resolve\(workspace, "packages\/wallet-core"\)/);
+  assert.match(releaseProducer, /cpSync\(xcframeworkPath, resolve\(consumerPackageRoot, "dist\/react-native\/ios\/SymbolNemWalletCoreRN\.xcframework"\)/);
   assert.doesNotMatch(releaseProducer, /candidates\.find\(\(path\) => path\.endsWith\("\.a"\)\)/);
   assert.match(nativeModuleSource, /PACKAGE_REACT_NATIVE_MANIFEST/);
   assert.match(nativeModuleSource, /invalid React Native artifact manifest/);
