@@ -197,6 +197,7 @@ test("npm pack dry run contains only package metadata, README, license, and dist
     "ios/SnwcRnLifecycle.h",
     "ios/SnwcRnLifecycleDelegate.h",
     "ios/SnwcRnLifecycleDelegate.mm",
+    "ios/SnwcRnLifecycleModuleAnchor.m",
     "ios/SnwcRnLifecycleCoordinator.cpp",
     "ios/SymbolNemWalletCoreRN.podspec",
     "src/react-native/NativeSymbolNemWalletCore.ts",

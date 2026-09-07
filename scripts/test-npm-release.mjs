@@ -335,6 +335,7 @@ function packageInventory(manifest, entry) {
     "ios/SnwcRnLifecycle.h",
     "ios/SnwcRnLifecycleDelegate.h",
     "ios/SnwcRnLifecycleDelegate.mm",
+    "ios/SnwcRnLifecycleModuleAnchor.m",
     "ios/SnwcRnLifecycleCoordinator.cpp",
     "ios/SymbolNemWalletCoreRN.podspec",
     "src/react-native/NativeSymbolNemWalletCore.ts",
