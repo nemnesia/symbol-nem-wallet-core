@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
@@ -22,6 +21,10 @@ import {
   validateReactNativeXcframework,
 } from "../packages/wallet-core/src/react-native-manifest.mjs";
 import { reactNativeBuildInputSha256 } from "./react-native-evidence.mjs";
+import {
+  assertPodfileLockUnchanged,
+  validatePodfileLock as validateCanonicalPodfileLock,
+} from "./react-native-pod-lock.mjs";
 import { inlineReactNativeRuntime } from "./react-native-runtime.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -29,16 +32,7 @@ const consumerTemplate = resolve(repositoryRoot, "integration/react-native/consu
 const consumerManifestPath = resolve(consumerTemplate, "manifest.json");
 const consumerGemfilePath = resolve(consumerTemplate, "Gemfile");
 const consumerGemfileLockPath = resolve(consumerTemplate, "Gemfile.lock");
-const consumerPodfilePath = resolve(consumerTemplate, "ios/Podfile");
-const consumerPodfileLockPath = resolve(consumerTemplate, "ios/Podfile.lock");
 const packageRoot = resolve(repositoryRoot, "packages/wallet-core");
-const EXPECTED_COCOAPODS_VERSION = "1.16.2";
-// Filled from the actual RN 0.87.0 consumer resolution before the IR-024
-// change is committed. Keeping this digest in the canonical validator makes a
-// source-controlled lockfile an immutable producer input rather than a second
-// mutable declaration of the approved graph.
-const EXPECTED_PODFILE_SHA256 = "";
-const EXPECTED_PODFILE_LOCK_SHA256 = "";
 
 function fail(message) {
   throw new Error(`React Native release producer failed: ${message}`);
@@ -73,51 +67,12 @@ function packageVersion() {
   return metadata.version;
 }
 
-function sha256File(path, label) {
-  try {
-    const bytes = readFileSync(path);
-    if (!statSync(path).isFile()) fail(`${label} is not a file`);
-    return createHash("sha256").update(bytes).digest("hex");
-  } catch {
-    fail(`${label} is missing or unreadable`);
-  }
-}
-
 function validatePodfileLock(root = consumerTemplate) {
-  const podfilePath = resolve(root, "ios/Podfile");
-  const lockPath = resolve(root, "ios/Podfile.lock");
-  if (!existsSync(lockPath) && process.env.SNWC_PODFILE_LOCK_BOOTSTRAP === "1") {
-    return { bootstrap: true };
+  try {
+    return validateCanonicalPodfileLock(root);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : "Podfile.lock validation failed");
   }
-  const podfile = readFileSync(podfilePath, "utf8");
-  const lockfile = readFileSync(lockPath, "utf8");
-  const podfileSha256 = sha256File(podfilePath, "Podfile");
-  const lockfileSha256 = sha256File(lockPath, "Podfile.lock");
-  if (EXPECTED_PODFILE_SHA256 && podfileSha256 !== EXPECTED_PODFILE_SHA256) {
-    fail("Podfile does not match the canonical source-controlled input");
-  }
-  if (EXPECTED_PODFILE_LOCK_SHA256 && lockfileSha256 !== EXPECTED_PODFILE_LOCK_SHA256) {
-    fail("Podfile.lock does not match the canonical source-controlled resolved graph");
-  }
-  if (
-    !podfile.includes("pod 'SymbolNemWalletCoreRN', :path => ENV.fetch('SNWC_RN_POD_PATH', '../../../../packages/wallet-core/ios')") ||
-    !/^PODS:\n/m.test(lockfile) ||
-    !/^DEPENDENCIES:\n/m.test(lockfile) ||
-    !/^SPEC REPOS:\n/m.test(lockfile) ||
-    !/^EXTERNAL SOURCES:\n/m.test(lockfile) ||
-    !/^SPEC CHECKSUMS:\n/m.test(lockfile) ||
-    !/^PODFILE CHECKSUM: [0-9a-f]{64}$/m.test(lockfile) ||
-    !new RegExp(`^COCOAPODS: ${EXPECTED_COCOAPODS_VERSION.replace(".", "\\.")}$`, "m").test(lockfile) ||
-    !/^\s*- SymbolNemWalletCoreRN \(0\.1\.0\)$/m.test(lockfile) ||
-    !/^\s*- React-Core$/m.test(lockfile) ||
-    !/^\s*- React-RCTAppDelegate$/m.test(lockfile) ||
-    !/^\s*- ReactCodegen$/m.test(lockfile) ||
-    !/^\s*- React-jsi$/m.test(lockfile) ||
-    !/^\s*- ReactCommon\/turbomodule\/core$/m.test(lockfile)
-  ) {
-    fail("Podfile.lock is incomplete or is not the RN 0.87.0 consumer graph");
-  }
-  return { podfileSha256, lockfileSha256, lockfile };
 }
 
 function verifyTemplate() {
@@ -172,11 +127,6 @@ function verifyTemplate() {
     "index.js",
   ]) {
     const path = resolve(consumerTemplate, relativePath);
-    if (
-      relativePath === "ios/Podfile.lock" &&
-      process.env.SNWC_PODFILE_LOCK_BOOTSTRAP === "1" &&
-      !existsSync(path)
-    ) continue;
     if (!existsSync(path) || !statSync(path).isFile()) fail(`consumer template file is missing: ${relativePath}`);
   }
   return manifest;
@@ -283,13 +233,11 @@ function runBundledCocoaPods(root, args, env = {}) {
   // in its shebang on macOS. Load the locked bin path from the selected Ruby
   // interpreter instead, so a second system Ruby cannot enter the producer.
   const podArgs = [...args];
-  if (podArgs[0] === "install" && process.env.SNWC_PODFILE_LOCK_BOOTSTRAP !== "1") {
+  if (podArgs[0] === "install") {
     podArgs.push("--deployment", "--no-repo-update");
-  } else if (podArgs[0] === "install") {
-    podArgs.push("--no-repo-update");
   }
   const lockPath = resolve(root, "ios/Podfile.lock");
-  const before = existsSync(lockPath) ? readFileSync(lockPath) : null;
+  const before = readFileSync(lockPath);
   execFileSync("ruby", [
     "-rbundler/setup",
     "-e",
