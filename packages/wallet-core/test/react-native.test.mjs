@@ -123,6 +123,8 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(podspec, /generated\/ios\/ReactCodegen/);
   assert.match(podspec, /xcframework = "\.\.\/dist\/react-native\/ios\/SymbolNemWalletCoreRN\.xcframework"/);
   assert.match(podspec, /File\.directory\?\(File\.expand_path\(xcframework, __dir__\)\)/);
+  assert.match(podspec, /s\.vendored_libraries = xcframework/);
+  assert.doesNotMatch(podspec, /s\.vendored_frameworks = xcframework/);
   assert.match(releaseProducer, /SymbolNemWalletCoreRN\.framework\/SymbolNemWalletCoreRN/);
   assert.match(releaseProducer, /-rbundler\/setup/);
   assert.match(releaseProducer, /Gem\.bin_path\('cocoapods', 'pod', '1\.16\.2'\)/);

@@ -13,8 +13,13 @@ Pod::Spec.new do |s|
   s.static_framework = true
   xcframework = "../dist/react-native/ios/SymbolNemWalletCoreRN.xcframework"
   if File.directory?(File.expand_path(xcframework, __dir__))
-    s.vendored_frameworks = xcframework
-    # The framework contains the C++ lifecycle implementation. Keep this
+    # This XCFramework contains static-library slices produced by
+    # xcodebuild -create-xcframework -library, not framework bundles. Use the
+    # library declaration so CocoaPods passes the selected slice to the app
+    # linker instead of wrapping only the consumer-side delegate in a new
+    # static framework.
+    s.vendored_libraries = xcframework
+    # The artifact contains the C++ lifecycle implementation. Keep this
     # small ObjC++ delegate in the consumer target so Swift applications can
     # subclass it and receive the actual RCTHostDelegate callbacks.
     s.source_files = ["SnwcRnLifecycleDelegate.{h,mm}"]
