@@ -15,19 +15,52 @@ Pod::Spec.new do |s|
   if File.directory?(File.expand_path(xcframework, __dir__))
     # This XCFramework contains static-library slices produced by
     # xcodebuild -create-xcframework -library, not framework bundles. CocoaPods
-    # selects and copies the matching slice when it is declared as a vendored
-    # framework, but the aggregate target still needs to force-load that
-    # archive. The archive contains the C++ lifecycle bridge and the ObjC++
-    # delegate, so link the artifact as-is and expose only the delegate header
-    # from this Pod target. Compiling the delegate again would define the
-    # Objective-C class twice once the archive is force-loaded.
-    s.vendored_frameworks = xcframework
+    # 1.16 does not copy such a library when it is declared as a vendored
+    # framework, so select the approved slice in a fail-closed Pod build phase.
+    # The copied archive contains the C++ lifecycle bridge and the ObjC++
+    # delegate; expose only the delegate header from this Pod target. The
+    # delegate must not be compiled again once the archive is force-loaded.
     s.source_files = ["SnwcRnLifecycleDelegate.h", "SnwcRnLifecycleModuleAnchor.m"]
+    s.script_phase = {
+      :name => "Select SymbolNemWalletCoreRN XCFramework slice",
+      :execution_position => :before_compile,
+      :input_files => [
+        "#{xcframework}/ios-arm64/libsymbol_nem_wallet_core_rn.a",
+        "#{xcframework}/ios-arm64-simulator/libsymbol_nem_wallet_core_rn.a",
+      ],
+      :output_files => [
+        "$(BUILT_PRODUCTS_DIR)/SymbolNemWalletCoreRN/libsymbol_nem_wallet_core_rn.a",
+      ],
+      :script => <<-'SCRIPT'
+set -eu
+
+case "$PLATFORM_NAME" in
+  iphoneos)
+    slice="ios-arm64"
+    ;;
+  iphonesimulator)
+    slice="ios-arm64-simulator"
+    ;;
+  *)
+    echo "Unsupported Apple platform: $PLATFORM_NAME" >&2
+    exit 1
+    ;;
+esac
+
+input="$PODS_TARGET_SRCROOT/../dist/react-native/ios/SymbolNemWalletCoreRN.xcframework/$slice/libsymbol_nem_wallet_core_rn.a"
+output="$BUILT_PRODUCTS_DIR/SymbolNemWalletCoreRN/libsymbol_nem_wallet_core_rn.a"
+test -f "$input"
+mkdir -p "$(dirname "$output")"
+rm -f "$output"
+cp "$input" "$output"
+test -f "$output"
+SCRIPT
+    }
     s.user_target_xcconfig = {
       "OTHER_LDFLAGS" => [
         "$(inherited)",
         "-force_load",
-        '"$(PODS_XCFRAMEWORKS_BUILD_DIR)/SymbolNemWalletCoreRN/libsymbol_nem_wallet_core_rn.a"',
+        '"$(BUILT_PRODUCTS_DIR)/SymbolNemWalletCoreRN/libsymbol_nem_wallet_core_rn.a"',
       ].join(" "),
     }
   else
