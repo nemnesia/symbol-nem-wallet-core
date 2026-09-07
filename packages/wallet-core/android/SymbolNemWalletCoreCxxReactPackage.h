@@ -29,7 +29,7 @@ class SymbolNemWalletCoreCxxReactPackage final
       const std::string &name,
       const std::shared_ptr<CallInvoker> &jsInvoker) override;
 
-  void invalidate() noexcept;
+  void nativeInvalidate() noexcept;
 
  private:
   friend HybridBase;
@@ -39,15 +39,5 @@ class SymbolNemWalletCoreCxxReactPackage final
 
   jni::global_ref<jobject> reactContext_;
 };
-
-struct JSymbolNemWalletCoreRnLifecycle
-    : jni::JavaClass<JSymbolNemWalletCoreRnLifecycle> {
-  static constexpr auto kJavaDescriptor =
-      "Lcom/nemnesia/symbolnemwalletcore/SymbolNemWalletCoreRnLifecycle;";
-};
-
-void nativeInvalidateReactPackage(
-    jni::alias_ref<SymbolNemWalletCoreCxxReactPackage::javaobject> packageInstance);
-void registerReactLifecycleNatives();
 
 } // namespace facebook::react

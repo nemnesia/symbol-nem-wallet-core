@@ -69,7 +69,6 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
   facebook::react::RnLifecycleCoordinator::shared().registerProcessLifecycle();
   return facebook::jni::initialize(vm, [] {
     facebook::react::SymbolNemWalletCoreCxxReactPackage::registerNatives();
-    facebook::react::registerReactLifecycleNatives();
     facebook::react::DefaultTurboModuleManagerDelegate::cxxModuleProvider =
         &facebook::react::cxxModuleProvider;
     facebook::react::DefaultTurboModuleManagerDelegate::javaModuleProvider =

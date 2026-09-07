@@ -14,20 +14,8 @@ SymbolNemWalletCoreCxxReactPackage::initHybrid(
 void SymbolNemWalletCoreCxxReactPackage::registerNatives() {
   registerHybrid({
       makeNativeMethod("initHybrid", SymbolNemWalletCoreCxxReactPackage::initHybrid),
-  });
-}
-
-void nativeInvalidateReactPackage(
-    jni::alias_ref<SymbolNemWalletCoreCxxReactPackage::javaobject> packageInstance) {
-  if (packageInstance == nullptr) return;
-  if (auto nativePackage = packageInstance->cthis()) {
-    nativePackage->invalidate();
-  }
-}
-
-void registerReactLifecycleNatives() {
-  JSymbolNemWalletCoreRnLifecycle::javaClassStatic()->registerNatives({
-      makeNativeMethod("nativeInvalidate", nativeInvalidateReactPackage),
+      makeNativeMethod(
+          "nativeInvalidate", SymbolNemWalletCoreCxxReactPackage::nativeInvalidate),
   });
 }
 
@@ -51,7 +39,7 @@ std::shared_ptr<TurboModule> SymbolNemWalletCoreCxxReactPackage::getModule(
   return std::make_shared<NativeSymbolNemWalletCore>(std::move(jsInvoker), identity);
 }
 
-void SymbolNemWalletCoreCxxReactPackage::invalidate() noexcept {
+void SymbolNemWalletCoreCxxReactPackage::nativeInvalidate() noexcept {
   RnLifecycleCoordinator::shared().invalidateProvider(this);
 }
 

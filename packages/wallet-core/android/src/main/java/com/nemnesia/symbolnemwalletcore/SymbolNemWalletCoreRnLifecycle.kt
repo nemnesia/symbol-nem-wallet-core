@@ -44,7 +44,7 @@ public object SymbolNemWalletCoreRnLifecycle {
       val listener: () -> Unit = listener@{
         val context = host.currentReactContext ?: return@listener
         val packageInstance = synchronized(lock) { packages.remove(context) }
-        if (packageInstance != null) nativeInvalidate(packageInstance)
+        if (packageInstance != null) packageInstance.invalidateFromReactHost()
       }
       beforeDestroy = listener
       attachedHost = host
@@ -53,8 +53,4 @@ public object SymbolNemWalletCoreRnLifecycle {
     }
   }
 
-  @JvmStatic
-  private external fun nativeInvalidate(
-      packageInstance: SymbolNemWalletCoreCxxReactPackage,
-  )
 }

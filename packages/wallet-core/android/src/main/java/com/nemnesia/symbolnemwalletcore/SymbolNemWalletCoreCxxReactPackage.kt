@@ -22,6 +22,12 @@ public class SymbolNemWalletCoreCxxReactPackage private constructor(
     SymbolNemWalletCoreRnLifecycle.register(reactContext, this)
   }
 
+  internal fun invalidateFromReactHost() {
+    nativeInvalidate()
+  }
+
+  @DoNotStrip private external fun nativeInvalidate()
+
   public companion object {
     @JvmStatic
     public fun create(reactContext: ReactContext): SymbolNemWalletCoreCxxReactPackage =

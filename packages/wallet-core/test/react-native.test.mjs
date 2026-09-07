@@ -58,6 +58,10 @@ test("React Native native integration registers appmodules and gates JSI deliver
     resolve(packageRoot, "android/src/main/java/com/nemnesia/symbolnemwalletcore/SymbolNemWalletCoreRnLifecycle.kt"),
     "utf8",
   );
+  const androidPackageKotlin = readFileSync(
+    resolve(packageRoot, "android/src/main/java/com/nemnesia/symbolnemwalletcore/SymbolNemWalletCoreCxxReactPackage.kt"),
+    "utf8",
+  );
   const androidConsumerApplication = readFileSync(
     resolve(packageRoot, "../../integration/react-native/consumer/android/app/src/main/java/com/snwcrnbuild/MainApplication.kt"),
     "utf8",
@@ -159,12 +163,15 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(androidPackage, /identity\.logicalContext = reactContext_\.get/);
   assert.match(androidPackageHeader, /JReactContext/);
   assert.match(androidPackageHeader, /com\/facebook\/react\/bridge\/ReactContext/);
+  assert.match(androidPackage, /makeNativeMethod\(\s*"nativeInvalidate"/);
+  assert.match(androidPackageKotlin, /invalidateFromReactHost/);
+  assert.match(androidPackageKotlin, /private external fun nativeInvalidate\(\)/);
   assert.match(androidPackageHeader, /CxxReactPackage/);
   assert.match(androidLifecycle, /addBeforeDestroyListener/);
   assert.match(androidLifecycle, /addReactInstanceEventListener/);
   assert.match(androidLifecycle, /object : ReactInstanceEventListener/);
   assert.match(androidLifecycle, /onReactContextInitialized/);
-  assert.match(androidLifecycle, /nativeInvalidate/);
+  assert.match(androidLifecycle, /invalidateFromReactHost/);
   assert.match(androidConsumerApplication, /cxxReactPackageProviders/);
   assert.match(androidConsumerApplication, /SymbolNemWalletCoreRnLifecycle\.attach/);
   assert.match(iosLifecycle, /moduleRegistry/);
