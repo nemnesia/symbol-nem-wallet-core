@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <cstdio>
 #include <iomanip>
 #include <mutex>
 #include <sstream>
@@ -14,6 +15,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+#if defined(SNWC_RN_PLATFORM_ANDROID) && defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+#include <android/log.h>
+#endif
 
 namespace facebook::react {
 
@@ -85,7 +90,17 @@ class AdmissionTicket final {
   }
 
   void ensureLive() const {
-    if (!coordinator_.isLive(request_)) fail(kBindingFailure);
+    if (!coordinator_.isLive(request_)) {
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+#if defined(SNWC_RN_PLATFORM_ANDROID)
+      __android_log_print(ANDROID_LOG_INFO, "SnwcRnBuild", "SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED");
+#else
+      std::fputs("SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED\n", stderr);
+      std::fflush(stderr);
+#endif
+#endif
+      fail(kBindingFailure);
+    }
   }
 
   const RnLifecycleCoordinator::Request &request() const { return request_; }

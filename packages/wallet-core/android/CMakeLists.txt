@@ -43,7 +43,7 @@ if(SNWC_RN_C_ABI_LIBRARY)
     else()
         message(FATAL_ERROR "RN Codegen target for SymbolNemWalletCoreSpec is missing")
     endif()
-    target_link_libraries(symbol_nem_wallet_core_rn PUBLIC "${SNWC_RN_C_ABI_LIBRARY}")
+    target_link_libraries(symbol_nem_wallet_core_rn PUBLIC "${SNWC_RN_C_ABI_LIBRARY}" log)
     # The package target compiles these sources itself. INTERFACE-only include
     # paths are not visible while NativeSymbolNemWalletCore.cpp is compiled.
     target_include_directories(symbol_nem_wallet_core_rn PRIVATE
