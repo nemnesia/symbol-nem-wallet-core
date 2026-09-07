@@ -239,8 +239,8 @@ export default function App() {
       const module = nativeModule();
       const identity = providerIdentity(module);
       const lifecycle = lifecycleProbe(module);
-      console.log(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
       if (lifecycle.integration_test && lifecycle.provider_generation > 1) {
+        console.log(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
         console.log('SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED');
         const cleanup = cleanupEvidence(module);
         if (
@@ -442,6 +442,9 @@ export default function App() {
           if (errorCode(error) !== 'BindingFailure') throw error;
           console.log('SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED');
         }
+      }
+      if (!lifecycle.integration_test || lifecycle.provider_generation === 1) {
+        console.log(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
       }
     };
 
