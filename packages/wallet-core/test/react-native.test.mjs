@@ -91,6 +91,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(cmake, /SNWC_C_ABI_LIBRARY/);
   assert.match(cmake, /SNWC_RN_CODEGEN_TARGET/);
   assert.match(cmake, /IMPORTED_LOCATION/);
+  assert.match(gradle, /org\.jetbrains\.kotlin\.android/);
   assert.doesNotMatch(gradle, /externalNativeBuild/);
   assert.match(config, /android: null/);
   assert.doesNotMatch(config, /cxxModuleCMakeListsPath|cxxModuleHeaderName/);
