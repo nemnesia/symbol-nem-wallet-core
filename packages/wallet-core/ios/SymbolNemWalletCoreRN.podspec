@@ -14,15 +14,22 @@ Pod::Spec.new do |s|
   xcframework = "../dist/react-native/ios/SymbolNemWalletCoreRN.xcframework"
   if File.directory?(File.expand_path(xcframework, __dir__))
     # This XCFramework contains static-library slices produced by
-    # xcodebuild -create-xcframework -library, not framework bundles. Use the
-    # library declaration so CocoaPods passes the selected slice to the app
-    # linker instead of wrapping only the consumer-side delegate in a new
-    # static framework.
-    s.vendored_libraries = xcframework
-    # The artifact contains the C++ lifecycle implementation. Keep this
-    # small ObjC++ delegate in the consumer target so Swift applications can
-    # subclass it and receive the actual RCTHostDelegate callbacks.
-    s.source_files = ["SnwcRnLifecycleDelegate.{h,mm}"]
+    # xcodebuild -create-xcframework -library, not framework bundles. CocoaPods
+    # selects and copies the matching slice when it is declared as a vendored
+    # framework, but the aggregate target still needs to force-load that
+    # archive. The archive contains the C++ lifecycle bridge and the ObjC++
+    # delegate, so link the artifact as-is and expose only the delegate header
+    # from this Pod target. Compiling the delegate again would define the
+    # Objective-C class twice once the archive is force-loaded.
+    s.vendored_frameworks = xcframework
+    s.source_files = "SnwcRnLifecycleDelegate.h"
+    s.user_target_xcconfig = {
+      "OTHER_LDFLAGS" => [
+        "$(inherited)",
+        "-force_load",
+        '"$(PODS_XCFRAMEWORKS_BUILD_DIR)/SymbolNemWalletCoreRN/libsymbol_nem_wallet_core_rn.a"',
+      ].join(" "),
+    }
   else
     # A source Pod is only valid when the target-specific C ABI archive has
     # already been produced by the same controlled build. This makes source
