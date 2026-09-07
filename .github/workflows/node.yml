@@ -648,6 +648,13 @@ jobs:
           path: release-ios
           merge-multiple: true
 
+      - name: Prepare the exact Ruby/Bundler input for the iOS consumer
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3.8"
+          bundler: "2.5.22"
+          bundler-cache: false
+
       - name: Create and inspect XCFramework after archive generation
         shell: bash
         run: |
