@@ -158,6 +158,8 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(androidPackageHeader, /CxxReactPackage/);
   assert.match(androidLifecycle, /addBeforeDestroyListener/);
   assert.match(androidLifecycle, /addReactInstanceEventListener/);
+  assert.match(androidLifecycle, /object : ReactInstanceEventListener/);
+  assert.match(androidLifecycle, /onReactContextInitialized/);
   assert.match(androidLifecycle, /nativeInvalidate/);
   assert.match(androidConsumerApplication, /cxxReactPackageProviders/);
   assert.match(androidConsumerApplication, /SymbolNemWalletCoreRnLifecycle\.attach/);

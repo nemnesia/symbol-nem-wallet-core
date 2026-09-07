@@ -14,12 +14,14 @@ public object SymbolNemWalletCoreRnLifecycle {
   private var beforeDestroy: (() -> Unit)? = null
   private var lastInitializedContext: WeakReference<ReactContext>? = null
   private val instanceListener =
-      ReactInstanceEventListener { context ->
-        // The package provider is invoked for each newly constructed
-        // ReactApplicationContext. Keep the actual callback visible to the
-        // lifecycle owner; identity remains the context/package objects.
-        synchronized(lock) {
-          lastInitializedContext = WeakReference(context)
+      object : ReactInstanceEventListener {
+        override fun onReactContextInitialized(context: ReactContext) {
+          // The package provider is invoked for each newly constructed
+          // ReactApplicationContext. Keep the actual callback visible to the
+          // lifecycle owner; identity remains the context/package objects.
+          synchronized(lock) {
+            lastInitializedContext = WeakReference(context)
+          }
         }
       }
 
