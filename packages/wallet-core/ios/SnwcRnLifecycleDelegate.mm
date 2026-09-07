@@ -4,11 +4,11 @@
 
 #import "SnwcRnLifecycle.h"
 
-@implementation SnwcRnLifecycleDelegate
-
 @interface SnwcRnLifecycleDelegate ()
 @property(nonatomic, weak) RCTHost *snwcHost;
 @end
+
+@implementation SnwcRnLifecycleDelegate
 
 - (void)hostDidStart:(RCTHost *)host {
   [super hostDidStart:host];
