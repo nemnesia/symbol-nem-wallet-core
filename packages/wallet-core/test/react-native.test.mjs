@@ -91,6 +91,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(cmake, /SNWC_C_ABI_LIBRARY/);
   assert.match(cmake, /react_codegen_symbolnemwalletcore/);
   assert.match(cmake, /IMPORTED_LOCATION/);
+  assert.match(gradle, /com\.facebook\.react/);
   assert.doesNotMatch(gradle, /externalNativeBuild/);
   assert.match(config, /sourceDir: "android"/);
   assert.match(config, /cxxModuleCMakeListsPath/);
@@ -118,6 +119,9 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(podspec, /xcframework = "\.\.\/dist\/react-native\/ios\/SymbolNemWalletCoreRN\.xcframework"/);
   assert.match(podspec, /File\.directory\?\(File\.expand_path\(xcframework, __dir__\)\)/);
   assert.match(releaseProducer, /SymbolNemWalletCoreRN\.framework\/SymbolNemWalletCoreRN/);
+  assert.match(releaseProducer, /-rbundler\/setup/);
+  assert.match(releaseProducer, /Gem\.bin_path\('cocoapods', 'pod', '1\.16\.2'\)/);
+  assert.doesNotMatch(releaseProducer, /bundle", \["exec", "pod", "install"\]/);
   assert.doesNotMatch(releaseProducer, /candidates\.find\(\(path\) => path\.endsWith\("\.a"\)\)/);
   assert.match(nativeModuleSource, /PACKAGE_REACT_NATIVE_MANIFEST/);
   assert.match(nativeModuleSource, /invalid React Native artifact manifest/);

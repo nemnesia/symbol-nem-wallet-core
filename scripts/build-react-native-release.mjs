@@ -205,6 +205,27 @@ function installIosTooling(root) {
   execFileSync("bundle", ["check"], { cwd: root, env: bundleEnv, stdio: "inherit" });
 }
 
+function runBundledCocoaPods(root, args, env = {}) {
+  const bundleEnv = {
+    ...process.env,
+    ...env,
+    BUNDLE_DEPLOYMENT: "true",
+    BUNDLE_FROZEN: "true",
+    BUNDLE_GEMFILE: resolve(root, "Gemfile"),
+    BUNDLE_PATH: resolve(root, ".bundle-cache"),
+  };
+  // The pod executable installed by Bundler can retain the system Ruby path
+  // in its shebang on macOS. Load the locked bin path from the selected Ruby
+  // interpreter instead, so a second system Ruby cannot enter the producer.
+  execFileSync("ruby", [
+    "-rbundler/setup",
+    "-e",
+    "load Gem.bin_path('cocoapods', 'pod', '1.16.2')",
+    "--",
+    ...args,
+  ], { cwd: resolve(root, "ios"), env: bundleEnv, stdio: "inherit" });
+}
+
 function configureAndroidConsumer(root, targetId, cAbiPath) {
   const target = requireTarget(targetId);
   const gradlePath = resolve(root, "android/app/build.gradle");
@@ -314,10 +335,8 @@ function buildIos(targetId, cAbiPath, outputPath) {
     // This first pod install consumes the source pod only, so Codegen can
     // build the producer. The XCFramework-consuming pod install happens only
     // after both archives have been assembled by the release job.
-    execFileSync("bundle", ["exec", "pod", "install"], {
-      cwd: resolve(root, "ios"),
-      env: { ...process.env, SNWC_RN_POD_PATH: resolve(workspace, "packages/wallet-core/ios") },
-      stdio: "inherit",
+    runBundledCocoaPods(root, ["install"], {
+      SNWC_RN_POD_PATH: resolve(workspace, "packages/wallet-core/ios"),
     });
     const reproducibleBuildEnv = {
       ...process.env,
@@ -391,10 +410,8 @@ function consumeIosXcframework(xcframeworkPath, simulatorAppOutput) {
     installIosTooling(consumerRoot);
     // This is the artifact-consuming install. It runs only after the
     // producer has generated and structurally inspected both slices.
-    execFileSync("bundle", ["exec", "pod", "install"], {
-      cwd: resolve(consumerRoot, "ios"),
-      env: { ...process.env, SNWC_RN_POD_PATH: resolve(packageClone, "ios") },
-      stdio: "inherit",
+    runBundledCocoaPods(consumerRoot, ["install"], {
+      SNWC_RN_POD_PATH: resolve(packageClone, "ios"),
     });
     execFileSync("xcodebuild", [
       "-workspace", resolve(consumerRoot, "ios/SnwcRnBuild.xcworkspace"),
