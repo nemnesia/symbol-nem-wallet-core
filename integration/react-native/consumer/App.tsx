@@ -74,7 +74,13 @@ function requireRead(value: unknown, label: string): { value: any } {
 
 function errorCode(error: unknown): string {
   if (error !== null && typeof error === 'object') {
-    const value = error as { name?: unknown; code?: unknown };
+    const value = error as { name?: unknown; code?: unknown; message?: unknown };
+    // jsi::JSError preserves the native failure code as its message while
+    // exposing the generic JavaScript Error name. Keep the comparison exact;
+    // the message is never emitted into lifecycle evidence.
+    if (value.message === 'BindingFailure') {
+      return 'BindingFailure';
+    }
     if (value.name === 'WalletCoreBackendInitializationError') {
       return 'WalletCoreBackendInitializationError';
     }

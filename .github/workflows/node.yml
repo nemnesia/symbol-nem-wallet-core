@@ -618,13 +618,29 @@ jobs:
             diagnostics
             exit 1
           fi
-          runtime_lines="$(grep 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true)"
-          runtime_count="$(printf '%s\n' "$runtime_lines" | sed '/^$/d' | wc -l | tr -d ' ')"
-          if [[ "$runtime_count" -lt 2 ]]; then
-            echo "Android RN did not report both old and new runtime identities."
+          wait_for_runtime_generations() {
+            local seconds="$1"
+            local deadline=$((SECONDS + seconds))
+            while (( SECONDS < deadline )); do
+              local runtime_count
+              runtime_count="$(grep -Fc 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true)"
+              if [[ "$runtime_count" -ge 2 ]]; then
+                return 0
+              fi
+              if grep -Fq 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_FAILED' "$logcat_log"; then
+                return 125
+              fi
+              sleep 1
+            done
+            return 124
+          }
+          if ! wait_for_runtime_generations 120; then
+            echo "Android RN did not report both old and new runtime identities within 120 seconds."
             diagnostics
             exit 1
           fi
+          runtime_lines="$(grep 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true)"
+          runtime_count="$(printf '%s\n' "$runtime_lines" | sed '/^$/d' | wc -l | tr -d ' ')"
           first_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '1p')"
           second_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '2p')"
           runtime_identity() { printf '%s\n' "$1" | sed -E 's/.*"runtime_identity":"([^"]+)".*/\1/'; }
