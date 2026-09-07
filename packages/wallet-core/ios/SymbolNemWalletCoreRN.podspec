@@ -22,7 +22,7 @@ Pod::Spec.new do |s|
     # from this Pod target. Compiling the delegate again would define the
     # Objective-C class twice once the archive is force-loaded.
     s.vendored_frameworks = xcframework
-    s.source_files = "SnwcRnLifecycleDelegate.h"
+    s.source_files = ["SnwcRnLifecycleDelegate.h", "SnwcRnLifecycleModuleAnchor.m"]
     s.user_target_xcconfig = {
       "OTHER_LDFLAGS" => [
         "$(inherited)",

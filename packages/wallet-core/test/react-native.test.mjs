@@ -67,6 +67,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
     "utf8",
   );
   const iosLifecycleDelegate = readFileSync(resolve(packageRoot, "ios/SnwcRnLifecycleDelegate.mm"), "utf8");
+  const iosLifecycleModuleAnchor = readFileSync(resolve(packageRoot, "ios/SnwcRnLifecycleModuleAnchor.m"), "utf8");
   const iosLifecycle = readFileSync(resolve(packageRoot, "ios/SnwcRnLifecycle.h"), "utf8");
   const iosConsumerAppDelegate = readFileSync(
     resolve(packageRoot, "../../integration/react-native/consumer/ios/SnwcRnBuild/AppDelegate.swift"),
@@ -128,7 +129,8 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(podspec, /-force_load/);
   assert.match(podspec, /libsymbol_nem_wallet_core_rn\.a/);
   assert.doesNotMatch(podspec, /s\.vendored_libraries = xcframework/);
-  assert.match(podspec, /s\.source_files = "SnwcRnLifecycleDelegate\.h"/);
+  assert.match(podspec, /s\.source_files = \["SnwcRnLifecycleDelegate\.h", "SnwcRnLifecycleModuleAnchor\.m"\]/);
+  assert.match(iosLifecycleModuleAnchor, /SnwcRnLifecycleDelegate\.h/);
   assert.match(releaseProducer, /SymbolNemWalletCoreRN\.framework\/SymbolNemWalletCoreRN/);
   assert.match(releaseProducer, /-rbundler\/setup/);
   assert.match(releaseProducer, /Gem\.bin_path\('cocoapods', 'pod', '1\.16\.2'\)/);
