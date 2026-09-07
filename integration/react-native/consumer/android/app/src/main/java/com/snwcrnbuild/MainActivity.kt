@@ -11,6 +11,7 @@ import android.util.Log
 class MainActivity : ReactActivity() {
 
   private val lifecycleReloadHandler = Handler(Looper.getMainLooper())
+  private var lifecycleReloadScheduled = false
 
   /**
    * Returns the name of the main component registered from JavaScript. This is used to schedule
@@ -40,7 +41,8 @@ class MainActivity : ReactActivity() {
   }
 
   private fun reloadReactHost() {
-    if (!lifecycleReloadHandler.hasCallbacksAndMessages(null)) {
+    if (!lifecycleReloadScheduled) {
+      lifecycleReloadScheduled = true
       lifecycleReloadHandler.post {
         Log.i("SnwcRnBuild", "SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED")
         val reloadTask =
@@ -48,7 +50,7 @@ class MainActivity : ReactActivity() {
         Thread {
           try {
             reloadTask.waitForCompletion()
-            val error = reloadTask.error
+            val error = reloadTask.getError()
             if (error == null) {
               Log.i("SnwcRnBuild", "SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED")
             } else {
