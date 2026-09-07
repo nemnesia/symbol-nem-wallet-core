@@ -40,6 +40,7 @@ Pod::Spec.new do |s|
 set -eu
 
 xcframework="$PODS_TARGET_SRCROOT/../dist/react-native/ios/SymbolNemWalletCoreRN.xcframework"
+output="$BUILT_PRODUCTS_DIR/libsymbol_nem_wallet_core_rn.a"
 if test -d "$xcframework"; then
   case "$PLATFORM_NAME" in
     iphoneos)
@@ -55,20 +56,16 @@ if test -d "$xcframework"; then
   esac
   input="$xcframework/$slice/libsymbol_nem_wallet_core_rn.a"
 else
-  input=""
-  for candidate in \
-    "$BUILT_PRODUCTS_DIR/libSymbolNemWalletCoreRN.a" \
-    "$BUILT_PRODUCTS_DIR/SymbolNemWalletCoreRN.framework/SymbolNemWalletCoreRN" \
-    "$BUILT_PRODUCTS_DIR/libsymbol_nem_wallet_core_rn.a"; do
-    if test -f "$candidate"; then
-      input="$candidate"
-      break
-    fi
-  done
-  test -n "$input"
+  # The source implementation is already linked through the static framework
+  # emitted by this Pod target. Keep the common force-load output valid but
+  # empty so the source producer does not link that same archive twice.
+  mkdir -p "$(dirname "$output")"
+  rm -f "$output"
+  /usr/bin/ar -rc "$output"
+  test -f "$output"
+  exit 0
 fi
 test -f "$input"
-output="$BUILT_PRODUCTS_DIR/libsymbol_nem_wallet_core_rn.a"
 mkdir -p "$(dirname "$output")"
 rm -f "$output"
 cp "$input" "$output"
