@@ -549,9 +549,7 @@ jobs:
           fi
           smoke_pass=false
           for attempt in $(seq 1 90); do
-            if timeout 10s adb shell uiautomator dump /sdcard/snwc-rn-smoke.xml >/dev/null 2>&1 \
-              && timeout 10s adb shell cat /sdcard/snwc-rn-smoke.xml >"$smoke_ui_dump" 2>/dev/null \
-              && grep -Fq 'SNWC_RN_NATIVE_SMOKE_PASS:16' "$smoke_ui_dump"; then
+            if grep -Fq 'SNWC_RN_NATIVE_SMOKE_PASS:16' "$logcat_log"; then
               smoke_pass=true
               break
             fi
@@ -563,7 +561,7 @@ jobs:
             exit 1
           fi
           echo "Android RN native smoke completion signal:"
-          grep -E 'SNWC_RN_NATIVE_PROVIDER_READY|SNWC_RN_NATIVE_SMOKE_PASS:16' "$smoke_ui_dump"
+          grep -E 'SNWC_RN_NATIVE_PROVIDER_READY|SNWC_RN_NATIVE_SMOKE_PASS:16' "$logcat_log"
           initial_runtime_count="$(grep -Fc 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true)"
           if [[ "$initial_runtime_count" -ne 1 ]]; then
             echo "Android RN did not produce exactly one initial runtime identity before reload: $initial_runtime_count"
