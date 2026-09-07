@@ -9,7 +9,8 @@
 
 namespace facebook::react {
 
-class SymbolNemWalletCoreCxxReactPackage final : public CxxReactPackage {
+class SymbolNemWalletCoreCxxReactPackage final
+    : public jni::HybridClass<SymbolNemWalletCoreCxxReactPackage, CxxReactPackage> {
  public:
   static constexpr auto kJavaDescriptor =
       "Lcom/nemnesia/symbolnemwalletcore/SymbolNemWalletCoreCxxReactPackage;";

@@ -150,6 +150,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(coordinator, /requestIdentity/);
   assert.doesNotMatch(nativeSource, /jsInvoker\.get\(\)|registerModule\(jsInvoker|NativeSymbolNemWalletCoreContext/);
   assert.match(androidPackage, /CxxReactPackage/);
+  assert.match(androidPackageHeader, /HybridClass<SymbolNemWalletCoreCxxReactPackage, CxxReactPackage>/);
   assert.match(androidPackage, /identity\.moduleRegistry = this/);
   assert.match(androidPackage, /identity\.logicalContext = reactContext_\.get/);
   assert.match(androidPackageHeader, /CxxReactPackage/);
