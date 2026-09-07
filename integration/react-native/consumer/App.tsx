@@ -240,8 +240,8 @@ export default function App() {
       const identity = providerIdentity(module);
       const lifecycle = lifecycleProbe(module);
       if (lifecycle.integration_test && lifecycle.provider_generation > 1) {
-        console.log(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
-        console.log('SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED');
+        setStatus(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
+        setStatus('SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED');
         const cleanup = cleanupEvidence(module);
         if (
           !cleanup.cleanup_complete ||
@@ -250,7 +250,7 @@ export default function App() {
         ) {
           smokeAssertion('cleanup-evidence:not-exactly-once');
         }
-        console.log('SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE');
+        setStatus('SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE');
       }
       setProviderStatus(
         `SNWC_RN_NATIVE_PROVIDER_READY:${identity.target_id}:${identity.artifact_identity}`,
@@ -434,17 +434,17 @@ export default function App() {
       );
       setStatus('SNWC_RN_NATIVE_SMOKE_PASS:16');
       if (lifecycle.integration_test && lifecycle.provider_generation === 1) {
-        console.log('SNWC_RN_NATIVE_STALE_GATE_ARMED');
+        setStatus('SNWC_RN_NATIVE_STALE_GATE_ARMED');
         try {
           module.invoke('__snwc_test_stale_output', { args: [] });
           smokeAssertion('stale-completion:accepted');
         } catch (error) {
           if (errorCode(error) !== 'BindingFailure') throw error;
-          console.log('SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED');
+          setStatus('SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED');
         }
       }
       if (!lifecycle.integration_test || lifecycle.provider_generation === 1) {
-        console.log(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
+        setStatus(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
       }
     };
 
