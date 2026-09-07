@@ -530,7 +530,8 @@ jobs:
           timeout 30s adb logcat -c
           adb logcat -v threadtime >"$logcat_log" 2>&1 &
           logcat_pid=$!
-          if ! timeout 30s adb shell am start -W -n com.snwcrnbuild/.MainActivity >"$launch_log" 2>&1; then
+          if ! timeout 30s adb shell am start -W -n com.snwcrnbuild/.MainActivity \
+            --ez snwc_rn_lifecycle_reload true >"$launch_log" 2>&1; then
             echo "Android MainActivity did not start successfully."
             diagnostics
             exit 1
@@ -560,6 +561,21 @@ jobs:
           grep -E 'SNWC_RN_NATIVE_PROVIDER_READY|SNWC_RN_NATIVE_SMOKE_PASS:16' "$smoke_ui_dump"
           echo "Android RN provider/runtime log markers:"
           grep -Ei 'SNWC_RN|ReactNative|Hermes|TurboModule|SoLoader|linker|dlopen|UnsatisfiedLinkError|FATAL EXCEPTION|AndroidRuntime|com\.snwcrnbuild' "$logcat_log" || true
+          lifecycle_reload=false
+          for attempt in $(seq 1 90); do
+            if grep -Fq 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED' "$logcat_log"; then
+              lifecycle_reload=true
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$lifecycle_reload" != true ]]; then
+            echo "Android RN host reload lifecycle marker was not observed."
+            diagnostics
+            exit 1
+          fi
+          echo "Android RN actual ReactHost reload marker:"
+          grep -F 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED' "$logcat_log"
 
       - name: Build iOS static archive for the approved slice
         if: matrix.platform == 'ios'
@@ -676,7 +692,8 @@ jobs:
           xcrun simctl bootstatus "$simulator_udid" -b
           xcrun simctl install "$simulator_udid" "$app_path"
           xcrun simctl terminate "$simulator_udid" "$bundle_id" >/dev/null 2>&1 || true
-          if ! launch_output="$(xcrun simctl launch "$simulator_udid" "$bundle_id" 2>&1)"; then
+          if ! launch_output="$(xcrun simctl launch "$simulator_udid" "$bundle_id" \
+            --snwc-rn-lifecycle-reload 2>&1)"; then
             echo "$launch_output"
             echo "Installed app container:"
             xcrun simctl get_app_container "$simulator_udid" "$bundle_id" app || true
@@ -686,7 +703,8 @@ jobs:
           fi
           echo "$launch_output"
           for attempt in $(seq 1 60); do
-            if xcrun simctl spawn "$simulator_udid" log show --last 2m --style compact --predicate 'eventMessage CONTAINS "SNWC_RN_NATIVE_SMOKE_PASS:16"' | grep -q 'SNWC_RN_NATIVE_SMOKE_PASS:16'; then
+            if xcrun simctl spawn "$simulator_udid" log show --last 2m --style compact --predicate 'eventMessage CONTAINS "SNWC_RN_NATIVE_SMOKE_PASS:16"' | grep -q 'SNWC_RN_NATIVE_SMOKE_PASS:16' \
+              && xcrun simctl spawn "$simulator_udid" log show --last 2m --style compact --predicate 'eventMessage CONTAINS "SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED"' | grep -q 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED'; then
               exit 0
             fi
             sleep 2

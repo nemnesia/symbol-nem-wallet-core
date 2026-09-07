@@ -18,6 +18,7 @@
 #endif
 
 #include "../cpp/NativeSymbolNemWalletCoreProvider.h"
+#include "SymbolNemWalletCoreCxxReactPackage.h"
 
 namespace facebook::react {
 
@@ -32,9 +33,11 @@ void registerComponents(
 std::shared_ptr<TurboModule> cxxModuleProvider(
     const std::string &name,
     const std::shared_ptr<CallInvoker> &jsInvoker) {
-  if (auto module = symbolNemWalletCoreCxxModuleProvider(name, jsInvoker)) {
-    return module;
-  }
+  (void)name;
+  (void)jsInvoker;
+  // The package module is intentionally absent from this fallback. Only the
+  // RN 0.87 CxxReactPackage registered for the actual ReactApplicationContext
+  // is allowed to construct it.
   return autolinking_cxxModuleProvider(name, jsInvoker);
 }
 
@@ -65,6 +68,8 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
   }
   facebook::react::RnLifecycleCoordinator::shared().registerProcessLifecycle();
   return facebook::jni::initialize(vm, [] {
+    facebook::react::SymbolNemWalletCoreCxxReactPackage::registerNatives();
+    facebook::react::registerReactLifecycleNatives();
     facebook::react::DefaultTurboModuleManagerDelegate::cxxModuleProvider =
         &facebook::react::cxxModuleProvider;
     facebook::react::DefaultTurboModuleManagerDelegate::javaModuleProvider =

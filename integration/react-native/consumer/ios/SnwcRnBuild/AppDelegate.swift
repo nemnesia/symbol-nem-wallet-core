@@ -2,6 +2,7 @@ import UIKit
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
+import SymbolNemWalletCoreRN
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -29,11 +30,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
       launchOptions: launchOptions
     )
 
+    if CommandLine.arguments.contains("--snwc-rn-lifecycle-reload") {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
+        print("SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED")
+        delegate.snwcReloadForIntegrationTest()
+      }
+    }
+
     return true
   }
 }
 
-class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
+class ReactNativeDelegate: SnwcRnLifecycleDelegate {
   override func sourceURL(for bridge: RCTBridge) -> URL? {
     self.bundleURL()
   }

@@ -5,6 +5,8 @@ Pod::Spec.new do |s|
   s.homepage         = "https://github.com/nemnesia/symbol-nem-wallet-core"
   s.license          = { :type => "MIT" }
   s.author           = { "ccHarvestasya" => "" }
+  s.module_name      = "SymbolNemWalletCoreRN"
+  s.public_header_files = "SnwcRnLifecycleDelegate.h"
   s.source           = { :git => "https://github.com/nemnesia/symbol-nem-wallet-core.git" }
   s.platforms        = { :ios => "15.1" }
   s.requires_arc     = true
@@ -12,6 +14,10 @@ Pod::Spec.new do |s|
   xcframework = "../dist/react-native/ios/SymbolNemWalletCoreRN.xcframework"
   if File.directory?(File.expand_path(xcframework, __dir__))
     s.vendored_frameworks = xcframework
+    # The framework contains the C++ lifecycle implementation. Keep this
+    # small ObjC++ delegate in the consumer target so Swift applications can
+    # subclass it and receive the actual RCTHostDelegate callbacks.
+    s.source_files = ["SnwcRnLifecycleDelegate.{h,mm}"]
   else
     # A source Pod is only valid when the target-specific C ABI archive has
     # already been produced by the same controlled build. This makes source
@@ -22,6 +28,7 @@ Pod::Spec.new do |s|
     s.vendored_libraries = "libsymbol_nem_wallet_core_native.a"
     s.source_files = [
       "NativeSymbolNemWalletCoreProvider.{h,mm}",
+      "SnwcRnLifecycleDelegate.{h,mm}",
       "SnwcNativeSymbolNemWalletCore.cpp",
       "SnwcNativeSymbolNemWalletCoreProvider.cpp",
       "SnwcRnLifecycleCoordinator.cpp",
@@ -42,6 +49,7 @@ Pod::Spec.new do |s|
     ].join(" "),
   }
   s.dependency "React-Core"
+  s.dependency "React-RCTAppDelegate"
   s.dependency "ReactCodegen"
   s.dependency "React-jsi"
   s.dependency "ReactCommon/turbomodule/core"

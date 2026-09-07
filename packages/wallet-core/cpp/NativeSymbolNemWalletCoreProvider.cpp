@@ -66,9 +66,12 @@ extern "C" SNWC_RN_EXPORT const char *snwc_rn_target_id() {
 SNWC_RN_EXPORT std::shared_ptr<TurboModule> symbolNemWalletCoreCxxModuleProvider(
     const std::string &name,
     const std::shared_ptr<CallInvoker> &jsInvoker) {
-  if (name == NativeSymbolNemWalletCore::kModuleName) {
-    return std::make_shared<NativeSymbolNemWalletCore>(jsInvoker);
-  }
+  (void)name;
+  (void)jsInvoker;
+  // A bare provider callback has no actual RN registration, logical context,
+  // or module-registry identity. It must not manufacture one. Android uses
+  // the RN 0.87 CxxReactPackage path below, while iOS uses its Codegen
+  // RCTModuleProvider path with host/runtime lifecycle binding.
   return nullptr;
 }
 

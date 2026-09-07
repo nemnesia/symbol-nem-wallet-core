@@ -19,6 +19,7 @@ if(SNWC_RN_C_ABI_LIBRARY)
         message(FATAL_ERROR "SNWC_C_ABI_LIBRARY does not exist for ${ANDROID_ABI}")
     endif()
     add_library(symbol_nem_wallet_core_rn STATIC
+        SymbolNemWalletCoreCxxReactPackage.cpp
         ../cpp/NativeSymbolNemWalletCore.cpp
         ../cpp/NativeSymbolNemWalletCoreProvider.cpp
         ../cpp/RnLifecycleCoordinator.cpp

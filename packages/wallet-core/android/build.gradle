@@ -18,3 +18,10 @@ android {
         }
     }
 }
+
+dependencies {
+    // The host application supplies the RN version through the React Native
+    // Gradle Plugin; this library only compiles against its public New
+    // Architecture CxxReactPackage APIs.
+    compileOnly("com.facebook.react:react-android")
+}

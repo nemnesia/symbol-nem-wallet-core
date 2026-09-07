@@ -616,12 +616,11 @@ Object publicAccountToJs(Runtime &runtime, const SnwcPublicAccountInfo &account,
 
 } // namespace
 
-NativeSymbolNemWalletCore::NativeSymbolNemWalletCore(std::shared_ptr<CallInvoker> jsInvoker)
-    : NativeSymbolNemWalletCoreCxxSpec(jsInvoker),
-      context_(std::make_shared<NativeSymbolNemWalletCoreContext>()),
-      registration_(RnLifecycleCoordinator::shared().registerModule(
-          std::shared_ptr<const void>(std::move(jsInvoker)),
-          std::shared_ptr<const void>(context_))) {}
+NativeSymbolNemWalletCore::NativeSymbolNemWalletCore(
+    std::shared_ptr<CallInvoker> jsInvoker,
+    RnLifecycleCoordinator::RegistrationIdentity identity)
+    : NativeSymbolNemWalletCoreCxxSpec(std::move(jsInvoker)),
+      registration_(RnLifecycleCoordinator::shared().registerModule(identity)) {}
 
 NativeSymbolNemWalletCore::~NativeSymbolNemWalletCore() {
   invalidate();

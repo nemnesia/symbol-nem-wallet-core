@@ -51,6 +51,23 @@ test("React Native native integration registers appmodules and gates JSI deliver
   const providerHeader = readFileSync(resolve(packageRoot, "cpp/NativeSymbolNemWalletCoreProvider.h"), "utf8");
   const providerSource = readFileSync(resolve(packageRoot, "cpp/NativeSymbolNemWalletCoreProvider.cpp"), "utf8");
   const coordinator = readFileSync(resolve(packageRoot, "cpp/RnLifecycleCoordinator.cpp"), "utf8");
+  const coordinatorHeader = readFileSync(resolve(packageRoot, "cpp/RnLifecycleCoordinator.h"), "utf8");
+  const androidPackage = readFileSync(resolve(packageRoot, "android/SymbolNemWalletCoreCxxReactPackage.cpp"), "utf8");
+  const androidPackageHeader = readFileSync(resolve(packageRoot, "android/SymbolNemWalletCoreCxxReactPackage.h"), "utf8");
+  const androidLifecycle = readFileSync(
+    resolve(packageRoot, "android/src/main/java/com/nemnesia/symbolnemwalletcore/SymbolNemWalletCoreRnLifecycle.kt"),
+    "utf8",
+  );
+  const androidConsumerApplication = readFileSync(
+    resolve(packageRoot, "../../integration/react-native/consumer/android/app/src/main/java/com/snwcrnbuild/MainApplication.kt"),
+    "utf8",
+  );
+  const iosLifecycleDelegate = readFileSync(resolve(packageRoot, "ios/SnwcRnLifecycleDelegate.mm"), "utf8");
+  const iosLifecycle = readFileSync(resolve(packageRoot, "ios/SnwcRnLifecycle.h"), "utf8");
+  const iosConsumerAppDelegate = readFileSync(
+    resolve(packageRoot, "../../integration/react-native/consumer/ios/SnwcRnBuild/AppDelegate.swift"),
+    "utf8",
+  );
   const config = readFileSync(resolve(packageRoot, "react-native.config.cjs"), "utf8");
   const metroConfig = readFileSync(
     resolve(packageRoot, "../../integration/react-native/consumer/metro.config.js"),
@@ -107,22 +124,41 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(consumerCmake, /ReactNative-application\.cmake/);
   assert.match(onLoad, /DefaultTurboModuleManagerDelegate::cxxModuleProvider/);
   assert.match(onLoad, /REACT_NATIVE_APP_CODEGEN_HEADER/);
-  assert.match(onLoad, /symbolNemWalletCoreCxxModuleProvider/);
+  assert.doesNotMatch(onLoad, /symbolNemWalletCoreCxxModuleProvider/);
   assert.match(providerHeader, /std::shared_ptr<TurboModule> symbolNemWalletCoreCxxModuleProvider/);
   assert.match(providerHeader, /extern "C" const char \*symbolNemWalletCoreCxxModuleProvider\(\)/);
-  assert.match(providerSource, /SNWC_RN_EXPORT std::shared_ptr<TurboModule> symbolNemWalletCoreCxxModuleProvider/);
+  assert.match(providerSource, /return nullptr/);
   assert.match(providerSource, /extern "C" SNWC_RN_EXPORT const char \*symbolNemWalletCoreCxxModuleProvider\(\)/);
   assert.match(providerSource, /extern "C" \{\s+extern const char snwc_rn_artifact_identity_value\[\];\s+\}/);
   assert.match(onLoad, /autolinking_cxxModuleProvider/);
   assert.match(nativeSource, /std::shared_lock<std::shared_mutex> deliveryLock/);
   assert.match(nativeSource, /coordinator_\.begin/);
   assert.match(nativeSource, /snwc_free_bytes/);
-  assert.doesNotMatch(coordinator, /getpid|processGeneration/);
-  assert.match(coordinator, /registryLifetime/);
+  assert.match(coordinator, /getpid/);
+  assert.match(coordinator, /processGeneration/);
+  assert.match(coordinatorHeader, /moduleRegistry/);
+  assert.match(coordinatorHeader, /logicalContext/);
+  assert.match(coordinatorHeader, /providerGeneration/);
+  assert.match(coordinator, /invalidateProvider/);
+  assert.match(coordinator, /invalidateContext/);
+  assert.doesNotMatch(coordinator, /registryLifetime|contextLifetime|registration\.state->runtime\s*=/);
   assert.match(coordinator, /processTeardown/);
   assert.match(coordinator, /requestIdentity/);
-  assert.doesNotMatch(nativeSource, /jsInvoker\.get\(\)|registerModule\(jsInvoker/);
-  assert.match(nativeSource, /make_shared<NativeSymbolNemWalletCoreContext>/);
+  assert.doesNotMatch(nativeSource, /jsInvoker\.get\(\)|registerModule\(jsInvoker|NativeSymbolNemWalletCoreContext/);
+  assert.match(androidPackage, /CxxReactPackage/);
+  assert.match(androidPackage, /identity\.moduleRegistry = this/);
+  assert.match(androidPackage, /identity\.logicalContext = reactContext_\.get/);
+  assert.match(androidPackageHeader, /CxxReactPackage/);
+  assert.match(androidLifecycle, /addBeforeDestroyListener/);
+  assert.match(androidLifecycle, /addReactInstanceEventListener/);
+  assert.match(androidLifecycle, /nativeInvalidate/);
+  assert.match(androidConsumerApplication, /cxxReactPackageProviders/);
+  assert.match(androidConsumerApplication, /SymbolNemWalletCoreRnLifecycle\.attach/);
+  assert.match(iosLifecycle, /moduleRegistry/);
+  assert.match(iosLifecycleDelegate, /didInitializeRuntime/);
+  assert.match(iosLifecycleDelegate, /host\.moduleRegistry/);
+  assert.match(iosConsumerAppDelegate, /SnwcRnLifecycleDelegate/);
+  assert.match(podspec, /SnwcRnLifecycleDelegate/);
   assert.ok((nativeSource.match(/return ticket\.deliver\(\[&\]\(\) \{/g) ?? []).length >= 10);
   assert.doesNotMatch(nativeSource, /valid_\s*=|processGeneration_\s*=\s*1/);
 });
