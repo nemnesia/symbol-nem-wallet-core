@@ -143,6 +143,9 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(releaseProducer, /libtool", \["-static", "-D", "-o"/);
   assert.match(releaseProducer, /GCC_GENERATE_DEBUGGING_SYMBOLS=NO/);
   assert.match(releaseProducer, /CLANG_ENABLE_MODULE_DEBUGGING=NO/);
+  assert.match(releaseProducer, /producerDummy = "SymbolNemWalletCoreRN-dummy\.o"/);
+  assert.match(releaseProducer, /execFileSync\("ar", \["-t", artifact\]/);
+  assert.match(releaseProducer, /execFileSync\("ar", \["-d", artifact, producerDummy\]/);
   assert.doesNotMatch(releaseProducer, /bundle", \["exec", "pod", "install"\]/);
   assert.match(releaseProducer, /cpSync\(resolve\(packageRoot, "cpp"\), resolve\(packageClone, "cpp"\)/);
   assert.doesNotMatch(releaseProducer, /candidates\.find\(\(path\) => path\.endsWith\("\.a"\)\)/);

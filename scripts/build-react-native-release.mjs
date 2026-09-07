@@ -378,6 +378,22 @@ function buildIos(targetId, cAbiPath, outputPath) {
     if (!artifact) fail("iOS RN archive was not produced");
     // The final static archive is deliberately combined with the approved C
     // ABI. The package podspec then consumes this XCFramework as one unit.
+    // CocoaPods emits a no-op target dummy in the producer's static framework.
+    // The artifact-consuming Pod target emits its own dummy with the same
+    // identity, so retain the real module and remove only this non-functional
+    // producer member before the shipped archive is assembled. Require the
+    // exact member first so a toolchain/layout change fails closed.
+    const producerDummy = "SymbolNemWalletCoreRN-dummy.o";
+    const producerMembers = execFileSync("ar", ["-t", artifact], { encoding: "utf8" })
+      .split(/\r?\n/)
+      .map((member) => member.trim())
+      .filter(Boolean);
+    if (!producerMembers.includes(producerDummy)) fail("iOS RN producer dummy member is missing");
+    execFileSync("ar", ["-d", artifact, producerDummy], { stdio: "inherit" });
+    const remainingProducerMembers = execFileSync("ar", ["-t", artifact], { encoding: "utf8" });
+    if (remainingProducerMembers.split(/\r?\n/).some((member) => member.trim() === producerDummy)) {
+      fail("iOS RN producer dummy member was not removed");
+    }
     mkdirSync(dirname(outputPath), { recursive: true });
     // Apple libtool otherwise stamps each archive member with the invocation
     // time. The independent producer runs would therefore differ despite
