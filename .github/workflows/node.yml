@@ -118,10 +118,17 @@ jobs:
             install --no-repo-update
 
       - name: Upload actual Podfile.lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p bootstrap-output
+          cp "$RUNNER_TEMP/snwc-podfile-lock/integration/react-native/consumer/ios/Podfile.lock" bootstrap-output/Podfile.lock
+
+      - name: Upload actual Podfile.lock artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: podfile-lock-bootstrap-${{ github.run_id }}-${{ github.sha }}
-          path: "$RUNNER_TEMP/snwc-podfile-lock/integration/react-native/consumer/ios/Podfile.lock"
+          path: bootstrap-output/Podfile.lock
 
   source:
     name: Release source snapshot
