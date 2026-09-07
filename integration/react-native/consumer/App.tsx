@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Text, TurboModuleRegistry, View } from 'react-native';
 
 import * as walletCore from '@nemnesia/symbol-nem-wallet-core';
@@ -200,8 +200,11 @@ export default function App() {
   const [providerStatus, setProviderStatus] = useState(
     'SNWC_RN_NATIVE_PROVIDER_NOT_CHECKED',
   );
+  const smokeStarted = useRef(false);
 
   useEffect(() => {
+    if (smokeStarted.current) return;
+    smokeStarted.current = true;
     let active = true;
     let failureReported = false;
     const yieldToUi = () =>
