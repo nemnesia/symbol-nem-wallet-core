@@ -1,5 +1,12 @@
 apply plugin: "com.android.library"
 
+// RN's library-side Codegen task owns the generated CMake target consumed by
+// android/CMakeLists.txt. It must run in the same New Architecture build that
+// autolinks this package; a compile-only React dependency is not sufficient.
+if (project.hasProperty("newArchEnabled") && project.newArchEnabled == "true") {
+    apply plugin: "com.facebook.react"
+}
+
 android {
     namespace "com.nemnesia.symbolnemwalletcore"
     compileSdkVersion rootProject.ext.has("compileSdkVersion") ? rootProject.ext.compileSdkVersion : 35
