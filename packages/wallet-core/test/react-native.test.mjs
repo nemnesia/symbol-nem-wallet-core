@@ -122,6 +122,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(releaseProducer, /SymbolNemWalletCoreRN\.framework\/SymbolNemWalletCoreRN/);
   assert.match(releaseProducer, /-rbundler\/setup/);
   assert.match(releaseProducer, /Gem\.bin_path\('cocoapods', 'pod', '1\.16\.2'\)/);
+  assert.match(releaseProducer, /libtool", \["-static", "-D", "-o"/);
   assert.doesNotMatch(releaseProducer, /bundle", \["exec", "pod", "install"\]/);
   assert.doesNotMatch(releaseProducer, /candidates\.find\(\(path\) => path\.endsWith\("\.a"\)\)/);
   assert.match(nativeModuleSource, /PACKAGE_REACT_NATIVE_MANIFEST/);

@@ -373,7 +373,11 @@ function buildIos(targetId, cAbiPath, outputPath) {
     // The final static archive is deliberately combined with the approved C
     // ABI. The package podspec then consumes this XCFramework as one unit.
     mkdirSync(dirname(outputPath), { recursive: true });
-    execFileSync("libtool", ["-static", "-o", outputPath, artifact, resolve(cAbiPath)], {
+    // Apple libtool otherwise stamps each archive member with the invocation
+    // time. The independent producer runs would therefore differ despite
+    // identical inputs. Keep the complete-byte comparison strict and make the
+    // static archive metadata deterministic at its source.
+    execFileSync("libtool", ["-static", "-D", "-o", outputPath, artifact, resolve(cAbiPath)], {
       env: reproducibleBuildEnv,
       stdio: "inherit",
     });
