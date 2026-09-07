@@ -32,7 +32,9 @@ if(SNWC_RN_C_ABI_LIBRARY)
         CXX_STANDARD_REQUIRED YES
         CXX_EXTENSIONS NO
     )
-    if(TARGET react_codegen_symbolnemwalletcore)
+    if(DEFINED SNWC_RN_CODEGEN_TARGET AND TARGET "${SNWC_RN_CODEGEN_TARGET}")
+        target_link_libraries(symbol_nem_wallet_core_rn PUBLIC "${SNWC_RN_CODEGEN_TARGET}")
+    elseif(TARGET react_codegen_symbolnemwalletcore)
         target_link_libraries(symbol_nem_wallet_core_rn PUBLIC react_codegen_symbolnemwalletcore)
     elseif(TARGET react_codegen_SymbolNemWalletCoreSpec)
         target_link_libraries(symbol_nem_wallet_core_rn PUBLIC react_codegen_SymbolNemWalletCoreSpec)

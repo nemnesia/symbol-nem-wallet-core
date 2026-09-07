@@ -12,6 +12,20 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(${REACT_ANDROID_DIR}/cmake-utils/ReactNative-application.cmake)
 
+get_property(SNWC_RN_CODEGEN_TARGETS
+    DIRECTORY "${PROJECT_BUILD_DIR}/generated/source/codegen/jni"
+    PROPERTY BUILDSYSTEM_TARGETS
+)
+list(FILTER SNWC_RN_CODEGEN_TARGETS INCLUDE REGEX "^react_codegen_")
+if(NOT SNWC_RN_CODEGEN_TARGETS)
+    message(FATAL_ERROR "RN app-level Codegen target is missing")
+endif()
+list(LENGTH SNWC_RN_CODEGEN_TARGETS SNWC_RN_CODEGEN_TARGET_COUNT)
+if(NOT SNWC_RN_CODEGEN_TARGET_COUNT EQUAL 1)
+    message(FATAL_ERROR "RN app-level Codegen target count is not exactly one")
+endif()
+list(GET SNWC_RN_CODEGEN_TARGETS 0 SNWC_RN_CODEGEN_TARGET)
+
 # RN CLI's C++ autolinking metadata is not part of the application source
 # contract.  The clean consumer therefore registers the package target from
 # the installed, lockfile-selected npm package explicitly.  This keeps the

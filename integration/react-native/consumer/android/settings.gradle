@@ -3,4 +3,6 @@ plugins { id("com.facebook.react.settings") }
 extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
 rootProject.name = 'SnwcRnBuild'
 include ':app'
+include ':symbol-nem-wallet-core'
+project(':symbol-nem-wallet-core').projectDir = file('../node_modules/@nemnesia/symbol-nem-wallet-core/android')
 includeBuild('../node_modules/@react-native/gradle-plugin')
