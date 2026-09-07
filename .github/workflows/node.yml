@@ -83,19 +83,35 @@ jobs:
           toolchain: stable
           targets: aarch64-apple-ios
 
-      - name: Resolve the actual source-controlled consumer graph
+      - name: Prepare actual consumer workspace
         shell: bash
+        env:
+          SNWC_POD_BOOTSTRAP_WORKSPACE: ${{ runner.temp }}/snwc-podfile-lock
         run: |
           set -euo pipefail
-          workspace="$RUNNER_TEMP/snwc-podfile-lock"
+          workspace="$SNWC_POD_BOOTSTRAP_WORKSPACE"
           consumer="$workspace/integration/react-native/consumer"
           package="$workspace/packages/wallet-core"
           mkdir -p "$workspace/integration/react-native" "$workspace/packages"
           cp -R integration/react-native/consumer "$consumer"
           cp -R packages/wallet-core "$package"
+
+      - name: Build actual local C ABI pod input
+        shell: bash
+        run: |
+          set -euo pipefail
           cargo build --package symbol-nem-wallet-core-native --target aarch64-apple-ios --release --locked
-          cp "target/aarch64-apple-ios/release/libsymbol_nem_wallet_core_native.a" "$package/ios/libsymbol_nem_wallet_core_native.a"
-          npm ci --ignore-scripts --no-audit --no-fund --prefix "$consumer"
+          cp "target/aarch64-apple-ios/release/libsymbol_nem_wallet_core_native.a" "$RUNNER_TEMP/snwc-podfile-lock/packages/wallet-core/ios/libsymbol_nem_wallet_core_native.a"
+
+      - name: Install actual consumer npm graph
+        shell: bash
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix "$RUNNER_TEMP/snwc-podfile-lock/integration/react-native/consumer"
+
+      - name: Resolve actual CocoaPods graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          consumer="$RUNNER_TEMP/snwc-podfile-lock/integration/react-native/consumer"
           (
             cd "$consumer"
             BUNDLE_DEPLOYMENT=true BUNDLE_FROZEN=true BUNDLE_PATH="$consumer/.bundle-cache" \
@@ -104,9 +120,14 @@ jobs:
               ruby -rbundler/setup -e "load Gem.bin_path('cocoapods', 'pod', '1.16.2')" -- \
               install --no-repo-update
           )
-          test -s "$consumer/ios/Podfile.lock"
+
+      - name: Save actual Podfile.lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/snwc-podfile-lock/integration/react-native/consumer/ios/Podfile.lock"
           mkdir -p bootstrap-output
-          cp "$consumer/ios/Podfile.lock" bootstrap-output/Podfile.lock
+          cp "$RUNNER_TEMP/snwc-podfile-lock/integration/react-native/consumer/ios/Podfile.lock" bootstrap-output/Podfile.lock
 
       - name: Upload actual Podfile.lock
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
