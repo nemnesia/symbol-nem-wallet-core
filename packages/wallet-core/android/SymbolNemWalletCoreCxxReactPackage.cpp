@@ -7,7 +7,7 @@ namespace facebook::react {
 jni::local_ref<SymbolNemWalletCoreCxxReactPackage::jhybriddata>
 SymbolNemWalletCoreCxxReactPackage::initHybrid(
     jni::alias_ref<jclass>,
-    jni::alias_ref<jobject> reactContext) {
+    jni::alias_ref<JReactContext::javaobject> reactContext) {
   return makeCxxInstance(reactContext);
 }
 
@@ -32,7 +32,7 @@ void registerReactLifecycleNatives() {
 }
 
 SymbolNemWalletCoreCxxReactPackage::SymbolNemWalletCoreCxxReactPackage(
-    jni::alias_ref<jobject> reactContext)
+    jni::alias_ref<JReactContext::javaobject> reactContext)
     : reactContext_(jni::make_global(reactContext)) {}
 
 std::shared_ptr<TurboModule> SymbolNemWalletCoreCxxReactPackage::getModule(

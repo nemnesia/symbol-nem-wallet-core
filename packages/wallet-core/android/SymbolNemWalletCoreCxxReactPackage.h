@@ -9,6 +9,11 @@
 
 namespace facebook::react {
 
+struct JReactContext : jni::JavaClass<JReactContext> {
+  static constexpr auto kJavaDescriptor =
+      "Lcom/facebook/react/bridge/ReactContext;";
+};
+
 class SymbolNemWalletCoreCxxReactPackage final
     : public jni::HybridClass<SymbolNemWalletCoreCxxReactPackage, CxxReactPackage> {
  public:
@@ -17,7 +22,7 @@ class SymbolNemWalletCoreCxxReactPackage final
 
   static jni::local_ref<jhybriddata> initHybrid(
       jni::alias_ref<jclass>,
-      jni::alias_ref<jobject> reactContext);
+      jni::alias_ref<JReactContext::javaobject> reactContext);
   static void registerNatives();
 
   std::shared_ptr<TurboModule> getModule(
@@ -30,7 +35,7 @@ class SymbolNemWalletCoreCxxReactPackage final
   friend HybridBase;
 
   explicit SymbolNemWalletCoreCxxReactPackage(
-      jni::alias_ref<jobject> reactContext);
+      jni::alias_ref<JReactContext::javaobject> reactContext);
 
   jni::global_ref<jobject> reactContext_;
 };
