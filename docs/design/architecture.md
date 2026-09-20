@@ -493,7 +493,7 @@ authority の依存方向は process-wide coordination → runtime / module-regi
 
 Android は approved ABI ごとの package-local Rust native library group、iOS は approved device / simulator slice をまとめた package-local native artifact group を論理構成とする。どちらも remote download、postinstall compile、JS による artifact 選択または別 backend fallback を通常経路にしない。RN artifact の trust chain は `Git source revision → controlled release build → target-specific artifact → target identity + digest / provenance evidence → approved npm package assembly → published package` とし、source revision / controlled release build を trust authority とする。
 
-Android の現行 RN support baseline は `PD-RN-002` および `PD-RN-004` に従い、minimum API 24、formal ABI `arm64-v8a` / `x86_64` とする。iOS の現行 baseline は `PD-RN-003` および `PD-RN-005` に従い、Bare RN は iOS 15.1 以上、Expo formal integration subset は iOS 16.4 以上、physical device は `arm64`、Apple Silicon simulator は `arm64` とする。`armeabi-v7a`、x86 Android、Intel `x86_64` simulator および承認値未満の API / OS floor は formal support 外である。これらは承認済み platform baseline の current status であり、候補比較の未決定状態ではない。Browser baseline は RN platform decision の対象外であり、§12.6 の別の product policy として扱う。
+RN platform baseline は [`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md) の `PD-RN-002〜PD-RN-005 = APPROVED` を適用する。Android は `minSdk = 24`、formal ABI は `arm64-v8a` device と `x86_64` emulator とする。`armeabi-v7a`、`x86` その他の ABI は formal support に含めない。iOS は Bare RN で `15.1+`、Expo subset で `16.4+` とし、formal architecture は arm64 device と arm64 Apple Silicon simulator とする。Intel `x86_64` simulator は formal support に含めない。これらは現行の approved baseline であり、承認前の候補または `NEEDS USER DECISION` ではない。将来 matrix を拡張・変更する場合は、追加 target の build、lifecycle、artifact および release evidence を伴う新しい正式判断として見直す。
 
 iOS は link / load の予測可能性と artifact provenance のため static linkage を第一候補とする。Android は package / release assembly が target / ABI、approved artifact および digest / provenance relationship を検証した後に loader input とし、runtime hash verification を毎回要求しない。iOS は package assembly、framework / archive composition、link input および release evidence の段階で target / slice、source、version および approved artifact の関係を検証する。missing、wrong target / ABI / slice、manifest mismatch、release evidence mismatch または unapproved artifact は load / link 前後を問わず fail closed とし、Node / WASM へ fallback しない。Android の library grouping、iOS の static archive / framework / XCFramework の具体形式、loader、Gradle / CMake、pod / Xcode、filename、slice 検証および artifact manifest は下流に委譲する。
 
@@ -509,11 +509,15 @@ RN の load、ABI / slice、initialization、invocation、conversion、invalid o
 
 ### 12.6 Version / support policy の設計境界
 
-React Native version、Android API、iOS version、ABI matrix、New Architecture mandatory policy および Expo scope の RN baseline は、`PD-RN-001`〜`PD-RN-007` の approved input として確定済みである。`docs/design/bindings.md` §12.13 には承認前の候補比較を履歴として残し、current status と承認済み decision への trace を併記する。Browser baseline は RN decision の対象外であり、別の product policy として未決定のまま扱う。
+RN-specific support policy は [`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md) の `PD-RN-001〜PD-RN-007 = APPROVED` を現行入力とする。
 
-- `PD-RN-006` により New Architecture を mandatory とし、TurboModule / JSI-based integration を要求する。Legacy Architecture / Legacy Native Module / Bridge compatibility は formal support 外である。
-- `PD-RN-007` により bare RN、Expo Development Build、Expo Prebuild / CNG および custom native module integration を formal support とし、Expo Go、unsupported version pair、canary / nightly および native module 非対応環境は formal support 外とする。
-- 現行 Node.js 22.x / 24.x、Browser / Extension、native Node、WASM、release および supply-chain policy は RN 対応を理由に変更しない。
+- React Native は `>= 0.86.x` を floor とし、formal window は stable の `0.86.x` compatibility line と `0.87.x` primary validation line に限定する。`0.88.x` 以降、canary、nightly、`next` は正式な re-baseline まで unsupported とする。
+- Android は API 24、`arm64-v8a` / `x86_64`、iOS は Bare RN `15.1+`、Expo subset `16.4+`、arm64 device / arm64 Apple Silicon simulator を formal matrix とする。
+- New Architecture / TurboModule / Codegen / private JSI を mandatory とし、Legacy Architecture / Bridge は formal support に含めない。
+- Bare RN、Expo Development Build、Expo Prebuild / CNG と custom native module workflow を formal support とする。Expo compatibility line は Expo SDK 57 stable + RN 0.86.x とし、Expo Go、canary / nightly、unlisted SDK / RN mismatch は unsupported とする。
+- Browser baseline はこの RN platform decision の対象外であり、package-wide support policy の別 lane として扱う。現行 Node.js 22.x / 24.x、Browser / Extension、native Node、WASM、release および supply-chain policy は RN 対応を理由に変更しない。
+
+上記 baseline の見直しは、追加 platform / version の正式 support、upstream support status の変化、または toolchain / native compatibility の根拠喪失が生じた場合に、support matrix、CI および release evidence を同時に更新する正式判断として行う。negative responsiveness evidence 後の async contract または operation-specific RN support exclusion は §12.3 の条件付き future decision のままであり、platform baseline の承認状態と混同しない。
 
 ### 12.7 Architecture Decision Records
 
@@ -523,7 +527,7 @@ React Native version、Android API、iOS version、ABI matrix、New Architecture
 | --- | --- | --- | --- | --- | --- |
 | sync baseline、RN adapter serialization、fail-closed を維持する | all-async API、Core thread-safety 依存、WASM fallback、stale result | public compatibility と明示的な failure、unsafe blocking の future escalation | queue 上の secret retention、infrastructure failure、partial state を許可しない | async 化は evidence 後の user decision、RN support は native setup を要求 | operation envelope、benchmark、queue、init timing、error mapping、buffer mechanics |
 | RN artifact を source / build / target / evidence / npm assembly に bind する | local artifact、runtime download、既存 C ABI artifact との同一視 | package inclusion と release evidence の追跡可能性 | unapproved / mismatched artifact を use / load しない | RN artifact は npm release ownership、既存 Node / WASM / C ABI release semantics は不変 | manifest、digest、attestation、CI / release verification |
-| RN binding は TurboModule / JSI hybrid とする | legacy bridge only、pure public JSI、RN 専用 Rust binding | New Architecture の将来性、sync facade、binary transfer、共通性 | adapter が Core authority にならず、conversion / load failure を fail-closed | New Architecture mandatory、Legacy は formal support 外 | spec、Codegen、JSI、JNI / ObjC++、threading |
+| RN binding は TurboModule / JSI hybrid とする | legacy bridge only、pure public JSI、RN 専用 Rust binding | New Architecture の将来性、sync facade、binary transfer、共通性 | adapter が Core authority にならず、conversion / load failure を fail-closed | New Architecture は mandatory。stable RN `0.86.x` を compatibility line、`0.87.x` を primary validation line とし、Legacy Architecture / Bridge は unsupported | spec、Codegen、JSI、JNI / ObjC++、threading |
 | RN-private adapter が existing public C ABI contract を内部再利用する | RN 専用 Rust surface、Application から C ABI FFI、根拠なしの adapted public ABI | semantics、ownership、release evidence の重複を避ける | crypto / authorization / Store logic の duplicate を防ぐ | existing C ABI consumer の意味と public ABI を変えず、RN artifact を npm chain に分離する | exact ABI、transport adaptation、artifact、loader |
 | process-wide RN binding coordination を全 RN context の authority とする | context 内だけの serialization、Core / C ABI thread-safety への依存、runtime ごとの独立 lifecycle | 複数 runtime / module registry 間の concurrent invocation、init / shutdown、ordering、stale result を一意に管理する | shared resource failure を隠さず、secret / Core security semantics を RN へ移転しない | 複数 RN context は同一 process-wide boundary 配下で利用し、Node / Browser / WASM routing は変更しない | coordinator の実装、queue、lock、generation、lifecycle hook |
 | single package 内 runtime 分離 | RN package、public backend selector、universal fallback | package / API parity と misrouting 防止 | Node addon / WASM への誤 fallback と artifact confusion を防ぐ | Node / Browser routing を維持 | exports、resolver、Metro |
@@ -543,4 +547,4 @@ RN Architecture は、Android / iOS の実 consumer で同じ 16 operation、DTO
 - secret が log、diagnostic、error、binding cache、unlocked session、decrypted singleton または failure output に残らないこと、failure / cancellation / retry / restart で cleanup と statelessness が維持されることを確認する。JS GC、crash dump、OS および host compromise 全体の消去は guarantee 外とする。
 - package-local artifact の integrity / provenance、resolver の unambiguous routing、RN consumer の Node addon / WASM 非要求および Browser consumer の RN native 非要求を確認する。
 
-exact test command、CI job、fixture、artifact filename、support version、error code および release workflow は Specification / Implementation / release verification に委譲する。
+approved support matrix を検証する exact test command、CI job、fixture、artifact filename、error code および release workflow は Specification / Implementation / release verification に委譲する。support version / platform / architecture の値自体は §12.4 と §12.6 の Design input として固定し、下流判断へ委譲しない。

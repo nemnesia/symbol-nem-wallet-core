@@ -363,7 +363,7 @@ WASM が JavaScript / Browser compromise の secret isolation boundary ではな
 | Account / Chain / Network | Requirements FR-013、FR-024、DR-005、AC-013、AC-047 | §5.1、§7 | §7 | §3.1、§7 |
 | Native / Node.js / Web 共通 guarantee boundary | Concept §7、§9、Requirements NFR-004、SEC-020 | §3.1、§4.4、§8 | §3、§8 | §3.2、§9.2 |
 | Native / Node-API boundary safety intent | Requirements NFR-002〜NFR-003、SEC-012、SEC-018 | §4.2、§8 | §3、§10 | §4.2、§8 |
-| React Native architecture、runtime resolution、artifact、buffer、error、sync resource evidence、support matrix および verification | Requirements FR-019、NFR-006〜NFR-015、AC-051〜AC-061、UF-RN-001、DR-RN-001〜DR-RN-004 | §12.1〜§12.15 | §12.1〜§12.15 | §12.1〜§12.17 |
+| React Native architecture、runtime resolution、artifact、buffer、error、sync resource evidence、support matrix および verification | Requirements FR-019、NFR-006〜NFR-015、AC-051〜AC-061、`PD-RN-001〜PD-RN-007 = APPROVED`、UF-RN-001、DR-RN-001〜DR-RN-005 | §12.1〜§12.15 | §12.1〜§12.15 | §12.1〜§12.17 |
 | Core secret processing の side-channel property | Requirements SEC-023、AC-049、§12.2〜§12.3 | §4.1、§8、§10 | §8.1、§8.3、§10 | §8.1、§10.2 |
 
 ### 11.2 参照資料の役割
@@ -422,7 +422,7 @@ JSI は同期 invocation と binary transfer の内部 transport、TurboModule �
 
 既存 C ABI の contract / ownership / error semantics だけでは RN の buffer lifetime、registration または platform lifecycle を安全に表現できない具体的な不足が確認された場合に限り、RN-private adaptation の必要性を別途 Design decision として再評価する。単なる実装都合で新しい public C ABI surface、RN-only symbol または既存 public ABI の破壊的変更を追加しない。
 
-React Native New Architecture の current direction は、公式資料上も JSI、Turbo Native Module および Codegen を中心にしている。`PD-RN-001`〜`PD-RN-007` の承認により、RN version window、platform floor、ABI / slice、New Architecture および Expo scope の current status は確定済みである。具体的な integration API は引き続き Specification へ委譲し、下記 §12.13 では承認前の候補比較と approved current status を区別して記録する。
+React Native New Architecture の current direction は、公式資料上も JSI、Turbo Native Module および Codegen を中心にしている。現行 product policy は [`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md) の `PD-RN-001` と `PD-RN-006 = APPROVED` により、stable RN `0.86.x / 0.87.x` の finite support window と New Architecture mandatory を採用し、Legacy Architecture / Bridge を formal support に含めない。具体的な integration API は Specification へ委譲する。将来 Legacy support を追加する場合は、同期契約、lifecycle、security および追加 CI / release evidence を含む新しい正式判断を必要とする。
 
 ### 12.3 Public API baseline と sync / async policy
 
@@ -496,9 +496,9 @@ RN TypeScript facade
   → Rust Core
 ```
 
-ABI は build / packaging で選択し、JavaScript が ABI を選択しない。missing artifact、load error、ABI mismatch、registration / initialization failure、invocation failure または invalid output は明示的に伝播させ、Browser/WASM、Node addon、別 ABI へ fallback しない。RN native artifact は source revision、package version、Android target / ABI、digest および release provenance evidence と結び付いた approved package input でなければならない。package / release assembly が target identity、package-approved artifact および integrity relationship を検証してから、Android loader が使用する。runtime の各 load で暗号学的 hash を再検証することは本 Design で要求しないが、loader は実行時の target / ABI と package-approved entry の不一致を成功として扱わない。入力は一つの bounded な native mediation を経て existing public C ABI contract / Core へ渡し、出力は呼出し結果の所有権を明確にした新しい JS `Uint8Array` として返す。exact JNI symbol、Gradle / CMake、API level、artifact filename、AAR layout、C ABI signature、pointer / free rule は下流へ委譲する。
+ABI は build / packaging で選択し、JavaScript が ABI を選択しない。missing artifact、load error、ABI mismatch、registration / initialization failure、invocation failure または invalid output は明示的に伝播させ、Browser/WASM、Node addon、別 ABI へ fallback しない。RN native artifact は source revision、package version、Android target / ABI、digest および release provenance evidence と結び付いた approved package input でなければならない。package / release assembly が target identity、package-approved artifact および integrity relationship を検証してから、Android loader が使用する。runtime の各 load で暗号学的 hash を再検証することは本 Design で要求しないが、loader は実行時の target / ABI と package-approved entry の不一致を成功として扱わない。入力は一つの bounded な native mediation を経て existing public C ABI contract / Core へ渡し、出力は呼出し結果の所有権を明確にした新しい JS `Uint8Array` として返す。`minSdk = 24` と approved ABI は Design input として固定し、exact JNI symbol、Gradle / CMake、`targetSdk` / `compileSdk` policy、artifact filename、AAR layout、C ABI signature、pointer / free rule は下流へ委譲する。
 
-Android の support matrix は `PD-RN-004` に従い `arm64-v8a` device と `x86_64` emulator に限定し、`armeabi-v7a`、x86 およびその他未承認 ABI は formal support 外とする。minimum Android API level は `PD-RN-002` に従い API 24 とし、target / compile policy は release 時点の tooling requirement に従う。
+Android の approved support matrix は `PD-RN-002` / `PD-RN-004` に従い、`minSdk = 24`、`arm64-v8a` device と `x86_64` emulator とする。`armeabi-v7a`、`x86` その他の ABI は formal support に含めない。`targetSdk` / `compileSdk` の時点依存 policy、Gradle / CMake / AAR の具体構成は下流へ委譲するが、API floor と formal ABI を未決定として扱わない。
 
 Android の module initialization は RN adapter が一意に管理し、初期化完了前の operation admission を許可しない。Application の background / foreground 遷移は Profile state、current Store、password authorization または secret の永続化・継続保持を発生させない。teardown、runtime invalidation または process termination が発生した場合、新規 admission を停止し、in-flight operation は完了して検証済みの結果を返すか、失敗して temporary、native resource および authorization-capable state を cleanup する。Core invocation を thread kill で強制中断したことを成功とみなさず、復帰後は lifecycle が有効な adapter と native artifact の初期化境界から再開する。Android lifecycle callback、keep-alive、再初期化の具体方式は下流へ委譲する。
 
@@ -517,7 +517,7 @@ RN TypeScript facade
 
 device / simulator の slice は native build が選択する。RN native artifact は source revision、package version、iOS target / slice、digest および release provenance evidence と結び付いた approved package input でなければならない。iOS は static / integrated artifact の link input、framework / archive composition、package assembly および release evidence の段階で approved artifact だけを受け入れる。static linkage では Android のような runtime load 前 hash verification を要求せず、link / build 時の source・target・slice・package identity の検証を trust point とする。missing slice、unsupported device / simulator、link / load failure、ABI mismatch、initialization failure または invalid output は native infrastructure error として明示的に失敗させ、WASM / Node addon へ fallback しない。static / dynamic の最終形式、Xcode build setting、podspec、artifact filename、method signature、buffer release は下流へ委譲する。
 
-iOS の architecture baseline は `PD-RN-005` に従い physical device `arm64` と Apple Silicon simulator `arm64` に限定し、Intel `x86_64` simulator は formal support 外とする。iOS version baseline は `PD-RN-003` に従い Bare RN が iOS 15.1 以上、Expo formal integration subset が iOS 16.4 以上である。device / simulator の同一 artifact grouping を release evidence で検証できる構成にする。
+iOS の approved support matrix は `PD-RN-003` / `PD-RN-005` に従い、Bare RN `15.1+`、Expo subset `16.4+`、arm64 device と arm64 Apple Silicon simulator とする。Intel `x86_64` simulator は formal support に含めない。device / simulator の同一 artifact grouping を release evidence で検証できる構成にする。将来 x86_64 simulator を追加する場合は、対応 slice、Intel host / runtime、CI および同等の lifecycle / security evidence を含む新しい正式判断を必要とする。
 
 iOS の module initialization、device / simulator artifact の利用可能性および adapter lifecycle は一意に管理し、初期化・link 確認前の operation admission を許可しない。Application の background / foreground 遷移、scene の切替または native teardown は secret、authorization、Profile state または current Store の継続 owner を生じさせない。teardown、runtime invalidation または process termination では新規 admission を停止し、in-flight operation の成功は Core completion、output validation および replacement の完全性が確認できた場合だけ delivery する。それ以外は失敗として temporary、native resource および authorization-capable state を cleanup し、復帰後に stale result や partial replacement を再利用しない。iOS lifecycle callback、scene integration、再初期化および link boundary の具体方式は下流へ委譲する。
 
@@ -622,9 +622,9 @@ existing public C ABI release artifact と RN package-internal artifact は別�
 
 artifact の取得、link / load、ABI / slice 選択および integrity 検証は native / packaging / release boundary の責任であり、JavaScript consumer の backend selector にしない。missing artifact、wrong target / ABI / slice、manifest mismatch、release evidence mismatch または unapproved artifact は fail closed とし、Node / WASM へ fallback しない。package layout、manifest field、digest format、archive / framework形式、Gradle / pod / build integration、autolinking および release workflow は Specification / Implementation / release verification へ委譲する。
 
-### 12.13 Version、architecture、New Architecture および Expo の候補比較と current status
+### 12.13 Version、architecture、New Architecture および Expo の承認済み baseline
 
-以下の Option、Rationale、Compatibility impact、Maintenance impact および Recommendation は、`PD-RN-001`〜`PD-RN-007` の承認前に行った候補比較の履歴であり、現行の normative status ではない。各 RN 項目の `Current status` と [`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md) が現行の approved input である。現行 Node.js 22.x / 24.x policy と既存 Browser / native Node / WASM の保証は変更しない。Browser baseline は RN platform decision の対象外であり、下記で別の未決定事項として区別する。
+RN-specific product policy は [`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md) の `PD-RN-001〜PD-RN-007 = APPROVED` を現行 baseline とする。以下の Option / Rationale / Compatibility / Maintenance の比較は承認前の判断根拠を保存する **履歴的・非規範的な比較**であり、各表の `Approved baseline` が現在の Design 判断である。候補比較から現行 support status を再推論してはならない。現行 Node.js 22.x / 24.x policy と既存 Browser / native Node / WASM の保証は変更しない。
 
 #### Minimum React Native version
 
@@ -634,8 +634,8 @@ artifact の取得、link / load、ABI / slice 選択および integrity 検証�
 | Rationale | A は JSI / TurboModule / Codegen と native artifact の検証対象を限定し、B は既存 consumer の移行余地を広げる。 |
 | Compatibility impact | A は古い RN / legacy bridge consumer を対象外にし、B は resolver・registration・test matrix を増やす。 |
 | Maintenance impact | A は support branch を抑え、B は New Architecture と legacy の二重 adapter を維持する。 |
-| Recommendation | New Architecture / JSI の安定実装を利用できる stable major を基準に、少なくとも一つの明示的 support line とする。 exact major は release planning で決める。 |
-| Current status | `PD-RN-001 = APPROVED`: RN `>=0.86.x`、`0.86.x` minimum compatibility floor、`0.87.x` primary validation / development、stable release only。`<0.86`、canary、nightly は formal support 外。 |
+| Recommendation | New Architecture / JSI の安定実装を利用できる stable line に範囲を限定する。 |
+| Approved baseline | `>= 0.86.x` を floor とし、stable `0.86.x` を compatibility line、stable `0.87.x` を primary validation line とする。`0.88.x` 以降、canary、nightly、`next` は正式なre-baselineまでunsupported。 |
 
 #### Minimum Android API level
 
@@ -644,9 +644,9 @@ artifact の取得、link / load、ABI / slice 選択および integrity 検証�
 | Option | A: target Application / RN template が採用する modern API floor。B: より古い Android API まで native artifact と loader を維持する。 |
 | Rationale | A は ABI、loader、security patch、test matrix を絞り、B は device coverage を広げる。 |
 | Compatibility impact | A は古い端末を対象外にし、B は build / runtime 検証と保守範囲を拡大する。 |
-| Maintenance impact | A を推奨するが、具体 API number は RN と MosaicLynx の deployment policy に合わせる。 |
+| Maintenance impact | A を採用し、API 24 をcurrent floorとして維持する。 |
 | Recommendation | current RN support floor と実利用端末の共通範囲を採用し、legacy compatibility を「念のため」に足さない。 |
-| Current status | `PD-RN-002 = APPROVED`: minimum API 24。`targetSdk` / `compileSdk` は release 時点の Google Play / Android tooling requirement に従う。 |
+| Approved baseline | `minSdk = 24`。`targetSdk` / `compileSdk` はrelease時点のofficial policyへ追従する。 |
 
 #### Minimum iOS version
 
@@ -655,9 +655,9 @@ artifact の取得、link / load、ABI / slice 選択および integrity 検証�
 | Option | A: RN の stable support floor と target Application が採用する iOS floor の高い方。B: older iOS device まで維持する。 |
 | Rationale | A は static artifact、JSI / TurboModule、simulator / device test を単純化し、B は device coverage を広げる。 |
 | Compatibility impact | A は古い iOS を対象外にし、B は native API / packaging matrix を増やす。 |
-| Maintenance impact | A を推奨するが、exact version は RN と MosaicLynx の policy に依存する。 |
+| Maintenance impact | A を採用し、Bare RN とExpo subsetの異なるfloorをmatrixで管理する。 |
 | Recommendation | RN integration と target application が共通に検証できる modern floor。 |
-| Current status | `PD-RN-003 = APPROVED`: Bare RN は iOS 15.1 以上、Expo formal integration subset は iOS 16.4 以上。package 全体の minimum は 16.4 以上へ引き上げない。 |
+| Approved baseline | Bare RN `15.1+`。Expo SDK 57 subsetは`16.4+`。 |
 
 #### Supported browser baseline
 
@@ -678,8 +678,8 @@ artifact の取得、link / load、ABI / slice 選択および integrity 検証�
 | Rationale | A は現行の主要 device / emulator coverage と artifact count の均衡がよい。B は古い・非主要 target を追加する。 |
 | Compatibility impact | A は 32-bit device / x86 emulator を対象外にし、B は対応端末を増やす。 |
 | Maintenance impact | A を推奨し、B は build、test、release integrity evidence を ABI ごとに増やす。 |
-| Recommendation | arm64-v8a と x86_64 を初期候補とし、armeabi-v7a は実利用要求がある場合のみ採用する。 |
-| Current status | `PD-RN-004 = APPROVED`: formal distribution / verification は `arm64-v8a`、`x86_64` のみ。`armeabi-v7a`、x86 その他未承認 ABI は formal support 外。 |
+| Recommendation | arm64-v8a と x86_64 にformal evidenceを集中し、legacy ABIを根拠なく追加しない。 |
+| Approved baseline | `arm64-v8a` device + `x86_64` emulator。`armeabi-v7a`、`x86` その他のABIはunsupported。 |
 
 #### iOS architecture matrix
 
@@ -689,8 +689,8 @@ artifact の取得、link / load、ABI / slice 選択および integrity 検証�
 | Rationale | A は現行 Apple Silicon 開発 / simulator と device の主要範囲を満たし、B は Intel Mac simulator 互換を加える。 |
 | Compatibility impact | A は x86_64 simulator host を対象外にし、B は追加 slice / test を必要とする。 |
 | Maintenance impact | A を推奨し、B は必要な consumer が明確な場合だけ追加する。 |
-| Recommendation | arm64 device / arm64 simulator を初期候補とする。 |
-| Current status | `PD-RN-005 = APPROVED`: physical device は `arm64`、Simulator は Apple Silicon `arm64`。Intel `x86_64` simulator は formal support 外。 |
+| Recommendation | arm64 device / arm64 Apple Silicon simulatorにformal evidenceを集中する。 |
+| Approved baseline | arm64 physical device + arm64 Apple Silicon simulator。Intel `x86_64` simulatorはunsupported。 |
 
 #### React Native New Architecture policy
 
@@ -700,8 +700,8 @@ artifact の取得、link / load、ABI / slice 選択および integrity 検証�
 | Rationale | A は将来方向と構造が最も単純、B は現行 consumer 移行を吸収、C は古い consumer を優先するが将来負債が大きい。RN 0.82 以降の公式方向は New Architecture only であり、legacy interop は移行用の位置付けである。 |
 | Compatibility impact | A は legacy app を除外、B は両方を検証、C は future RN との整合を損なう可能性がある。 |
 | Maintenance impact | A が最小、B は二重 registration / test matrix、C は legacy bridge を長期維持する。 |
-| Recommendation | New Architecture primary。legacy は support decision があり、かつ 16 operation の synchronous contract を保てる場合のみ compatibility adapter として追加する。 |
-| Current status | `PD-RN-006 = APPROVED`: New Architecture mandatory、TurboModule / JSI-based integration required。Legacy Architecture / Legacy Native Module / Bridge compatibility は formal support 外。async 化は §12.3 / DDR-RN-004 の条件付き future decision として別管理する。 |
+| Recommendation | New Architecture mandatory。将来Legacyを追加する場合だけ、別の正式判断と追加evidenceを要求する。 |
+| Approved baseline | New Architecture / TurboModule / Codegen / private JSIをmandatoryとし、Legacy Architecture / Bridgeはunsupported。async化は§12.3 / DDR-RN-004の条件付きfuture decisionとして別管理する。 |
 
 #### Expo compatibility
 
@@ -711,8 +711,8 @@ artifact の取得、link / load、ABI / slice 選択および integrity 検証�
 | Rationale | Wallet Core は custom native code / artifact を必要とする。Expo Go は固定 native library のため、任意の native module を後から追加する経路ではない。development build は custom native code を含められる。 |
 | Compatibility impact | A は Expo Go を対象外とするが、native artifact を load できる。B は Expo Go の固定 runtime と矛盾し、RN native backend の保証を崩す。 |
 | Maintenance impact | A は config plugin / prebuild / native project の version matrix を管理し、B は実現不能または別の non-native fallback を要求する。 |
-| Recommendation | bare RN、または development build / prebuild 後の native project を formal support 候補とする。Expo Go では RN Wallet Core を formal support しない。 |
-| Current status | `PD-RN-007 = APPROVED`: Bare RN、Expo Development Build、Expo Prebuild / CNG および custom native module integration を formal support とする。Expo Go、unsupported version pair、canary / nightly および native module 非対応環境は formal support 外。 |
+| Recommendation | Bare RN、Development Build、Prebuild / CNGをformal native integrationとして扱い、Expo Goへfallbackしない。 |
+| Approved baseline | Bare RN、Expo Development Build、Expo Prebuild / CNG、custom native module workflowをformal supportとする。Expo SDK 57 stable + RN 0.86.xをformal compatibility lineとし、Expo Go、canary / nightly、unlisted SDK / RN mismatchはunsupported。 |
 
 ### 12.14 Security threat surface と対策の配置
 
@@ -752,7 +752,7 @@ Implementation / CI の具体 command は固定せず、次の検証面を将来
 - **Alternatives considered**: legacy bridge only、pure JSI public surface、platform ごとの Rust binding、RN 専用 package。
 - **Rationale**: 同一 Core、既存 synchronous facade、binary transfer、New Architecture の将来方向、共通性および maintenance cost の均衡を取る。
 - **Security implications**: RN adapter は authorization、暗号、Store semantics、secret ownership を持たず、JS/native boundary を fail-closed にする。
-- **Compatibility implications**: `PD-RN-001` により RN `>=0.86.x`、`0.86.x` minimum compatibility floor、`0.87.x` primary validation / development、stable release only とする。`PD-RN-006` により New Architecture は mandatory、Legacy は formal support 外。
+- **Compatibility implications**: New Architecture / TurboModule / Codegen / private JSI を mandatory とし、stable RN `0.86.x` を compatibility line、`0.87.x` を primary validation line とする。Legacy Architecture / Bridge、`0.88.x` 以降、canary、nightly、`next` は formal support に含めない。将来範囲を拡張する場合は別の正式判断と追加 evidence を必要とする。
 - **Deferred details**: TurboModule spec、Codegen、JSI object、JNI / ObjC++ method、thread dispatch、build integration、test command。
 
 #### DDR-RN-002: C ABI boundary
@@ -806,8 +806,8 @@ Implementation / CI の具体 command は固定せず、次の検証面を将来
 - **Alternatives considered**: runtime download、single universal binary、JavaScript FFI、Application-managed external artifact。
 - **Rationale**: offline determinism、release evidence、ABI-specific loading、C ABI reuse および supply-chain boundary。
 - **Security implications**: artifact allowlist / integrity / provenance と mismatch fail-closed を適用し、runtime substitution を黙って受け入れない。
-- **Compatibility implications**: `PD-RN-002` および `PD-RN-004` により minimum API 24、formal ABI `arm64-v8a` / `x86_64` とする。`armeabi-v7a`、x86 その他未承認 ABI は formal support 外。
-- **Deferred details**: AAR / jni layout、Gradle / CMake、filename、ABI list、API level、loader method。
+- **Compatibility implications**: `minSdk = 24`、`arm64-v8a` device および `x86_64` emulator を formal support とする。`armeabi-v7a`、`x86` その他の ABI は unsupported とし、将来追加する場合は build、test、artifact、release evidence を伴う別の正式判断を必要とする。
+- **Deferred details**: AAR / jni layout、Gradle / CMake、filename、`targetSdk` / `compileSdk` policy、loader method。
 
 #### DDR-RN-008: iOS artifact model
 
@@ -815,8 +815,8 @@ Implementation / CI の具体 command は固定せず、次の検証面を将来
 - **Alternatives considered**: dynamic download、device-only archive、Application-built Rust artifact、JS/WASM fallback。
 - **Rationale**: link / load の予測可能性、device / simulator parity、単一 package、release provenance。
 - **Security implications**: missing slice / link / load / integrity failure を fail-closed にし、未知 artifact を runtime 取得しない。
-- **Compatibility implications**: `PD-RN-003` および `PD-RN-005` により Bare RN は iOS 15.1 以上、Expo formal integration subset は iOS 16.4 以上、physical device は `arm64`、Apple Silicon simulator は `arm64` とする。Intel `x86_64` simulator は formal support 外。
-- **Deferred details**: XCFramework / static archive / pod boundary、Xcode setting、artifact filename、slice verification、link flags。
+- **Compatibility implications**: Bare RN は iOS `15.1+`、Expo subset は iOS `16.4+` とし、arm64 physical device と arm64 Apple Silicon simulator を formal support とする。Intel `x86_64` simulator は unsupported とし、将来追加する場合は build、test、artifact、release evidence を伴う別の正式判断を必要とする。
+- **Deferred details**: XCFramework / static archive / pod boundary、Xcode setting、artifact filename、approved slice の検証方式、link flags。
 
 #### DDR-RN-009: process-wide RN binding concurrency authority
 
@@ -838,12 +838,12 @@ Implementation / CI の具体 command は固定せず、次の検証面を将来
 
 ### 12.17 Specification / Implementation boundary
 
-本 section で確定したのは、RN の責務構造、共通 facade、runtime 分離、C ABI の内部再利用、sync policy、secret / buffer ownership の invariant、error category、fail-closed、thread / Store 境界および approved RN support baseline である。Browser baseline と、negative evidence 後の async / support scope の判断は別の未決定事項として扱う。次の具体方式は Specification / Implementation / release verification に委譲する。
+本 section で確定したのは、RN の責務構造、共通 facade、runtime 分離、C ABI の内部再利用、sync policy、secret / buffer ownership の invariant、error category、fail-closed、thread / Store 境界および承認済み support baseline である。次の事項は Specification / Implementation / release verification に委譲する。
 
 - exact public TypeScript declaration、operation parameter / result、error name / numeric code、package exports JSON、resolver condition、private entry filename
-- TurboModule spec、Codegen schema、JSI object / HostObject、legacy adapter の method、JNI / Swift / Objective-C++ signature、callback / exception ABI
+- TurboModule spec、Codegen schema、JSI object / HostObject、JNI / Swift / Objective-C++ signature、callback / exception ABI
 - exact C ABI signature、struct / pointer / length、allocator、free、zeroization、copy count、memory layout、thread primitive、reentrancy guard
-- Android API level、Gradle / CMake / AAR / per-ABI filename、iOS version、podspec / XCFramework / archive / slice、Metro / autolinking / prebuild integration
+- approved Android API / ABI および iOS version / architecture baseline を実現する Gradle / CMake / AAR / per-ABI filename、podspec / XCFramework / archive / slice verification、Metro / autolinking / prebuild integration
 - artifact digest / manifest / provenance format、build command、test command、CI job、release workflow および publish evidence
 - exact malformed input detection、output validation、initialization retry、timeout、cancellation、error message および fixture
 
@@ -860,6 +860,7 @@ sync baseline を維持できるかを判断する exact operation envelope、be
 | DR-RN-002 | process-wide RN binding coordination が全 RN runtime / module registry / logical consumer context の Core / C ABI admission、cross-context ordering、shared lifecycle、stale completion および teardown barrier を一意に管理し、下位 scope は bypass しない | `architecture.md` §12.3、§12.7; `bindings.md` §12.11、DDR-RN-009; `security.md` §12.5 |
 | DR-RN-003 | RN-private adapter が existing public C ABI contract を内部再利用し、RN Application には公開せず、RN artifact の release ownership を npm package assembly chain に置く。RN-specific public C ABI は追加しない | `bindings.md` §12.1、§12.2、§12.12、DDR-RN-002 |
 | DR-RN-004 | RN artifact を source revision から controlled build、target、digest / provenance、approved npm assembly、published package まで bind し、Android は package / release assembly、iOS は package / link / composition を verification point とする | `bindings.md` §12.6、§12.7、§12.12、DDR-RN-010; `security.md` §12.4 |
+| DR-RN-005 | `PD-RN-001〜PD-RN-007` の承認済み version、OS、ABI / architecture、New Architecture および Expo baseline を canonical Design へ反映し、承認前の選択肢比較を履歴的・非規範的情報、Browser baseline と negative-evidence 後の async / support exclusion を別の未決定レーンとして区別する | `architecture.md` §12.4、§12.6、§12.7、§13; `bindings.md` §12.2、§12.6〜§12.7、§12.13、DDR-RN-001、DDR-RN-007〜DDR-RN-008、§12.17、§13 |
 
 ## 13. React Native 技術資料の参照位置
 
@@ -873,4 +874,4 @@ sync baseline を維持できるかを判断する exact operation envelope、be
 - [Expo: customizing development builds](https://docs.expo.dev/workflow/customizing/)
 - [Expo development builds](https://docs.expo.dev/develop/development-builds/introduction/)
 
-これらの資料で示される ecosystem の方向性は、承認済み `PD-RN-006` の New Architecture mandatory および `PD-RN-007` の Expo Go formal support 外という判断の補助的な feasibility 根拠である。RN platform baseline の current status は `PD-RN-001`〜`PD-RN-007` に従い、候補比較の履歴がこれを上書きしない。Browser baseline と、negative evidence 後の async / support scope の判断は、それぞれの decision lane に残す。
+これらの資料で示される ecosystem の方向性は、承認前の候補比較における feasibility と rationale の参考に限る。現在の product policy は [`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md) の `PD-RN-001〜PD-RN-007 = APPROVED` を normative input とし、外部資料だけから再推論しない。Browser baseline と、negative responsiveness evidence 後の async contract / operation-specific RN support exclusion は、この承認済み RN platform baseline とは別の未決定レーンとして扱う。
