@@ -4,20 +4,22 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cmath>
 #include <cstring>
-#include <cstdio>
-#include <iomanip>
 #include <mutex>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
-#if defined(SNWC_RN_PLATFORM_ANDROID) && defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
+#include <atomic>
+#include <cstdio>
+#include <iomanip>
+#include <sstream>
+#if defined(SNWC_RN_PLATFORM_ANDROID)
 #include <android/log.h>
+#endif
 #endif
 
 namespace facebook::react {
@@ -118,11 +120,13 @@ class AdmissionTicket final {
   std::unique_lock<std::mutex> lock_;
 };
 
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
 std::string pointerIdentity(const void *value) {
   std::ostringstream stream;
   stream << "0x" << std::hex << reinterpret_cast<uintptr_t>(value);
   return stream.str();
 }
+#endif
 
 #if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
 std::atomic<uint64_t> integrationOwnedBytesReleaseCount{0};
@@ -695,6 +699,7 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
         return result;
       });
     }
+#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
     if (operation == "__snwc_lifecycle_probe") {
       exactArgumentCount(runtime, args, 0);
       return ticket.deliver([&]() {
@@ -711,18 +716,10 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
             String::createFromUtf8(runtime, pointerIdentity(ticket.request().registration.get())));
         setValue(runtime, result, "provider_generation",
             Value(static_cast<double>(ticket.request().providerGeneration)));
-        setValue(runtime, result, "integration_test",
-            Value(
-#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
-                true
-#else
-                false
-#endif
-            ));
+        setValue(runtime, result, "integration_test", Value(true));
         return result;
       });
     }
-#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
     if (operation == "__snwc_test_cleanup_evidence") {
       exactArgumentCount(runtime, args, 0);
       return ticket.deliver([&]() {

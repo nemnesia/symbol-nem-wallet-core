@@ -175,6 +175,15 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(nativeSource, /std::shared_lock<std::shared_mutex> deliveryLock/);
   assert.match(nativeSource, /coordinator_\.begin/);
   assert.match(nativeSource, /snwc_free_bytes/);
+  assert.match(
+    nativeSource,
+    /#if defined\(SNWC_RN_LIFECYCLE_INTEGRATION_TEST\)[\s\S]*std::string pointerIdentity/,
+  );
+  assert.match(
+    nativeSource,
+    /#if defined\(SNWC_RN_LIFECYCLE_INTEGRATION_TEST\)[\s\S]*if \(operation == "__snwc_lifecycle_probe"\)/,
+  );
+  assert.match(nativeSource, /if \(operation == "__snwc_runtime_identity"\)/);
   assert.match(coordinator, /getpid/);
   assert.match(coordinator, /processGeneration/);
   assert.match(coordinatorHeader, /moduleRegistry/);
@@ -197,9 +206,10 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.match(androidPackageKotlin, /private external fun nativeInvalidate\(\)/);
   assert.match(androidPackageHeader, /CxxReactPackage/);
   assert.match(androidLifecycle, /addBeforeDestroyListener/);
-  assert.match(androidLifecycle, /addReactInstanceEventListener/);
-  assert.match(androidLifecycle, /object : ReactInstanceEventListener/);
-  assert.match(androidLifecycle, /onReactContextInitialized/);
+  assert.doesNotMatch(
+    androidLifecycle,
+    /lastInitializedContext|instanceListener|WeakReference|ReactInstanceEventListener|addReactInstanceEventListener|removeReactInstanceEventListener|onReactContextInitialized/,
+  );
   assert.match(androidLifecycle, /invalidateFromReactHost/);
   assert.match(androidConsumerApplication, /cxxReactPackageProviders/);
   assert.match(androidConsumerApplication, /SymbolNemWalletCoreRnLifecycle\.attach/);
