@@ -81,9 +81,11 @@ The input Store is not mutated in place. After a successful mutation, always use
 
 Node.js prefers a package-local native artifact when the target is supported. `node --no-addons` and unsupported targets without a native artifact use package-local WASM. A missing, corrupt, unreadable, or initialization-failing declared native artifact fails closed and is not silently retried through WASM. Browser applications use the package-local canonical WASM and do not download remote assets.
 
-React Native Android / iOS use the `react-native` conditional export from the same npm package root and a New Architecture TurboModule / JSI binding. The 16 functions, DTOs, `Uint8Array` model, and synchronous contract are shared with the existing facade; there is no fallback to the Node addon or WASM. The supported scope is stable RN `0.86.x` / `0.87.x`, Android API 24+ with `arm64-v8a` / `x86_64`, and iOS 15.1+ with an arm64 device or Apple Silicon simulator. Expo Go is unsupported; Expo support is limited to the SDK 57 + RN `0.86.x` Development Build / Prebuild custom-native-module workflow.
+React Native Android / iOS use the `react-native` conditional export from the same npm package root and a New Architecture TurboModule / JSI binding. The 16 functions, DTOs, `Uint8Array` model, and synchronous contract are shared with the existing facade; there is no fallback to the Node addon or WASM.
 
-For the detailed 16 functions, types, requests, results, and export / signing flows, see the [npm package README](packages/wallet-core/README.en.md).
+The v1 specification covers stable RN `0.86.x` / `0.87.x`, Android API 24+ with `arm64-v8a` / `x86_64`, and iOS 15.1+ with an arm64 device or Apple Silicon simulator. The specified Expo subset is SDK 57 + RN `0.86.x` using a Development Build / Prebuild custom-native-module workflow; Expo Go is unsupported. At present, only Bare RN `0.87.x` is backed by the repository's source-controlled consumer, lockfiles, and build workflow. RN `0.86.x` and the Expo SDK 57 pair still require formal release compatibility evidence and must not be treated as validated environments yet.
+
+Android and iOS require native provider and lifecycle integration in addition to npm installation and import. See [React Native integration in the npm package README](packages/wallet-core/README.en.md#react-native-integration) for the setup and the detailed 16-function contract.
 
 ## npm public API overview
 

@@ -367,15 +367,58 @@ At runtime on Node.js, `Buffer` may be accepted as a `Uint8Array`-compatible inp
 
 Input binary ownership remains with the caller; the facade does not retain it. Returned binary is a new copy owned by the caller. Do not copy Mnemonics, passwords, private keys, decrypted secret material, or signatures into logs, analytics, diagnostics, caches, long-lived state, or unnecessary storage. After handoff, export, or signing is complete, the caller should overwrite sensitive buffers and discard references.
 
-## React Native
+## React Native integration
 
 React Native Android and iOS use the same package root. The `react-native` conditional export selects a private native entry, which calls the same Rust Core / C ABI through a New Architecture TurboModule / JSI adapter. React Native never falls back to the Node addon or WASM.
 
-The supported window is stable React Native `0.86.x` / `0.87.x` (`0.87.x` is the primary validation line), New Architecture, Android API 24+ with `arm64-v8a` / `x86_64`, and iOS 15.1+ with an arm64 device or Apple Silicon simulator. Expo support is limited to SDK 57 with React Native `0.86.x` in a Development Build / Prebuild custom-native-module workflow. Expo Go is unsupported.
+The v1 specification covers stable React Native `0.86.x` / `0.87.x` (`0.87.x` is the primary validation line), New Architecture, Android API 24+ with `arm64-v8a` / `x86_64`, and iOS 15.1+ with an arm64 device or Apple Silicon simulator. The specified Expo subset is SDK 57 with React Native `0.86.x` in a Development Build / Prebuild custom-native-module workflow. Expo Go is unsupported.
+
+At present, only Bare RN `0.87.x` is backed by the repository's source-controlled consumer, lockfiles, and build workflow. RN `0.86.x` and the Expo SDK 57 + RN `0.86.x` pair remain in the v1 specification but still require formal release compatibility evidence. Do not treat them as validated environments yet.
 
 Missing or unverifiable native artifacts, providers, or registration fail with `WalletCoreBackendInitializationError`. There is no runtime download, postinstall compilation, separate RN package, RN-specific WASM binary, or Legacy Architecture / bridge fallback. RN native builds use the package `codegenConfig` and the bundled platform source / artifact manifest.
 
 The 16 RN functions are synchronous and use `Uint8Array` for public binary values. Store, Pending Profile, Mnemonic, password, private key, payload, signature, and replacement-Store handling follow the same contracts as Node and Browser.
+
+### Common prerequisites
+
+- Enable New Architecture and import only from the package root.
+- Confirm that the published npm package contains the `dist/react-native` artifact and manifest for the target platform.
+- A missing provider, artifact, or lifecycle registration is `WalletCoreBackendInitializationError`. Do not switch to the Node addon or WASM.
+- [`integration/react-native/consumer`](../../integration/react-native/consumer) is the repository's validated Bare RN `0.87.x` integration example.
+
+### Android
+
+The package does not use generic Android autolinking, so the Application must connect these pieces:
+
+1. Register `node_modules/@nemnesia/symbol-nem-wallet-core/android` as a Gradle project in `settings.gradle`.
+2. Add `implementation(project(":symbol-nem-wallet-core"))` to the app module.
+3. From the application-level `CMakeLists.txt`, add the package's `android/CMakeLists.txt` with `add_subdirectory` and link `symbol_nem_wallet_core_rn` into the `appmodules` target.
+4. Use the package's provider-aware `android/OnLoad.cpp` from the application-level `OnLoad.cpp`.
+5. Add `SymbolNemWalletCoreCxxReactPackage.create(context)` to `cxxReactPackageProviders` in `MainApplication`, then pass the resulting `ReactHost` to `SymbolNemWalletCoreRnLifecycle.attach(host)`.
+
+See the consumer's [`settings.gradle`](../../integration/react-native/consumer/android/settings.gradle), [`app/build.gradle`](../../integration/react-native/consumer/android/app/build.gradle), [`CMakeLists.txt`](../../integration/react-native/consumer/android/app/src/main/jni/CMakeLists.txt), [`OnLoad.cpp`](../../integration/react-native/consumer/android/app/src/main/jni/OnLoad.cpp), and [`MainApplication.kt`](../../integration/react-native/consumer/android/app/src/main/java/com/snwcrnbuild/MainApplication.kt) for the complete setup.
+
+### iOS
+
+1. Add the `SymbolNemWalletCoreRN` pod from `node_modules/@nemnesia/symbol-nem-wallet-core/ios` to the Podfile and run `pod install`.
+2. Use `SnwcRnReactNativeFactory` instead of the ordinary `RCTReactNativeFactory` in `AppDelegate`.
+3. Subclass `SnwcRnLifecycleDelegate` so runtime creation, reload, and destruction are connected to the package lifecycle.
+
+See the consumer's [`Podfile`](../../integration/react-native/consumer/ios/Podfile) and [`AppDelegate.swift`](../../integration/react-native/consumer/ios/SnwcRnBuild/AppDelegate.swift).
+
+### Expo
+
+Expo Go cannot load this native module. Use a Development Build / Prebuild workflow, apply the same Android or iOS provider, CMake / Pod, and lifecycle integration to the generated native project, and rebuild the development client. Compatibility evidence for SDK 57 + RN `0.86.x` is not complete, so do not treat that pair as validated until formal release verification succeeds.
+
+### First call
+
+After native integration, continue importing only from the package root. A synchronous `Uint8Array` result confirms that the conditional export, provider, and native artifact initialized successfully.
+
+```ts
+import { create_empty_store } from "@nemnesia/symbol-nem-wallet-core";
+
+const store = create_empty_store();
+```
 
 ## Node / Browser backend behavior
 

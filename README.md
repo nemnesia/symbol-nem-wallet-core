@@ -81,9 +81,11 @@ console.log(account.value.address);
 
 Node.js は、対応環境向けの Native 成果物が package 内にあれば、それを優先します。`node --no-addons` を指定した場合と、Native 成果物がない非対応環境では、package 内の WASM を使用します。宣言済みの Native 成果物が欠落・破損している場合や、読み込み・初期化に失敗した場合は安全側に失敗し、WASM へ暗黙に切り替えません。Browser も package 内の正式な WASM を使用し、外部からダウンロードしません。
 
-React Native Android / iOS は、同じ npm package root の `react-native` conditional export から New Architecture の TurboModule / JSI binding を使用します。16関数、DTO、`Uint8Array`、同期呼び出しの契約は既存 facade と共通で、Node addon / WASM への fallback はありません。対応範囲は stable React Native `0.86.x` / `0.87.x`、Android API 24 以上の `arm64-v8a` / `x86_64`、iOS 15.1 以上の arm64 device / Apple Silicon simulator です。Expo Go は対象外で、SDK 57 + React Native `0.86.x` の Development Build / Prebuild custom native module workflow を対象とします。
+React Native Android / iOS は、同じ npm package root の `react-native` conditional export から New Architecture の TurboModule / JSI binding を使用します。16関数、DTO、`Uint8Array`、同期呼び出しの契約は既存 facade と共通で、Node addon / WASM への fallback はありません。
 
-16関数の詳細、型、リクエスト、結果、エクスポート・署名フローは [npm package README](packages/wallet-core/README.md) を参照してください。
+v1仕様の対象は stable React Native `0.86.x` / `0.87.x`、Android API 24 以上の `arm64-v8a` / `x86_64`、iOS 15.1 以上の arm64 device / Apple Silicon simulator です。Expo は SDK 57 + React Native `0.86.x` の Development Build / Prebuild custom native module workflow を対象とし、Expo Go は対象外です。ただし、現時点でリポジトリ内の consumer、lockfile、build workflow により実証済みなのは Bare React Native `0.87.x` です。React Native `0.86.x` と Expo SDK 57 の組合せは、正式リリース前の互換性検証が未完了であり、検証済みの対応環境とは扱いません。
+
+Android / iOS では、npm install と import に加えて native provider と lifecycle の接続が必要です。導入手順と16関数の詳細は [npm package README の React Native 導入](packages/wallet-core/README.md#react-native-の導入) を参照してください。
 
 ## npm 公開 API の概要
 

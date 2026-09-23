@@ -363,15 +363,58 @@ Node runtime では `Buffer` が `Uint8Array` compatible input として受理�
 
 入力 binary の ownership は caller にあり、facade は入力を保持しません。返却 binary は caller が所有する新しい copy です。Mnemonic、password、private key、decrypted secret material、signature を log、analytics、diagnostics、cache、長期 state、不要な storage へコピーしないでください。目的の handoff / export / signing が終わったら、caller が sensitive buffer を上書きし、参照を破棄してください。
 
-## React Native
+## React Native の導入
 
 React Native Android / iOS は、同じ package root から利用できます。RN の runtime resolver は `react-native` conditional export で private native entry を選び、New Architecture の TurboModule / JSI adapter から同じ Rust Core / C ABI を呼び出します。RN 側に Node addon や WASM の fallback はありません。
 
-対応範囲は stable React Native `0.86.x` / `0.87.x`（`0.87.x` を primary validation line）、New Architecture、Android API 24 以上の `arm64-v8a` / `x86_64`、iOS 15.1 以上の arm64 device / Apple Silicon simulator です。Expo は SDK 57 と React Native `0.86.x` の Development Build / Prebuild（custom native module workflow）を対象とし、Expo Go は対象外です。
+v1仕様の対象は stable React Native `0.86.x` / `0.87.x`（`0.87.x` を primary validation line）、New Architecture、Android API 24 以上の `arm64-v8a` / `x86_64`、iOS 15.1 以上の arm64 device / Apple Silicon simulator です。Expo は SDK 57 と React Native `0.86.x` の Development Build / Prebuild（custom native module workflow）を対象とし、Expo Go は対象外です。
+
+現時点でリポジトリ内の consumer、lockfile、build workflow により実証済みなのは Bare React Native `0.87.x` です。React Native `0.86.x` と Expo SDK 57 + React Native `0.86.x` は、v1仕様の対象ですが正式リリース前の互換性検証が未完了です。該当環境を検証済みの対応環境とは扱わないでください。
 
 native artifact の integrity または provider / registration が確認できない場合は `WalletCoreBackendInitializationError` で失敗します。runtime download、postinstall compile、別 RN package、RN 用の別 WASM binary、Legacy Architecture / bridge fallback はありません。RN native build は package の `codegenConfig` と同梱の platform source / artifact manifest を使用します。
 
 RN の16関数もすべて同期 API で、公開バイナリ型は `Uint8Array` です。Store、Pending Profile、Mnemonic、password、private key、payload、signature の扱いと、成功時に返る置換後の Store の適用規則は Node.js / Browser と同じです。
+
+### 共通の前提
+
+- New Architecture を有効にし、package root だけを import します。
+- 公開 npm package に、対象 platform の `dist/react-native` artifact と manifest が含まれていることを確認します。
+- provider、artifact または lifecycle registration が欠けている場合は `WalletCoreBackendInitializationError` になります。Node addon / WASM へ切り替えないでください。
+- このリポジトリの [`integration/react-native/consumer`](../../integration/react-native/consumer) は、実証済みの Bare RN `0.87.x` 統合例です。
+
+### Android
+
+package は generic Android autolinking を使用しないため、Application 側で次を接続します。
+
+1. `settings.gradle` で `node_modules/@nemnesia/symbol-nem-wallet-core/android` を Gradle project として登録します。
+2. app module から `implementation(project(":symbol-nem-wallet-core"))` を追加します。
+3. application-level `CMakeLists.txt` から package の `android/CMakeLists.txt` を `add_subdirectory` し、`symbol_nem_wallet_core_rn` を `appmodules` target へ link します。
+4. application-level `OnLoad.cpp` で package の provider-aware `android/OnLoad.cpp` を使用します。
+5. `MainApplication` の `cxxReactPackageProviders` へ `SymbolNemWalletCoreCxxReactPackage.create(context)` を登録し、作成した `ReactHost` を `SymbolNemWalletCoreRnLifecycle.attach(host)` へ渡します。
+
+必要な設定の全体は、consumer の [`settings.gradle`](../../integration/react-native/consumer/android/settings.gradle)、[`app/build.gradle`](../../integration/react-native/consumer/android/app/build.gradle)、[`CMakeLists.txt`](../../integration/react-native/consumer/android/app/src/main/jni/CMakeLists.txt)、[`OnLoad.cpp`](../../integration/react-native/consumer/android/app/src/main/jni/OnLoad.cpp)、[`MainApplication.kt`](../../integration/react-native/consumer/android/app/src/main/java/com/snwcrnbuild/MainApplication.kt) を確認してください。
+
+### iOS
+
+1. Podfile で `node_modules/@nemnesia/symbol-nem-wallet-core/ios` の `SymbolNemWalletCoreRN` pod を追加し、`pod install` を実行します。
+2. `AppDelegate` で通常の `RCTReactNativeFactory` の代わりに `SnwcRnReactNativeFactory` を使用します。
+3. Application delegate を `SnwcRnLifecycleDelegate` の subclass とし、runtime の生成・reload・破棄を package lifecycle へ接続します。
+
+設定例は consumer の [`Podfile`](../../integration/react-native/consumer/ios/Podfile) と [`AppDelegate.swift`](../../integration/react-native/consumer/ios/SnwcRnBuild/AppDelegate.swift) を確認してください。
+
+### Expo
+
+Expo Go は native module を追加できないため利用できません。Development Build / Prebuild を使い、prebuild 後の native project に上記 Android / iOS と同じ provider、CMake / Pod、lifecycle integration を適用してから development client を再ビルドします。SDK 57 + RN `0.86.x` の互換性証跡はまだ揃っていないため、正式リリースで検証が完了するまでは検証済み環境として扱いません。
+
+### 最初の呼び出し
+
+native integration 後も import は package root だけです。次の呼び出しが同期的に `Uint8Array` を返せば、conditional export、provider および native artifact の初期化が完了しています。
+
+```ts
+import { create_empty_store } from "@nemnesia/symbol-nem-wallet-core";
+
+const store = create_empty_store();
+```
 
 ## Node.js / Browser のバックエンド選択
 
