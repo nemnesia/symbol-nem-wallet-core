@@ -36,10 +36,11 @@ Normative terms are used as follows.
 
 ### 1.1 適用する承認入力
 
-本書は、Requirements Review `docs/reviews/requirements/requirements-review-010.md` の
-`READY`、Design Review `docs/reviews/design/react-native-design-review-003.md` の
-`READY`、および [`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md)
-の `PD-RN-001`〜`PD-RN-007 = APPROVED` を入力とする。
+本書は、Requirements Review `docs/reviews/requirements/requirements-review-014.md` の
+`READY`、Architecture / Bindings / Security Design Review 004 の `READY`、および
+[`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md) の
+`PD-RN-001`〜`PD-RN-007 = APPROVED` を入力とする。Mobile を v1 対象へ再適用する前の
+`requirements-review-010.md` と `react-native-design-review-003.md` は、過去の承認履歴として扱う。
 
 Platform Baseline は次であり、本書は後続の正式承認なしに変更してはならない。
 
@@ -1128,19 +1129,21 @@ Expo scope、acceptance evidence および responsiveness gate である。
 ### 25.1 判断と追加対応の状態
 
 - `NEEDS USER DECISION`: **なし**。RN version、Android API / ABI、iOS baseline / architecture、New Architecture および Expo scope は `PD-RN-001`〜`PD-RN-007` の Approved input として確定済み
-- `REQUIREMENTS FOLLOW-UP REQUIRED`: **なし**。`requirements-review-010.md` は `READY`、`UF-RN-001` は Resolved
-- `DESIGN FOLLOW-UP REQUIRED`: **なし**。`react-native-design-review-003.md` は `READY`、`DR-RN-001`〜`DR-RN-004` は Resolved
+- `REQUIREMENTS FOLLOW-UP REQUIRED`: **なし**。`requirements-review-014.md` は `READY`、`UF-RN-001` は Resolved
+- `DESIGN FOLLOW-UP REQUIRED`: **なし**。`architecture-review-004.md`、`bindings-review-004.md`、`security-review-004.md` は `READY`、`DR-RN-001`〜`DR-RN-005` は Resolved
 - async API / operation-specific RN support exclusion: **`DEFERRED UNTIL NEGATIVE EVIDENCE`**。negative evidence は現時点で確認されておらず、gate を発動しない
 
 ## 26. References
 
 - [`concept-sheet.md`](../consept/concept-sheet.md)
 - [`requirements.md`](../requirements/requirements.md)
-- [`requirements-review-010.md`](../reviews/requirements/requirements-review-010.md)
+- [`requirements-review-014.md`](../reviews/requirements/requirements-review-014.md)
 - [`architecture.md`](../design/architecture.md)
 - [`bindings.md`](../design/bindings.md)
 - [`security.md`](../design/security.md)
-- [`react-native-design-review-003.md`](../reviews/design/react-native-design-review-003.md)
+- [`architecture-review-004.md`](../reviews/design/architecture-review-004.md)
+- [`bindings-review-004.md`](../reviews/design/bindings-review-004.md)
+- [`security-review-004.md`](../reviews/design/security-review-004.md)
 - [`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md)
 - [`specification.md`](specification.md)
 - [`npm-typescript-facade.md`](npm-typescript-facade.md)
