@@ -2,17 +2,17 @@
 
 [日本語](README.md) | [English](README.en.md)
 
-この日本語版が canonical / authoritative documentation です。
+この日本語版を正式な正本文書とします。
 
-`@nemnesia/symbol-nem-wallet-core` は、Symbol / NEM Wallet Core の同期 TypeScript facade です。Node.js と Browser から package root を import し、Mnemonic、Profile、Software Key、public account、raw payload の署名を扱えます。
+`@nemnesia/symbol-nem-wallet-core` は、Symbol / NEM Wallet Core を同期的に呼び出す TypeScript facade です。Node.js、Browser、React Native Android / iOS から package root を import し、Mnemonic、Profile、Software Key、public account、raw payload の署名を扱えます。
 
-## Install
+## インストール
 
 ```bash
 npm install @nemnesia/symbol-nem-wallet-core
 ```
 
-## Requirements と実行環境
+## 動作要件と実行環境
 
 - Node.js `>=22.0.0`
 - Browser は ESM と WebAssembly をサポートする modern evergreen 環境を対象とします。Manifest V3 extension でも利用できます。
@@ -22,7 +22,7 @@ npm install @nemnesia/symbol-nem-wallet-core
 
 Browser では package に同梱された WASM と、bundler が扱う package-local asset を使用します。Application が WASM asset を remote URL へ差し替える契約はありません。
 
-## Import
+## インポート
 
 ESM の public entry point は package root だけです。
 
@@ -44,9 +44,9 @@ const {
 
 backend、raw `.node`、raw `.wasm`、generated binding module、manifest、backend selector は public subpath ではありません。consumer は package root だけを import してください。
 
-## Quick Start
+## クイックスタート
 
-次は Node.js ESM で既存 Mnemonic から Profile を復元し、Symbol の Software Key を導出して public account を取得する最小例です。Mnemonic と password は source code に埋め込まず、例では environment input を使用します。
+次は、Node.js ESM で既存の Mnemonic から Profile を復元し、Symbol の Software Key を導出して public account を取得する最小例です。Mnemonic と password はソースコードへ直接書かず、この例では環境変数から受け取ります。
 
 ```ts
 import {
@@ -93,7 +93,7 @@ console.log(account.value.address);
 
 `1` は top-level input の `Network` における mainnet 値、`Chain` における symbol 値です。出力 DTO の `network` / `chain` は、それぞれ `"mainnet"` / `"symbol"` の文字列です。
 
-入力 `store` は inplace mutation されません。mutation が成功するたびに `result.store` が完全な replacement Store になるため、次の operation にはその値を渡してください。Application が永続化に失敗した場合は、以前の committed Store を current Store として維持します。失敗結果には成功用の replacement Store はありません。
+入力 `store` は直接変更されません。状態変更が成功するたびに、`result.store` が完全な置換後の Store になります。次の操作には、その値を渡してください。Application が永続化に失敗した場合は、直前の確定済み Store を現在の Store として維持します。失敗結果には、置換後の Store は含まれません。
 
 ## 公開関数 (16)
 
@@ -247,7 +247,7 @@ Signature = { signature: Uint8Array }; // raw 64 bytes
 
 `DecodeWarning` は `{ code, object_type, object_id, field }` で、`object_id` と `field` の値は `string | undefined` です。warning は秘密情報を含まない構造化 diagnostics であり、ログ文字列ではありません。unit mutation の `value` は JavaScript `null` です。
 
-## Wallet Store と replacement rule
+## Wallet Store と置換規則
 
 `store` は opaque な Wallet Store blob、`pending_profile` は opaque な Pending Profile blob です。Application は CBOR、version、暗号化 payload、index などの内部表現を解釈、編集、normalize、migration してはいけません。v1 は Store / Profile version migration を提供しません。
 
@@ -260,7 +260,7 @@ Signature = { signature: Uint8Array }; // raw 64 bytes
 
 Application / persistence layer は、保存に成功した replacement Store だけを current Store として atomic に適用します。Core と facade は過去の Store の currentness、stale 判定、rollback 防止を記憶に基づいて行いません。
 
-## Important operation flows
+## 重要な操作フロー
 
 ### Generated Mnemonic handoff
 
@@ -344,7 +344,7 @@ const signed = sign(
 
 `SigningApproval`、Core の password authorization、`AccountContext` と保存済み Profile / Software Key の compatibility は別々の条件です。facade は approval や context を補完・変換しません。
 
-## Binary data
+## バイナリデータ
 
 公開 declaration の binary 型はすべて `Uint8Array` です。
 
@@ -365,15 +365,15 @@ Node runtime では `Buffer` が `Uint8Array` compatible input として受理�
 
 ## React Native
 
-React Native Android / iOS は同じ package root から利用できます。RN の runtime resolver は `react-native` conditional export で private native entry を選び、New Architecture の TurboModule / JSI adapter から同じ Rust Core / C ABI を呼び出します。RN 側に Node addon や WASM の fallback はありません。
+React Native Android / iOS は、同じ package root から利用できます。RN の runtime resolver は `react-native` conditional export で private native entry を選び、New Architecture の TurboModule / JSI adapter から同じ Rust Core / C ABI を呼び出します。RN 側に Node addon や WASM の fallback はありません。
 
 対応範囲は stable React Native `0.86.x` / `0.87.x`（`0.87.x` を primary validation line）、New Architecture、Android API 24 以上の `arm64-v8a` / `x86_64`、iOS 15.1 以上の arm64 device / Apple Silicon simulator です。Expo は SDK 57 と React Native `0.86.x` の Development Build / Prebuild（custom native module workflow）を対象とし、Expo Go は対象外です。
 
 native artifact の integrity または provider / registration が確認できない場合は `WalletCoreBackendInitializationError` で失敗します。runtime download、postinstall compile、別 RN package、RN 用の別 WASM binary、Legacy Architecture / bridge fallback はありません。RN native build は package の `codegenConfig` と同梱の platform source / artifact manifest を使用します。
 
-RN の 16 関数もすべて同期 API で、public binary は `Uint8Array` です。Store、Pending Profile、Mnemonic、password、private key、payload、signature の扱いと、成功時に返る replacement Store の適用規則は Node / Browser と同じです。
+RN の16関数もすべて同期 API で、公開バイナリ型は `Uint8Array` です。Store、Pending Profile、Mnemonic、password、private key、payload、signature の扱いと、成功時に返る置換後の Store の適用規則は Node.js / Browser と同じです。
 
-## Node / Browser backend behavior
+## Node.js / Browser のバックエンド選択
 
 ### Node.js
 
@@ -391,7 +391,7 @@ Browser ESM は package-local の一つの canonical WASM binary と generated g
 
 raw `.node`、raw `.wasm`、generated module、manifest は implementation asset であり、public package subpath ではありません。
 
-## Security と責任分界
+## セキュリティと責任分界
 
 ### Application の責任
 

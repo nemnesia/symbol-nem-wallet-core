@@ -109,7 +109,7 @@ Wallet Store top-level 自体の必須 field 欠落、型不正、固定長 fiel
 top-level が map でないことその他 Store 全体を解釈できない不正は、内部で CBOR parser または
 decoder の error が発生した場合を含め、公開 error code `InvalidStore` とする。
 
-### 2.2 Resource limits
+### 2.2 リソース上限
 
 入力由来のallocation DoSを防ぐため、v1 decoderは次の固定上限を適用する。
 
@@ -176,7 +176,7 @@ UUID string から raw bytes への変換に失敗した外部入力は `Invalid
 
 ---
 
-## 4. enum wire 値
+## 4. enum の wire 値
 
 ### 4.1 Network
 
@@ -419,7 +419,7 @@ v1 の具体値:
 
 ---
 
-## 8. encrypted ProfilePayloadV1
+## 8. 暗号化された ProfilePayloadV1
 
 CBOR map の整数 key は次で固定する。
 
@@ -658,7 +658,7 @@ UTF-8("symbol-nem-wallet-core/profile-duplicate/v1")
 
 ---
 
-## 13. バージョニングと migration
+## 13. バージョニングと移行
 
 `WalletStore.version` が field として存在し unsigned integer であり、その値だけが未対応の
 場合は次のエラーとする。field の欠落または unsigned integer 以外の型は `InvalidStore` とする。

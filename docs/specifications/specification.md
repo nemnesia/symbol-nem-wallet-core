@@ -241,7 +241,7 @@ TAG          = 16 bytes
 
 同一 key で nonce を再利用しない。nonce は暗号化ごとに CSPRNG で生成する。
 
-### 6.3 AAD と平文 software key index
+### 6.3 AAD と平文の Software Key index
 
 `software_key_index` は一覧取得に必要な `key_id` と `chain` だけを持つ平文 manifest とし、`registry_key` および `duplicate_tag` とともに AES-256-GCM の AAD へ含める。AAD の正確な構成と deterministic CBOR 表現は `wallet-store-format-v1.md` を正本とする。
 
@@ -271,7 +271,7 @@ AEAD 復号と authentication tag 検証の成功を Profile パスワード認�
 
 v1 は Profile パスワードの復旧またはリセットを提供しない。パスワードを紛失した場合、正しい Profile パスワードを必要とする秘密情報処理、パスワード変更および削除は成功させず、代替認証による復旧・リセット経路も提供しない。利用者が別途保持する Mnemonic から同一 Network の新しい Profile を作成することは、削除済みまたは利用不能な Profile の復旧・リセットとは扱わない。
 
-### 6.5 password change
+### 6.5 Profile password の変更
 
 password change は current password で認証・復号した後、新 salt / new Argon2id key / new nonce を生成し、Profile payload 全体を再暗号化して replacement Store を返す。
 
@@ -366,7 +366,7 @@ Rust public API は implementation language 固有の細部を Binding へ漏ら
 
 秘密情報を表す text は公開 API では byte sequence として扱う。Mnemonic と Profile password は UTF-8 bytes、private key は raw 32 bytes とする。address、UUID のような非秘密 text は通常の text 型を使用できる。
 
-### 9.1 diagnostics を伴う結果
+### 9.1 診断情報を伴う結果
 
 operation result の warning はログへ直接出力せず diagnostics として Binding へ返す。v1 の不正 Profile は skip せず fatal error とし、未知 field は warning なしで受理する。
 
@@ -392,7 +392,7 @@ MutationResult<T> {
 
 warning に Mnemonic、private key、Profile password、seed、ciphertext の内容などの秘密情報を含めてはならない。
 
-### 9.1.1 確認・承認 request DTO
+### 9.1.1 確認・承認リクエスト DTO
 
 UI の方式を固定せずに、Core と Binding が確認・承認の有無を同じ request 条件として扱うため、次の既存 DTO を使用する。`status` は自由な真偽値や password の結果から暗黙に生成してはならない。これらの status は、各 current operation に対して Application が生成する、利用者との確認・承認を表す外部 assertion である。Application / UI は過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用してはならず、assertion の freshness を管理する。Core は status、target、payload および AccountContext 等の request 条件を検証するが、Application が UI を表示し利用者の確認・承認を取得したこと、または assertion が fresh であることを独立には証明しない。これらは新しい field、challenge または暗号学的 token を意味しない。
 
@@ -622,7 +622,7 @@ PrivateKeyExport {
 
 `export_mnemonic` は `request.target` が `MnemonicTarget` の confirmed export request だけを受理し、`export_private_key` は `request.target` が `SoftwareKeyTarget` の confirmed export request だけを受理する。各 method は request 内の target と method の対象種別を再解釈または補正してはならない。
 
-### 9.5 署名 payload
+### 9.5 署名対象 payload
 
 `sign` は `SigningRequest.approval.status = Approved` の request だけを対象とする。Application / UI が Account を選択し、同じ `SigningTarget` と raw payload の内容を提示して明示的な承認を取得した request でなければならない。Core はこの approval と、各呼出しの `password_utf8` による Profile password authorization、保存済み Account context の compatibility および signing primitive を別々に検証する。`NotApproved`、approval 欠落、target/context 不一致または認証失敗時は signature を生成せず、success result と secret を返さず、Store を変更しない。正しい password だけでは signing approval にならない。
 
@@ -656,7 +656,7 @@ Signature {
 
 Native C ABI / Node-API / WASM は、同じ Store、同じ `SigningRequest`、同じ password および同じ context に対して同じ DTO 値、同じ error または同じ署名 bytes を返す。Binding は binary 値を raw byte sequence として受け渡し、Core は payload に prefix、generation hash または Transaction 解釈を暗黙に追加しない。
 
-### 9.5.1 署名 scheme と相互運用性
+### 9.5.1 署名方式と相互運用性
 
 署名は Chain ごとに次の scheme を使用する。Symbol と NEM の scheme、private key の Chain 固有の扱い、公開鍵および署名を相互に読み替えてはならない。
 
@@ -673,7 +673,7 @@ Native C ABI / Node-API / WASM は、同じ Store、同じ `SigningRequest`、�
 
 ---
 
-## 10. Error model
+## 10. エラーモデル
 
 Binding 共通の安定した error code を定義する。
 
@@ -734,7 +734,7 @@ Store子オブジェクトの必須 field 欠落、型・長さ・値不正、�
 
 ---
 
-## 11. atomicity と状態遷移
+## 11. 原子性と状態遷移
 
 ### 11.1 公開状態の意味
 
@@ -748,7 +748,7 @@ stale、改ざん、破損、対象 Store と結び付かない、version が未
 
 状態変更 API は成功時にのみ replacement Store を返す。途中処理に失敗した場合は replacement Store を返さず、read operation では正常な `value` を返さない。signing と export の failure でも、それぞれ signature と secret を返さない。
 
-### 11.2 failure、retry および restart
+### 11.2 失敗、再試行、再起動
 
 failure、interruption、malformed input、authentication failure、confirmation / approval failure、compatibility failure、保存 failure または Binding failure の後は、既存の committed Store、Profile、Software Key、Profile isolation、secret ownership および authorization boundary を変更しない。partial Profile、partial Software Key、未保存 replacement、temporary secret、decrypted secret または authorization を成功状態・diagnostic・cache・次 operation の入力権限として残してはならない。
 
@@ -760,7 +760,7 @@ rollback については、v1 Core が historical rollback detection を保証�
 
 v1 Core は、assertion freshness のための challenge、nonce、expiry または one-shot token を提供しない。これは Application / UI の freshness responsibility と、Core の per-operation authorization、request validation および pending 非昇格の境界を変更しない。
 
-### 11.3 atomic replacement
+### 11.3 原子的な置換
 
 次は atomic replacement とする。
 
@@ -786,7 +786,7 @@ Profile delete または Software Key delete の成功保証は、Core が返し
 
 ## 12. メモリ上の秘密情報
 
-### 12.1 zeroize 対象
+### 12.1 ゼロ化の対象
 
 Core および Binding が明示的に所有または生成する秘密情報の buffer は、利用終了時に
 `zeroize` 対象とする。少なくとも次を含む。
@@ -838,7 +838,7 @@ Binding 側で secret を component state、global state、cache、log、diagnos
 
 WASM memory zeroize および JavaScript `Uint8Array` の上書きは best effort であり、JavaScript runtime / browser process 全体からの完全消去を保証しない。Binding はこの制約を理由に secret の長期保持を許容してはならない。
 
-### 12.4 Side-channel responsibility
+### 12.4 サイドチャネルに関する責任
 
 Requirements `SEC-023` および `AC-049` に対応し、Core 自身が実装・管理する秘密情報処理では、secret-dependent control flow、secret-dependent timing behavior または secret-dependent data access を不必要に導入してはならない。この contract の責任主体は Core であり、Binding は Core の side-channel responsibility を代替しない。
 
@@ -852,9 +852,8 @@ Binding は型変換、byte buffer transfer、error / warning mapping、lifecycl
 
 React Native Android / iOS の private entry、TurboModule / JSI、process-wide coordination、runtime /
 module-registry identity、platform artifact、Expo および RN-specific lifecycle の詳細は
-[`react-native.md`](react-native.md) を canonical downstream specification とする。本節の Core、
-Native C ABI、secret ownership、error、binary および zeroization contract は RN 経路にも共通に適用し、
-RN binding は別の security meaning を持たない。
+[`react-native.md`](react-native.md) を正式な下流仕様とする。本節の Core、Native C ABI、secret ownership、
+error、binary、zeroization の契約は RN 経路にも共通して適用し、RN Binding に別の security meaning を持たせない。
 
 Binding は、handoff / export / signing の status を生成せず、password の認証結果から補完せず、stale assertion を cache / retain して別 operation へ再利用せず、target、payload または AccountContext を書き換えない。Binding は Store history DB、rollback detector または current Store selector を持たず、Wallet Store を opaque のまま Application と Core の間で橋渡しする。current Store の選択、successful replacement の適用および stale / historical Store の再適用防止は Application / persistence layer の責任である。
 
@@ -994,7 +993,7 @@ WASM の各 public operation は §9.2 の Core operation と 1 対 1 に対応�
 - Native C ABI / Node-API / WASM が同じ fixture 結果を返す
 - error / warning / Debug output に secret が含まれない
 
-### 14.3 Coverage verification
+### 14.3 Coverage の検証
 
 Requirements `NFR-005` / `AC-044` に従い、Core の自動検証では line coverage / function coverage **90%以上**、branch coverage **85%以上**を target とする。これは SHOULD レベルの verification requirement であり、未達でも仕様外の API、authorization bypass または暗号方式を追加・変更する理由にはしない。
 

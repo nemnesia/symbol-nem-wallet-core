@@ -1,10 +1,10 @@
-# React Native Binding / Platform Specification v1
+# React Native Binding / Platform 仕様 v1
 
 ## 1. 位置づけ、適用範囲および規範語
 
 本書は、`@nemnesia/symbol-nem-wallet-core` の React Native Android / iOS 対応について、
-承認済み Requirements、Design および Platform Baseline を実装・検証可能な外部契約へ
-具体化する canonical Specification である。対象は次の単一経路である。
+承認済みの Requirements、Design、Platform Baseline を、実装・検証可能な外部契約へ
+具体化する正式な Specification である。対象は、次の単一経路とする。
 
 ```text
 TypeScript public facade
@@ -91,9 +91,9 @@ validation、authorization、zeroization および secret lifecycle の authorit
 Application は Core が返す opaque Store の current Store としての保存・置換、利用者への表示・
 確認・承認および Core 外へ渡った secret copy の管理を担う。
 
-## 2. Public API と data representation
+## 2. 公開 API とデータ表現
 
-### 2.1 Public TypeScript surface
+### 2.1 公開 TypeScript surface
 
 RN は [`npm-typescript-facade.md`](npm-typescript-facade.md) §3〜§8 の public surface をそのまま
 実装する。root package の named function は既存の次の 16 個だけであり、RN のために追加しない。
@@ -126,7 +126,7 @@ handle、`AbortSignal`、secret export または DTO variant を追加しない�
 `undefined`、それ以外の declaration field は required である。RN にだけ異なる `null` / `undefined`
 または output shape を認めない。
 
-### 2.2 Binary
+### 2.2 バイナリ
 
 公開 binary はすべて `Uint8Array` とする。RN では `Buffer`、`ArrayBuffer`、`SharedArrayBuffer`、
 `DataView`、Base64、hex または secret の JavaScript string を public representation として受け付けない。
@@ -145,7 +145,7 @@ JS copy を完全に zeroize する保証はしないが、binding は cache、l
 global state または component state に保持してはならない。Application は受け取った secret copy を
 利用後速やかに上書きし参照を破棄する。
 
-### 2.3 TypeScript facade の同期契約
+### 2.3 TypeScript facade の同期呼び出し契約
 
 16 operation の public function は、呼出し開始から成功値の return または error の throw までを
 同期呼出しとして観測できなければならない。return type は `Promise` を含まず、RN における
@@ -161,9 +161,9 @@ failure の場合は、成功値を返さず同期的に既存の `BackendInitia
 `WalletCoreError(code = "BindingFailure")` を報告する。RN backend が利用不能な場合に WASM / Node
 へ移って同期契約を見かけ上維持してはならない。
 
-## 3. Runtime selection と package entry
+## 3. 実行環境の選択と package entry
 
-### 3.1 Selection authority
+### 3.1 選択する責任
 
 runtime selection の authority は package `exports` の conditional resolution と、RN private
 entry における native module registration の存在である。`process`, `window`, `navigator`、user agent、
@@ -189,7 +189,7 @@ Node の既存 target fallback は `npm-typescript-facade.md` §10.2 の場合�
 initialization error、operation error、C ABI error、conversion error、secret export failure または
 signing failure を別 backend で再試行してはならない。
 
-### 3.2 Private entry placement and resolution
+### 3.2 非公開 entry の配置と選択
 
 package root の exact conditional exports object は [`npm-typescript-facade.md`](npm-typescript-facade.md)
 §9.1 を正本とする。RN に関する追加条件は、root object の `types` の後、`node-addons` および
@@ -210,9 +210,9 @@ provider 不在、legacy bridge だけの登録、provider の型不一致また
 `BackendInitializationError` とする。bootstrap は Node native addon、WASM asset、network download、
 runtime-generated native code を読み込まない。
 
-## 4. RN operation execution contract
+## 4. RN 操作の実行契約
 
-### 4.1 Admission と result delivery
+### 4.1 受付と結果の引き渡し
 
 すべての RN invocation は、同じ process-wide coordinator の admission、Core / C ABI execution、
 output validation、temporary cleanup および delivery eligibility check をこの順で通過する。
@@ -238,7 +238,7 @@ cleanup が終わるまで次の Core / C ABI invocation を開始しない。�
 teardown または output conversion failure の場合は success DTO、secret、signature、pending または
 replacement Store を返さず、temporary を cleanup する。
 
-### 4.2 Operation classification
+### 4.2 操作の分類
 
 分類は経過時間の固定 threshold ではなく、operation が要求する Core step、secret lifetime、Store
 mutation および evidence の種類で決める。実測結果だけで operation の classification を変更しない。
@@ -298,7 +298,7 @@ operation は password、decrypt、secret-capable crypto または mutation を�
 この規則は classification の付与と evidence の包含関係を分離し、C0 / C1 の class 名だけを根拠に
 `NFR-015` / `AC-061` の blocking、resource、starvation または cleanup evaluation を省略することを禁止する。
 
-### 4.3 Sync / async decision gate
+### 4.3 同期・非同期の判断基準
 
 現時点の public contract は同期型であり、negative responsiveness evidence がない状態で async
 化してはならない。native worker + synchronous wait を non-blocking と宣言してはならない。
@@ -315,9 +315,9 @@ operation は password、decrypt、secret-capable crypto または mutation を�
 evidence が negative でも、`Promise` 化、operation-specific API、RN support exclusion または
 silent fallback は自動採用しない。現在の gate は **`DEFERRED UNTIL NEGATIVE EVIDENCE`** である。
 
-## 5. Process-wide coordination
+## 5. プロセス全体の調停
 
-### 5.1 Authority と scope
+### 5.1 責任と対象範囲
 
 同一 OS process 内の全 RN runtime、module registry、module instance および logical consumer context
 から RN binding を通じて到達する全 invocation は、一つの process-wide RN coordination boundary を
@@ -328,7 +328,7 @@ coordinator は Core の cryptographic authority、Store authority、authorizati
 current Store authority ではない。coordinator が共有するのは execution coordination metadata だけで、
 secret / Store content を共有しない。
 
-### 5.2 Admission state と ordering
+### 5.2 受付状態と実行順序
 
 意味上の state は次の通りである。exact mutex、queue container、executor、atomic primitive、thread
 affinity、memory ordering は Implementation に委譲する。
@@ -365,7 +365,7 @@ process restart または明示的な新 coordinator lifecycle reset まで、�
 部分成功・別 backend fallback として扱わない。この rule は runtime A が initialization を開始した場合も
 runtime B が先に public operation を呼ぶ場合も同一である。
 
-### 5.3 Runtime registration と validity
+### 5.3 Runtime の登録と有効性
 
 coordinator が operation を受理するには、次のすべてが valid でなければならない。
 
@@ -379,9 +379,9 @@ runtime-local conversion failure、Core error、cancellation または stale com
 その runtime / context に閉じる。shared native library の load、integrity、initialization または
 access safety の failure は process-wide `unavailable` とし、他の runtime へ成功として伝播しない。
 
-## 6. Runtime / module registry identity
+## 6. Runtime / module registry の識別
 
-### 6.1 Identity semantics
+### 6.1 識別子の意味
 
 runtime identity は一つの RN JavaScript runtime の lifecycle、module-registry identity はその runtime
 に登録された New Architecture module registry の lifecycle を表す。module instance、runtime reload、
@@ -392,7 +392,7 @@ identity は application が指定する public string、profile ID、Store ID �
 ない。generation / token / opaque handle 等の primitive は Implementation で選べるが、外部からは観測
 できない。
 
-### 6.2 Registration、replacement および invalidation
+### 6.2 登録、置換、無効化
 
 - **registration**: private RN entry が native provider とともに coordinator へ一度登録する。重複登録は
   idempotent であっても、異なる registry identity を同じ identity として結合してはならない。
@@ -408,7 +408,7 @@ identity は application が指定する public string、profile ID、Store ID �
 runtime A の invalidation は runtime B の validity、context、admission または process-wide resource を
 破壊してはならない。B が有効な間は A が共有 resource cleanup を実行してはならない。
 
-## 7. Logical consumer context
+## 7. 論理的な利用コンテキスト
 
 logical consumer context は、RN private adapter が一つの binding registration に対する invocation
 ordering、reentrancy および cancellation scope を管理するための内部概念である。
@@ -426,7 +426,7 @@ ordering、reentrancy および cancellation scope を管理するための内�
 context は Profile、Store、password、Mnemonic、private key、authorization result または secret cache を
 所有しない。context の lifetime は secret の lifetime anchor にならない。
 
-## 8. Reentrancy、ordering および deadlock
+## 8. 再入、実行順序、デッドロック
 
 次の behavior を exact contract とする。
 
@@ -450,9 +450,9 @@ delivery または retry を行わない。runtime / registry / context が既�
 とする。後者は既に admission 済みの outer request の stale completion mapping とは別の event であり、outer
 request の caller-visible result は §9.2 に従う。
 
-## 9. Cancellation、stale completion および teardown
+## 9. キャンセル、無効になった完了結果、終了処理
 
-### 9.1 Cancellation phase
+### 9.1 キャンセルの段階
 
 public cancellation API は現行 facade に存在せず、本書も追加しない。ここでいう cancellation は
 runtime / context lifecycle、reload、teardown および internal invalidation の意味である。
@@ -470,7 +470,7 @@ Core invocation が Store replacement を生成してから stale になった�
 Application へ届けず、current Store として適用しない。Core は stateless processor であり、binding の
 drop が persistent Store mutation を暗黙に commit したことにはならない。
 
-### 9.2 Stale completion identity
+### 9.2 無効になった完了結果の識別
 
 completion は次のいずれかに該当すれば stale である。
 
@@ -495,14 +495,14 @@ temporary は可能な範囲で zeroize する。runtime がすでに失効し�
 既に admission 済みの completion に適用し、§8 の valid re-entry request に対する即時拒否または invalid
 re-entry request に対する cleanup-only の二択を再導入しない。
 
-### 9.3 Runtime-local teardown
+### 9.3 Runtime 単位の終了処理
 
 runtime-local teardown は当該 runtime / registry / context の validity を失効させ、future admission、
 future delivery および runtime-local temporary / registration metadata を cleanup する。他の runtime の
 registration、in-flight operation、shared native library、coordinator state または context を停止・破壊
 してはならない。
 
-### 9.4 Process-wide teardown
+### 9.4 プロセス全体の終了処理
 
 process-wide teardown は runtime-local teardown と別の state transition である。
 
@@ -517,9 +517,9 @@ resource reuse または別 ABI の substitution を行わない。新しい coo
 だけ、新しい identity で初期化できる。これは同じ OS process で runtime を再生成する場合にも適用できるが、
 旧 lifecycle の completion、request、context または secret を新 lifecycle へ引き継がない。
 
-## 10. Shared resource と secret ownership
+## 10. 共有リソースと秘密情報の所有
 
-### 10.1 process-wide shared state allowlist
+### 10.1 プロセス全体で共有できる状態
 
 次だけを process-wide に共有してよい。
 
@@ -541,7 +541,7 @@ singleton の shared state として保持してはならない。
 
 process-wide serialization は secret state の共有・cache・session 化を意味しない。
 
-## 11. Secret transport、string encoding および buffer ownership
+## 11. 秘密情報の受け渡し、文字列 encoding、buffer の所有権
 
 ### 11.1 Secret transport path
 
@@ -673,7 +673,7 @@ remote binary または runtime download へ substitution しない。
 
 ## 14. Android native artifact / API contract
 
-### 14.1 Artifact identity and layout
+### 14.1 成果物の識別と配置
 
 formal Android native artifacts は次だけである。
 
@@ -828,7 +828,7 @@ Expo Go は installation-time に確実に識別できないため、次の fail
   いなければ `BackendInitializationError` とする
 - Expo Go の不在 native module を理由に Browser / WASM / Node backend を選択しない
 
-## 18. New Architecture contract
+## 18. New Architecture の契約
 
 New Architecture は mandatory である。formal integration は TurboModule / Codegen registration と JSI
 private substrate の組合せだけを対象とする。
@@ -842,9 +842,9 @@ private substrate の組合せだけを対象とする。
 - New Architecture を理由に public TypeScript API、DTO、binary、error、sync contract または Rust Core
   authority を分岐させない。
 
-## 19. Error model と fail-closed mapping
+## 19. エラーモデルと安全側へ失敗させる写像
 
-### 19.1 Public error namespace
+### 19.1 公開エラー名前空間
 
 既存 public error namespace だけを使用する。新しい public `ErrorCode`、RN-specific error class、backend
 selector または diagnostics object を追加しない。
@@ -872,7 +872,7 @@ Core `AuthenticationFailed`、`InvalidStore`、`NetworkMismatch`、`PendingProfi
 `CryptoFailure`、`SerializationFailure` その他の既存 code を RN infrastructure error に畳み込まない。
 逆に native load / integrity failure を Core `BindingFailure` として operation success に隠さない。
 
-## 20. Build target matrix と unsupported environment
+## 20. Build target の一覧と非対応環境
 
 ### 20.1 Formal matrix
 
@@ -909,7 +909,7 @@ installation-time に検出できない condition を installation success と�
 できるものは native build / prebuild gate で早期に reject し、runtime にしか観測できないものは最初の
 backend initialization で fail fast する。いずれの場合も silent degradation は禁止する。
 
-## 21. Artifact integrity / provenance と npm assembly
+## 21. 成果物の完全性・来歴と npm package の構成
 
 ### 21.1 RN manifest
 
@@ -999,7 +999,7 @@ assembly が必要とする場合だけ同じ package に含める。いずれ�
 Core logic、secret data または raw C ABI を公開しない。postinstall compile、runtime download、install-time
 binary download、別 RN package および RN 用の別 WASM binary は禁止する。
 
-## 22. Acceptance / verification evidence matrix
+## 22. 受け入れ条件と検証証跡の対応表
 
 下表の evidence は、Implementation / integration / release verification で収集する。今回の
 Specification authoring では runtime build、device test、Expo build または full test を実行しない。
@@ -1024,7 +1024,7 @@ Specification authoring では runtime build、device test、Expo build また�
 - artifact manifest、target digest、provenance、approved npm assembly、extra artifact rejection
 - Expo Development Build と Expo Prebuild / CNG の native regeneration / custom module integration
 
-## 23. Responsiveness / resource evidence protocol
+## 23. 応答性とリソース使用量の検証手順
 
 ### 23.1 Test setup
 
@@ -1073,7 +1073,7 @@ negative evidence は async 化または RN support exclusion の自動決定で
 compatibility impact、evidence、選択肢および user decision を別 record で承認するまで、既存 sync facade を
 silent に変更しない。negative evidence が存在しない現在の状態は **`DEFERRED UNTIL NEGATIVE EVIDENCE`** とする。
 
-## 24. Traceability
+## 24. トレーサビリティ
 
 ### 24.1 Requirements → Design → Specification
 
@@ -1088,7 +1088,7 @@ silent に変更しない。negative evidence が存在しない現在の状態�
 | `DR-RN-003`        | §1.2、§11、§12、§13、§15。existing C ABI reuse、private boundary、non-exposure                                              |
 | `DR-RN-004`        | §21、§22、§25。source → build → target → digest / provenance → npm assembly                                                 |
 
-### 24.2 Approved Platform Decision traceability
+### 24.2 承認済みプラットフォーム判断のトレーサビリティ
 
 | decision    | reflected contract                                                                                                                                                               |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1107,7 +1107,7 @@ binary、C ABI public semantics および package root declaration は [`npm-typ
 §4〜§16 を変更せずに参照する。Rust Core の chain / network、signature、Store、error、zeroize および
 Native C ABI は [`specification.md`](specification.md) §4〜§14 を参照し、RN adapter が別 semantics を作らない。
 
-## 25. Specification / Implementation / Release boundary
+## 25. 仕様・実装・リリースの境界
 
 本書で固定したものは、public API parity、runtime routing、private entry placement、TurboModule / JSI
 requirement、C ABI reuse、buffer / encoding / ownership、process-wide coordination、identity、ordering、
@@ -1125,7 +1125,7 @@ Expo scope、acceptance evidence および responsiveness gate である。
   SBOM / provenance policy と §21 の evidence relationship は維持する
 - device model、exact benchmark threshold、timeout および public cancellation API。negative evidence の判定は §23 に従う
 
-### 25.1 Decision / follow-up status
+### 25.1 判断と追加対応の状態
 
 - `NEEDS USER DECISION`: **なし**。RN version、Android API / ABI、iOS baseline / architecture、New Architecture および Expo scope は `PD-RN-001`〜`PD-RN-007` の Approved input として確定済み
 - `REQUIREMENTS FOLLOW-UP REQUIRED`: **なし**。`requirements-review-010.md` は `READY`、`UF-RN-001` は Resolved

@@ -1,8 +1,8 @@
-# React Native Platform Baseline Decision Gate
+# React Native 対応環境の基準に関する判断記録
 
-Status: **APPROVED — PD-RN-001 through PD-RN-007 were approved by the user on 2026-09-05.**
+Status: **APPROVED — PD-RN-001 から PD-RN-007 は 2026-09-05 に承認され、Mobile を v1 に含める判断により 2026-09-23 に再適用された。**
 
-Research date: **2026-09-05 (Asia/Tokyo)**
+調査日: **2026-09-05 (Asia/Tokyo)**
 
 Repository: `nemnesia/symbol-nem-wallet-core`
 
@@ -14,7 +14,7 @@ Reviewed Design HEAD: `37facb8bbaa68d3a1e507ec91e2adeb586d4d238`
 
 Design Review artifact: [`react-native-design-review-003.md`](../reviews/design/react-native-design-review-003.md), Review Gate `READY`
 
-## 1. Purpose
+## 1. 目的
 
 React Native の native binding は、React Native version、Android / iOS deployment floor、native architecture、ABI / slice、New Architecture、Expo workflow の組合せに依存する。これらを Specification で暗黙に選ぶと、正式サポート範囲、native artifact、package resolver、lifecycle adapter、CI matrix、release evidence および利用者への compatibility claim が同時に変わる。
 
@@ -22,11 +22,11 @@ React Native の native binding は、React Native version、Android / iOS deplo
 
 この artifact は Specification 本体、実装、package、native project または CI policy を定義しない。
 
-### Freshness boundary
+### 情報の有効時点
 
 外部 platform 情報は 2026-09-05 に確認した。公式資料自身の更新日が確認できる場合は各行に記載した。React Native、Expo、Android、Apple、Xcode の version / support claim は将来変化し得るため、user decision を Specification に反映する直前に再確認が必要である。
 
-## 2. Constraints inherited from Requirements / Design
+## 2. Requirements / Design から引き継ぐ制約
 
 今回の platform decision で変更してはいけない既存方針は次のとおりである。
 
@@ -45,7 +45,7 @@ React Native の native binding は、React Native version、Android / iOS deplo
 
 根拠: [`concept-sheet.md`](../consept/concept-sheet.md) §1、§7〜§10、[`requirements.md`](../requirements/requirements.md) §1〜§2、§6、§9〜§12、[`architecture.md`](../design/architecture.md) RN sections、[`bindings.md`](../design/bindings.md) §12.1〜§12.17、[`security.md`](../design/security.md) §3〜§5、[`react-native-design-review-003.md`](../reviews/design/react-native-design-review-003.md) §17〜§21。
 
-## 3. Decision Summary
+## 3. 判断の要約
 
 | ID | Decision | Approved Value | Status |
 | --- | --- | --- | --- |
@@ -59,7 +59,7 @@ React Native の native binding は、React Native version、Android / iOS deplo
 
 すべての decision は、ユーザーの明示決定により `APPROVED` である。以下の比較節に残る `Recommended` は承認前の評価履歴であり、Approved Value を上書きしない。
 
-### Canonical approved baseline
+### 承認済みの正式な基準
 
 - React Native: `>= 0.86.x`
 - Primary RN validation / development: `0.87.x`
@@ -75,11 +75,11 @@ React Native の native binding は、React Native version、Android / iOS deplo
 - Expo Go: unsupported
 - Legacy RN Architecture: unsupported
 
-Specification MUST use the approved platform baseline unless a later formally approved decision supersedes it.
+Specification は、後続の正式な承認判断で更新されない限り、この承認済み基準を使用する。
 
 ## 4. PD-RN-001 — Minimum React Native version
 
-### Current platform facts
+### 現在のプラットフォーム情報
 
 - React Native の [Releases Overview](https://reactnative.dev/releases/) は、最新 3 minor series を維持する commitment を示す。2026-09-05 に確認した表では `0.87.x` と `0.86.x` が `Active`、`0.85.x` が `End of Cycle`、`0.84.x` 以下が `Unsupported` である。stable `latest` は production 用、`next` と `nightly` は production 用ではないと定義されている。ページの最終更新は 2026-07-27。
 - [React Native 0.86](https://reactnative.dev/blog/2026/06/11/react-native-0.86) は 2026-06-11 リリースで、0.85 からの user-facing breaking changes がない。0.86 は当該リリース時点で latest stable とされた。
@@ -130,7 +130,7 @@ Specification MUST use the approved platform baseline unless a later formally ap
 - **Security / lifecycle**: bridge serialization による secret copy / retention、callback re-entry、異なる cancellation / cleanup を追加評価しなければならない。既存 Core authority は保てるが、binding の trust surface と failure path が増える。
 - **Recommendation**: v1 の formal baseline には推奨しない。採用する場合でも、Legacy formal support の exact window と synchronous contract の成立を別途明示し、実測なしに support claim を広げない。
 
-### PD-RN-001 approved boundary
+### PD-RN-001 の承認範囲
 
 **Approved value:** `>=0.86.x` を minimum compatibility floor、`0.87.x` を primary validation / development target とし、stable release のみを formal support とする。`<0.86`、canary、nightly は formal support 外である。RN が将来 0.88 へ進んだときも無期限に 0.86 を support することを意味しない。Specification では support window と re-baseline 条件を個別に記述する必要がある。
 
@@ -138,7 +138,7 @@ Specification MUST use the approved platform baseline unless a later formally ap
 
 ## 5. PD-RN-002 — Minimum Android API level
 
-### Facts and distinction between min / target / compile
+### min / target / compile の違いと確認済み情報
 
 - React Native 0.75 の [release announcement](https://reactnative.dev/blog/2024/08/12/release-0.75) は、0.76 から minimum SDK を API 23 から API 24（Android 7.0）へ、minimum iOS を 13.4 から 15.1 へ引き上げると説明している。React Native 0.76 の [release post](https://reactnative.dev/blog/2024/10/23/release-0.76) でも同じ minimum platform change を確認できる。
 - React Native repository の公式 `main` の [Android version catalog](https://github.com/react/react-native/blob/main/packages/react-native/gradle/libs.versions.toml) は、2026-09-05 の確認時点で `minSdk = 24`、`targetSdk = 36`、`compileSdk = 37`、`ndkVersion = 27.1.12297006` を示していた。これは current implementation baseline の evidence であり、本 repository の target policy を自動確定するものではない。
@@ -147,7 +147,7 @@ Specification MUST use the approved platform baseline unless a later formally ap
 - Android NDK の [ABI / platform guidance](https://developer.android.com/about/versions/nougat/android-7.0-changes) は、API 24 以降で private platform library access が制限されることを示す。Rust native artifact は public NDK / platform API のみを利用し、private library dependency を作らない前提で API 24 を扱う必要がある。
 - Native code を含む app は 16 KB page size の影響を受ける。[Android 16 KB page-size guidance](https://developer.android.com/guide/practices/page-sizes) は、Android 15 以降の 64-bit device 対応と、2027-02-01 から Play update に対する compatibility requirement を説明している。API floor を下げても、Rust / NDK artifact の 16 KB rebuild / test 責任は消えない。
 
-### Option comparison
+### 選択肢の比較
 
 | Option | Compatibility / practical coverage | Tooling / native constraints | Maintenance / release / test cost | Recommendation |
 | --- | --- | --- | --- | --- |
@@ -155,19 +155,19 @@ Specification MUST use the approved platform baseline unless a later formally ap
 | API 26+ (Android 8.0+) | API 24–25 device を除外する。Android 8.0 の platform behavior を floor とする、より modern な app policy。 | API 24 / 25 の古い loader / behavior を formal test から外せるが、Rust native artifact と RN compile / target settings は別に必要。 | API 24+ より test / support 範囲は小さい。Play target 36、16 KB、64-bit の責任は残る。 | 広い device coverage が不要と確認できる場合の alternative。 |
 | API 28+ または API 29+ (Android 9 / 10+) | 古い device を大きく除外し、64-bit / modern Android behavior を優先する。exact market share を根拠にした選択ではない。 | lower API の compatibility workaround を減らせる可能性があるが、API floor 自体は Rust / loader / security correctness を保証しない。 | 最小寄りの device test matrix。application consumer の install exclusion と support claim を明示するコストがある。 | Minimal set には候補だが、v1 package の default recommendation ではない。 |
 
-### Security, cryptography and lifecycle implications
+### セキュリティ、暗号処理、ライフサイクルへの影響
 
 API 24+ を採用する場合、native loader が古いから暗号処理を古い OS の private library へ委ねる、という設計はできない。Rust Core の cryptographic authority は維持し、native layer は approved artifact の load、registration、C ABI mediation、error propagation に限定する。API 24 の real device / emulator では、library load failure、unsupported ABI、initialization failure、concurrent invocation、teardown、stale completion、secret temporary cleanup を検証対象にする。
 
 API 26+ / 28+ は古い OS の動作差を減らせる可能性があるが、OS floor を上げることは host compromise、crash dump、JS GC、native substitution または application secret handling を安全にする保証ではない。Design の trust boundary と no-secret-cache invariant は全 option で同じである。
 
-### PD-RN-002 approved boundary
+### PD-RN-002 の承認範囲
 
 **Approved value:** `minSdk` API 24 (Android 7.0)+。Play submission の `targetSdk`（research date では API 36+）、`compileSdk` / build tools（current RN 0.87 implementation evidence では 37）および NDK version は release 時点の別の build / release inputs とし、minimum runtime baseline と混同しない。Specification ではこれらを個別に扱う。
 
 ## 6. PD-RN-003 — Minimum iOS version
 
-### Current facts
+### 現在確認できる事実
 
 - React Native 0.75 / 0.76 の公式 release information は、RN 0.76 から minimum iOS version を 13.4 から 15.1 へ変更したことを示す（[0.75 announcement](https://reactnative.dev/blog/2024/08/12/release-0.75)、[0.76 release](https://reactnative.dev/blog/2024/10/23/release-0.76)）。
 - Apple の [Xcode system requirements](https://developer.apple.com/xcode/system-requirements) は、research date に確認した Xcode 26 series で iOS 15 以降の deployment / device / simulator range を示している。Xcode 26 は macOS Sequoia 15.6 以降を要求する（[Xcode 26 release notes](https://developer.apple.com/documentation/xcode-release-notes/xcode-26-release-notes)）。
@@ -175,7 +175,7 @@ API 26+ / 28+ は古い OS の動作差を減らせる可能性があるが、OS
 - iOS native artifact は device と simulator を同じ binary に混在させず、XCFramework で platform / environment ごとに分ける必要がある。Apple の [multiplatform binary framework guidance](https://developer.apple.com/documentation/Xcode/creating-a-multi-platform-binary-framework-bundle) は、device arm64 と simulator の arm64 / x86_64 slices を別 binary として扱うことを説明する。
 - Expo SDK 57 の [SDK reference](https://docs.expo.dev/versions/latest/) は、RN 0.86、Android 7+、iOS 16.4+、Xcode 26.4+ を対応 pair として示す（research date に latest は SDK 57）。これは bare React Native package の iOS floor ではなく、Expo SDK 57 integration subset の floor である。
 
-### Option comparison
+### 選択肢の比較
 
 | Option | Compatibility | Xcode / native module impact | Maintenance / release / test cost | Recommendation |
 | --- | --- | --- | --- | --- |
@@ -183,25 +183,25 @@ API 26+ / 28+ は古い OS の動作差を減らせる可能性があるが、OS
 | iOS 16.4+ | Current Expo SDK 57 の iOS floor と一致し、Expo formal matrix を一つにしやすい。iOS 15.1–16.3 を除外する。 | Xcode 26.4+ / Expo SDK 57 と直接整合。iOS availability branching と古い device testing を減らせる。 | Bare RN の compatibility は狭くなるが、Expo formal support を主対象にする場合は CI / release evidence が単純になる。 | Expo-first product policy の alternative。 |
 | iOS 17+ | より modern な OS range に限定し、older OS test / availability を最小化する。 | Native APIs を newer floor に寄せやすいが、Rust target / XCFramework / RN native boundary 自体の主要 complexity は残る。 | 最小寄りの test matrix。consumer coverage と iOS 16.x support を失う。 | Minimal set の候補だが、platform requirement からは導かれない。 |
 
-### Security and lifecycle implications
+### セキュリティとライフサイクルへの影響
 
 iOS floor を上げても、Rust Core の secret ownership、C ABI reuse、native temporary の cleanup、process-wide coordinator、runtime-local teardown、stale result rejection または fail-closed loader policy は変えない。older iOS を除外することで test burden は下がるが、native artifact が正しい slice を load すること、device / simulator を取り違えないこと、failure 時に secret-bearing state を保持しないことは全 option で必要である。
 
 Apple の distribution SDK requirement と package の deployment target は別の Specification field とする。少なくとも Apple の current Xcode 26 policy は iOS 26 SDK build を要求するが、iOS 15.1 deployment target を自動的に禁止していない。最終的な App Store submission evidence は user decision 後の selected Xcode / SDK policy と照合する。
 
-### PD-RN-003 approved boundary
+### PD-RN-003 の承認範囲
 
 **Approved value:** bare React Native package は iOS 15.1+、Expo formal integration subset は iOS 16.4+。Expo のために package 全体の minimum iOS version を 16.4+ へ引き上げない。これにより package の broad native floor と Expo SDK の own floor を混同しない。
 
 ## 7. PD-RN-004 — Android ABI matrix
 
-### Evaluation criteria
+### 評価基準
 
 Android native artifact は ABI ごとに Rust target、NDK link / load、AAR / `jni` layout、Gradle resolution、package size、runtime mismatch failure、CI build、device / emulator test および release evidence が増える。Android NDK の [supported ABIs](https://developer.android.com/ndk/guides/abis) は `arm64-v8a`、`armeabi-v7a`、`x86`、`x86_64` を区別する。Rust の [Android platform support](https://doc.rust-lang.org/rustc/platform-support/android.html) は `aarch64-linux-android`、`armv7-linux-androideabi`、`i686-linux-android`、`x86_64-linux-android` 等を cross-compile target として挙げる。
 
 Google Play は native code app に 64-bit support を要求し、[App Bundle](https://developer.android.com/guide/app-bundle/app-bundle-format) は device configuration ごとに ABI-specific APK を生成・配布できる。したがって、ABI を増やすと published package の consumer download size を AAB split で抑えられる一方、npm package に bundled native artifact を含める場合の package size、assembly、digest / provenance、local install size は増える。
 
-### ABI-by-ABI assessment
+### ABI ごとの評価
 
 | ABI | Current device / emulator relevance | Google Play relevance | Rust artifact cost | CI / testing requirement | npm / release impact | Long-term assessment |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -210,21 +210,21 @@ Google Play は native code app に 64-bit support を要求し、[App Bundle](h
 | `x86_64` | Android emulator / CI の主要な 64-bit x86 option。実機は ARM より限定的だが、native integration を再現する検証 target として価値がある。 | x86_64 device / emulator への configuration delivery が可能。Play で ARM device の代替とはみなさない。 | `x86_64-linux-android`。別 `.so` と ABI-specific linker / runtime test。 | CI emulator、load / invoke、invalid ABI fail-closed、16 KB x86-64 environment を検証する。Apple Silicon host では ARM64 emulator option もあるため、formal x86_64 は explicit CI target とする。 | 追加 `.so` と release digest / SBOM / provenance。AAB による consumer download split は可能だが npm package assembly は増える。 | **Formal verification recommended**。device distributionより emulator / CI reproducibility の価値で含める。 |
 | `x86` | 32-bit x86 device / emulator。現行 Android native release の優先 target としては低く、`x86_64` の代替にもならない。 | 32-bit x86 distribution の benefit は限定的。64-bit requirement を満たすには `x86_64` も別途必要。 | `i686-linux-android`。32-bit pointer / alignment / C ABI / third-party dependency の追加 path。 | 32-bit x86 emulator / artifact を継続的に維持する必要がある。 | 追加 size、loader branch、provenance、test evidence。 | **Not recommended / unsupported in v1** unless a named consumer requires it. |
 
-### Additional ABI candidates
+### 追加 ABI の候補
 
 NDK が列挙する deprecated / historically removed ABI（MIPS、`armeabi`、古い 32-bit target）や、Rust / Android の current mainstream support path でない architecture は、仕様にない compatibility claim を追加しない。将来の Android target ABI は別の user decision / release gate とする。`riscv64-linux-android` は Rust docs で Tier 3 とされるため、現時点の formal v1 ABI 候補には含めない。
 
-### Package size, distribution and testing nuance
+### Package サイズ、配布、テスト上の留意点
 
 fat APK に全 ABI を同梱すると native library の重複によりサイズが増える。Play AAB は configuration APK へ分割できるが、RN package 自身が配布する npm tarball、local cache、CI artifact、SBOM、digest / provenance は ABI ごとに増える。`x86_64` を formal に含める理由は主に emulator / CI の native path verification であり、`x86` や `armeabi-v7a` を自動的に含める理由にはならない。
 
-### PD-RN-004 approved boundary
+### PD-RN-004 の承認範囲
 
 **Approved formal matrix:** `arm64-v8a` + `x86_64`。`arm64-v8a` は primary physical-device target、`x86_64` は emulator / development / CI compatibility target として扱う。`armeabi-v7a`、`x86`、その他未承認 ABI は v1 formal support 外であり、追加には別の formally approved decision が必要である。
 
 ## 8. PD-RN-005 — iOS architecture matrix
 
-### Architecture / environment distinction
+### アーキテクチャと実行環境の区別
 
 以下は一つの「iOS architecture」としてまとめず、device、simulator environment、host Mac と artifact slice を区別する。
 
@@ -237,19 +237,19 @@ fat APK に全 ABI を同梱すると native library の重複によりサイズ
 
 Apple の [XCFramework guidance](https://developer.apple.com/documentation/Xcode/creating-a-multi-platform-binary-framework-bundle) は、iOS device binary は ARM64、simulator universal binary は x86_64 と Apple Silicon ARM64 の slices を持ち得ること、device / simulator binary を一つへ `lipo` で混在させないことを示す。したがって、slice を増やすことは単なる architecture flag ではなく、Rust build target、XCFramework assembly、artifact digest、link / load test および release evidence の増加である。
 
-### Intel simulator assessment
+### Intel simulator の評価
 
 Intel simulator を formal support に含める価値は、Intel Mac を開発・CI host として現に維持している named consumer がある場合に限り高い。研究日現在、Apple は Apple Silicon を中心とした Xcode / simulator workflow を強め、Xcode 26.3 の更新情報は Intel-based Mac support を含まない smaller simulator runtimes を default としている。一方で Apple の XCFramework documentation と Rust target support は x86_64 simulator を技術的には扱えると示している。
 
 この差から、x86_64 simulator は「技術的に不可能」ではなく、「正式保証の追加費用に対する current ecosystem value が低い」候補である。Approved policy では published formal slice / CI を arm64 device + arm64 Apple Silicon simulator に限定し、Intel simulator を formal support claim に含めない。consumer が Intel host を必要とするなら、別の formally approved decision で Option B を選び、x86_64 simulator slice、Intel runner、Xcode runtime availability、同一 security / lifecycle test を追加する。
 
-### PD-RN-005 approved boundary
+### PD-RN-005 の承認範囲
 
 **Approved formal matrix:** arm64 physical device + arm64 Apple Silicon simulator。Intel `x86_64` simulator は current formal target から除外する。device-only は native integration の testability が不足するため採用しない。
 
 ## 9. PD-RN-006 — New Architecture policy
 
-### Current direction and Design alignment
+### 現在の方向性と Design との整合
 
 React Native 0.76 で New Architecture が production-ready とされ default になり、RN 0.82 で runtime option として New Architecture only になった。Expo も [New Architecture guide](https://docs.expo.dev/guides/new-architecture/) で、Legacy Architecture を 2025-06 に freeze し、SDK 55 以降は New Architecture only と説明している。RN 0.87 は TurboModules を常に enabled とし、Legacy TypeScript deep-import opt-out も temporary bridge と位置付けている。
 
@@ -290,7 +290,7 @@ React Native 0.76 で New Architecture が production-ready とされ default �
 - **Security / ecosystem**: security-sensitive wallet module の compatibility label と実際の behavior の差が risk になる。RN / Expo の current direction との整合はあるが、consumer usability は ambiguous。
 - **Recommendation**: formal compatibility を提供しないなら、明示的な unsupported / fail-closed policy を要求する。production wallet の v1 policy としては Option A の方が明確。
 
-### PD-RN-006 approved boundary
+### PD-RN-006 の承認範囲
 
 **Recommended: Option A — New Architecture mandatory.** New Architecture / TurboModule / Codegen / private JSI を formal integration boundary とし、Legacy Architecture は supported / compatible claim に含めない。Legacy consumer を将来救済する場合は、Option B として exact RN window、async / sync semantics、lifecycle evidence、追加 CI / release cost を改めて user decision にする。
 
@@ -311,7 +311,7 @@ Expo の [Development builds FAQ](https://docs.expo.dev/develop/development-buil
 - **Maintenance / release cost**: formal Go support は custom Go build / fork または別 native integrationを必要とし、Expo Go の SDK / store release cycle を package が制御できない。
 - **Security / lifecycle**: fixed runtime へ native Wallet Core がない状態で JS fallback を行うと、backend semantics と secret boundary が変わる。成功扱いの fallback は不可。
 
-### Expo development build
+### Expo Development Build
 
 Expo の [development build introduction](https://docs.expo.dev/develop/development-builds/introduction/) は、development build を custom native libraries と native configuration を含められる、自分専用の Expo Go 相当の build と説明する。native code を含む library を追加した場合は development client の rebuild が必要である。
 
@@ -320,7 +320,7 @@ Expo の [development build introduction](https://docs.expo.dev/develop/developm
 - **Cost**: Expo SDK / RN pinned pair、prebuild / autolinking、local or EAS build、Xcode / Gradle / NDK、development client rebuild を matrix 化する必要がある。
 - **Security / lifecycle**: Expo layer は native artifact の packaging / integration を担うが、Rust Core security authority、process-wide RN coordination、secret lifecycle を置換しない。Expo Go へ fallback しない。
 
-### Expo prebuild / CNG
+### Expo Prebuild / CNG
 
 Expo の [config plugin introduction](https://docs.expo.dev/config-plugins/introduction/) は、config plugin が `npx expo prebuild` で生成される Android / iOS native project を予測可能に変更する仕組みである。[Expo workflow overview](https://docs.expo.dev/workflow/overview/) は、native dependency / app config changes で prebuild と native rebuild が必要になること、native project を直接編集すると再生成で上書きされ得ることを説明する。
 
@@ -347,7 +347,7 @@ Expo [SDK reference](https://docs.expo.dev/versions/latest/) は、各 SDK が�
 
 EAS Build、EAS local / cloud、`npx expo run:*` は development build / prebuild の実行手段であり、Expo Go とは別 workflow である。EAS / canary / nightly の exact support は、対応する SDK / native image / release evidence を選択した場合だけ Specification で宣言する。
 
-### PD-RN-007 approved integration matrix
+### PD-RN-007 の承認済み統合範囲
 
 | Expo / RN workflow | Approved status | Reason / boundary |
 | --- | --- | --- |
@@ -359,7 +359,7 @@ EAS Build、EAS local / cloud、`npx expo run:*` は development build / prebuil
 | Expo canary / nightly、RN / SDK mismatch、unlisted custom fork | `unsupported` | Formal release / regression evidence がない。 |
 | Expo web / JS-only usage | `not an RN native support claim` | Existing Browser / WASM routing の範囲で扱い、RN native backend の Expo support と混同しない。 |
 
-## 11. Approved Baseline Set
+## 11. 承認済みの基準
 
 以下は、ユーザーが承認した 7 decision を組み合わせた canonical baseline である。**`APPROVED`**。
 
@@ -374,7 +374,7 @@ EAS Build、EAS local / cloud、`npx expo run:*` は development build / prebuil
 
 この set の主な整合性は、RN minimum `0.86` が current Expo SDK 57 の RN 0.86 と重なり、RN 0.82+ の New Architecture only direction とも整合し、iOS / Android floor は current RN floor に合わせながら Expo の上位 floorを別 subsetとして扱える点にある。RN 0.87 only にすると current stable Expo line との重なりが消え、Legacy formal を加えると sync / lifecycle / test matrix が増える。
 
-## 12. Alternative Conservative Set — NOT ADOPTED
+## 12. 保守的な代替案 — 不採用
 
 **CONSERVATIVE COMPATIBILITY ALTERNATIVE — NOT ADOPTED**
 
@@ -397,7 +397,7 @@ EAS Build、EAS local / cloud、`npx expo run:*` は development build / prebuil
 
 この案は「広い互換性」を優先する比較対象として記録するが、今回の Approved Baseline には採用しない。Legacy formal support を追加する場合は、`PD-RN-006` を supersede する別の formally approved decision と、Specification での architecture-specific semantics が必要である。
 
-## 13. Alternative Minimal Set — NOT ADOPTED
+## 13. 最小構成の代替案 — 不採用
 
 **MINIMAL MAINTENANCE / CI / ARTIFACT ALTERNATIVE — NOT ADOPTED**
 
@@ -419,7 +419,7 @@ EAS Build、EAS local / cloud、`npx expo run:*` は development build / prebuil
 
 この案は maintenance / CI / artifact size を最小化する比較対象として記録するが、今回の Approved Baseline には採用しない。API 29 / iOS 17 は current RN native module requirement からは導かれず、consumer coverage を意図的に失う。
 
-## 14. Specification Impact
+## 14. Specification への影響
 
 Decision が承認された後、Specification は少なくとも次の領域を選択値と traceability 付きで具体化する必要がある。
 
@@ -435,9 +435,9 @@ Decision が承認された後、Specification は少なくとも次の領域を
 
 全 decision に共通する Specification impact は、private RN entry、TypeScript public facade、existing C ABI reuse、Rust Core authority、process-wide coordination、fail-closed routing、secret lifecycle、cleanup、stale result rejection、no WASM / Node fallback、package artifact trust chain および release evidence である。これらの既存方針を platform option の都合で弱めない。
 
-## 15. Conditional Decision
+## 15. 条件付き判断
 
-### Async / RN support exclusion
+### 非同期化または RN 対応除外の条件
 
 Status:
 
@@ -454,7 +454,7 @@ Potential decisions:
 
 現時点では決定しない。worker、blocking wait、timeout、cancellation primitive、Promise 化または runtime-specific semantics を、この gate の結果だけで追加しない。process-wide serialization による cross-runtime admission wait / starvation risk も、negative evidence が発生するまではこの conditional gate の evidence 対象として扱う。
 
-## 16. Decision Record Status
+## 16. 判断記録の状態
 
 PD-RN-001〜PD-RN-007 はすべて `APPROVED` であり、この platform baseline gate に未解決の user decision は残っていない。Approved Value は次工程の正式入力であり、過去の比較候補は Approved Baseline ではない。
 
@@ -468,13 +468,13 @@ PD-RN-001〜PD-RN-007 はすべて `APPROVED` であり、この platform baseli
 | PD-RN-006 | New Architecture mandatory; TurboModule / JSI required; Legacy 外 | `APPROVED` | User decision recorded on 2026-09-05 |
 | PD-RN-007 | Bare RN + Development Build + Prebuild / CNG + custom native module workflow formal; Expo Go 外 | `APPROVED` | User decision recorded on 2026-09-05 |
 
-### Out of scope for this gate
+### この判断の対象外
 
 negative responsiveness / blocking / resource consumption / cleanup / cancellation / starvation evidence 発生時の operation-specific async contract または RN support exclusion は、上記 7 decision とは別に **`DEFERRED UNTIL NEGATIVE EVIDENCE`** とする。現時点で user decision を求めない。
 
-## 17. Research Evidence and Primary Sources
+## 17. 調査根拠と一次資料
 
-### Project source of truth
+### プロジェクトの正本
 
 - [Concept](../consept/concept-sheet.md)
 - [Requirements](../requirements/requirements.md)
@@ -484,7 +484,7 @@ negative responsiveness / blocking / resource consumption / cleanup / cancellati
 - [Canonical Security](../design/security.md)
 - [React Native Design Review 003](../reviews/design/react-native-design-review-003.md)
 
-### External primary sources checked on 2026-09-05
+### 2026-09-05 に確認した外部一次資料
 
 | Area | Primary source | Claims used |
 | --- | --- | --- |
@@ -500,13 +500,13 @@ negative responsiveness / blocking / resource consumption / cleanup / cancellati
 | Expo SDK / compatibility | [Expo SDK reference](https://docs.expo.dev/versions/latest/)、[Expo SDK 57 changelog](https://expo.dev/changelog/sdk-57)、[Expo New Architecture guide](https://docs.expo.dev/guides/new-architecture/) | Current SDK 57 = RN 0.86、Android 7+、iOS 16.4+、Xcode 26.4+、Legacy support direction。 |
 | Expo native integration | [Development builds FAQ](https://docs.expo.dev/develop/development-builds/faq/)、[Custom native code](https://docs.expo.dev/workflow/customizing/)、[Config plugins](https://docs.expo.dev/config-plugins/introduction/)、[Expo workflow overview](https://docs.expo.dev/workflow/overview/) | Expo Go fixed native runtime、development build custom native code、prebuild / CNG / config plugin behavior、rebuild requirement。 |
 
-## 18. Gate Result
+## 18. 判定結果
 
 `Platform Baseline Decision Gate: APPROVED`
 
 PD-RN-001〜PD-RN-007 は、2026-09-05 のユーザー決定として正式に `APPROVED` である。この artifact の Approved Baseline は、次工程の Specification、support matrix、build target、artifact、CI、release evidence および integration documentation の入力とする。Specification MUST use the approved platform baseline unless a later formally approved decision supersedes it.
 
-### Traceability status
+### トレーサビリティの状態
 
 | Source / artifact | Traceability status |
 | --- | --- |
@@ -515,14 +515,14 @@ PD-RN-001〜PD-RN-007 は、2026-09-05 のユーザー決定として正式に `
 | Design Review `DR-RN-001`〜`DR-RN-004` | 全件 Resolved、Review Gate `READY`。本 gate の user decision は既存 Design の下流委譲項目を確定するもので、Design Review を再開しない。 |
 | Platform Decision `PD-RN-001`〜`PD-RN-007` → future Specification | `APPROVED`。future Specification は Approved Baseline を使用し、後続の正式承認がある場合のみ supersede できる。 |
 
-### DESIGN FOLLOW-UP REQUIRED
+### Design の追加対応が必要
 
 **なし。** 今回の承認値は Design が下流 user decision として委譲した範囲と整合する。Design は変更しない。
 
-### REQUIREMENTS FOLLOW-UP REQUIRED
+### Requirements の追加対応が必要
 
 **なし。** Requirements は変更しない。今回の baseline は既存 Requirements の support matrix / release gate への引継ぎとして扱う。
 
-### DECISION CONFLICT
+### 判断の競合
 
 **なし。** ユーザー承認値と既存 artifact の推奨内容に明確な conflict はない。
