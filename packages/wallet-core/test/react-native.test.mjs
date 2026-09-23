@@ -34,6 +34,7 @@ function writeReactNativeRuntime(packageCopy, manifestOverrides = {}) {
     })),
     ...manifestOverrides,
   };
+  mkdirSync(resolve(packageCopy, "dist/react-native"), { recursive: true });
   writeFileSync(
     resolve(packageCopy, "dist/react-native/index.js"),
     inlineReactNativeRuntime(resolve(packageCopy, "src/react-native/index.mjs"), [
