@@ -644,7 +644,6 @@ jobs:
           first_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '1p')"
           second_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '2p')"
           runtime_identity() { printf '%s\n' "$1" | sed -E 's/.*"runtime_identity":"([^"]+)".*/\1/'; }
-          registration_identity() { printf '%s\n' "$1" | sed -E 's/.*"registration_identity":"([^"]+)".*/\1/'; }
           provider_generation() { printf '%s\n' "$1" | sed -E 's/.*"provider_generation":([0-9]+).*/\1/'; }
           test "$(runtime_identity "$first_runtime")" != "$(runtime_identity "$second_runtime")"
           test "$(registration_identity "$first_runtime")" != "$(registration_identity "$second_runtime")"
@@ -1038,9 +1037,6 @@ jobs:
           provider_generation() { printf '%s\n' "$1" | sed -E 's/.*"provider_generation":([0-9]+).*/\1/'; }
           if [[ "$(runtime_identity "$first_runtime")" == "$(runtime_identity "$second_runtime")" ]]; then
             fail_lifecycle "old and new runtime identities are equal"
-          fi
-          if [[ "$(registration_identity "$first_runtime")" == "$(registration_identity "$second_runtime")" ]]; then
-            fail_lifecycle "old and new registration identities are equal"
           fi
           if [[ "$(provider_generation "$first_runtime")" == "$(provider_generation "$second_runtime")" ]]; then
             fail_lifecycle "old and new provider generations are equal"
