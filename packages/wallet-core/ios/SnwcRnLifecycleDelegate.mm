@@ -10,15 +10,17 @@
 
 #if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
 static __weak RCTHost *snwcIntegrationHost;
-static NSUInteger snwcIntegrationRuntimeCount = 0;
-static BOOL snwcIntegrationSurfaceRestartRequested = NO;
 
 static void snwcRequestIntegrationReload() {
   RCTHost *host = snwcIntegrationHost;
   if (host == nil) return;
   dispatch_async(dispatch_get_main_queue(), ^{
+    if (snwcIntegrationHost == nil) return;
     NSLog(@"SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED");
-    [host reload];
+    // Use React Native's reload-command path as the single reload authority.
+    // It coordinates the host replacement and existing surface restart;
+    // calling RCTHost.reload() first would make this a second host reload.
+    RCTTriggerReloadCommandListeners(@"SNWC integration lifecycle reload");
   });
 }
 #endif
@@ -38,21 +40,6 @@ static void snwcRequestIntegrationReload() {
 
 - (void)host:(RCTHost *)host didInitializeRuntime:(facebook::jsi::Runtime &)runtime {
   NSLog(@"SNWC_RN_NATIVE_RUNTIME_CALLBACK:%p:%p", (__bridge const void *)host, &runtime);
-#if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
-  snwcIntegrationRuntimeCount += 1;
-  if (snwcIntegrationRuntimeCount == 2) {
-    // RCTHost.reload() creates the replacement runtime but intentionally does
-    // not restart the existing surfaces. Ask RN's public reload-command
-    // dispatcher to restart those surfaces after the replacement runtime is
-    // initialized, so the actual consumer re-admits the provider and runs JS
-    // against the replacement runtime.
-    dispatch_async(dispatch_get_main_queue(), ^{
-      if (snwcIntegrationSurfaceRestartRequested) return;
-      snwcIntegrationSurfaceRestartRequested = YES;
-      RCTTriggerReloadCommandListeners(@"SNWC integration surface restart");
-    });
-  }
-#endif
   facebook::react::snwc_ios_runtime_did_initialize(
       (__bridge const void *)host,
       (__bridge const void *)host.moduleRegistry,
