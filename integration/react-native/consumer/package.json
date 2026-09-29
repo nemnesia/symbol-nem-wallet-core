@@ -45,5 +45,8 @@
         "NativeSymbolNemWalletCore": "NativeSymbolNemWalletCoreProvider"
       }
     }
+  },
+  "overrides": {
+    "metro": "0.87.1"
   }
 }
