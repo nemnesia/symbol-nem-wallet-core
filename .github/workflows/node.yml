@@ -853,8 +853,8 @@ jobs:
 
           refresh_lifecycle_log() {
             if ! run_with_deadline 30 "$lifecycle_capture_log" \
-              xcrun simctl spawn "$simulator_udid" log show --last 10m --style compact \
-              --predicate 'process == "SnwcRnBuild" AND eventMessage CONTAINS[c] "SNWC_RN_NATIVE_"'; then
+              xcrun simctl spawn "$simulator_udid" log show --last 10m --info --debug --style compact \
+              --predicate 'eventMessage CONTAINS[c] "SNWC_RN_NATIVE_"'; then
               return 1
             fi
             grep -F 'SNWC_RN_NATIVE_' "$lifecycle_capture_log" >"$lifecycle_log" || true
@@ -908,7 +908,7 @@ jobs:
             echo "install output:"
             cat "$install_log" 2>/dev/null || echo "install output unavailable"
             echo "recent filtered simulator logs:"
-            if ! run_with_deadline 30 "$simulator_log" xcrun simctl spawn "$simulator_udid" log show --last 2m --style compact --predicate 'process == "SnwcRnBuild" OR eventMessage CONTAINS[c] "SNWC_RN_NATIVE_"'; then
+            if ! run_with_deadline 30 "$simulator_log" xcrun simctl spawn "$simulator_udid" log show --last 2m --info --debug --style compact --predicate 'process == "SnwcRnBuild" OR eventMessage CONTAINS[c] "SNWC_RN_NATIVE_"'; then
               echo "limited simulator log collection timed out or failed"
             fi
             tail -n 300 "$simulator_log" 2>/dev/null || echo "simulator log unavailable"
