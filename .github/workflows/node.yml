@@ -1024,21 +1024,25 @@ jobs:
             'SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE'; then
             fail_lifecycle "reload completion or stale cleanup evidence was not observed within 120 seconds"
           fi
-          runtime_lines="$(grep 'SNWC_RN_NATIVE_RUNTIME_READY:' "$lifecycle_log" || true)"
-          runtime_count="$(printf '%s\n' "$runtime_lines" | sed '/^$/d' | wc -l | tr -d ' ')"
-          if [[ "$runtime_count" -lt 2 ]]; then
-            fail_lifecycle "iOS RN did not report both old and new runtime identities"
+          # Runtime initialization is emitted by native code before JS starts and
+          # survives an immediate RCTHost reload without depending on JS console
+          # flushing. Use it to prove that the old and new JSI runtimes differ.
+          runtime_init_lines="$(grep 'SNWC_RN_NATIVE_RUNTIME_INITIALIZED:' "$lifecycle_log" || true)"
+          runtime_init_count="$(printf '%s\n' "$runtime_init_lines" | sed '/^$/d' | wc -l | tr -d ' ')"
+          if [[ "$runtime_init_count" -lt 2 ]]; then
+            fail_lifecycle "iOS RN did not report both old and new native runtime initializations"
           fi
-          first_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '1p')"
-          second_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '2p')"
-          runtime_identity() { printf '%s\n' "$1" | sed -E 's/.*"runtime_identity":"([^"]+)".*/\1/'; }
-          registration_identity() { printf '%s\n' "$1" | sed -E 's/.*"registration_identity":"([^"]+)".*/\1/'; }
-          provider_generation() { printf '%s\n' "$1" | sed -E 's/.*"provider_generation":([0-9]+).*/\1/'; }
-          if [[ "$(runtime_identity "$first_runtime")" == "$(runtime_identity "$second_runtime")" ]]; then
-            fail_lifecycle "old and new runtime identities are equal"
+          first_runtime="$(printf '%s\n' "$runtime_init_lines" | sed -n '1p' | sed -E 's/.*SNWC_RN_NATIVE_RUNTIME_INITIALIZED:[^:]+:[^:]+:([^ ]+).*/\1/')"
+          second_runtime="$(printf '%s\n' "$runtime_init_lines" | sed -n '2p' | sed -E 's/.*SNWC_RN_NATIVE_RUNTIME_INITIALIZED:[^:]+:[^:]+:([^ ]+).*/\1/')"
+          if [[ -z "$first_runtime" || -z "$second_runtime" || "$first_runtime" == "$second_runtime" ]]; then
+            fail_lifecycle "old and new native runtime identities are missing or equal"
           fi
-          if [[ "$(provider_generation "$first_runtime")" == "$(provider_generation "$second_runtime")" ]]; then
-            fail_lifecycle "old and new provider generations are equal"
+          # The post-reload JS probe must still prove that the replacement
+          # provider generation advanced beyond the initial generation.
+          replacement_runtime="$(grep 'SNWC_RN_NATIVE_RUNTIME_READY:' "$lifecycle_log" | tail -n 1 || true)"
+          replacement_generation="$(printf '%s\n' "$replacement_runtime" | sed -E 's/.*"provider_generation":([0-9]+).*/\1/')"
+          if [[ ! "$replacement_generation" =~ ^[0-9]+$ || "$replacement_generation" -le 1 ]]; then
+            fail_lifecycle "replacement provider generation did not advance beyond generation 1"
           fi
           if ! wait_for_smoke_generations 120; then
             fail_lifecycle "post-reload 16 API smoke was not observed within 120 seconds"
