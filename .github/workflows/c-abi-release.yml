@@ -88,7 +88,7 @@ jobs:
             platform: linux-x64-glibc
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
@@ -99,7 +99,7 @@ jobs:
           targets: ${{ matrix.rust_target }}
 
       - name: Install Node.js 24
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.x"
 
@@ -211,7 +211,7 @@ jobs:
           --evidence "release-c-abi-target/${{ matrix.target_id }}/c-abi-artifact.json"
 
       - name: Upload validated target archive and evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release-c-abi-${{ matrix.target_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-target/${{ matrix.target_id }}/
@@ -223,7 +223,7 @@ jobs:
     needs: target
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -234,44 +234,44 @@ jobs:
           toolchain: stable
 
       - name: Install Node.js 24
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.x"
 
       - name: Download target archives and evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-c-abi-win32-x64-msvc-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-input/win32-x64-msvc
 
       - name: Download macOS x64 archive and evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-c-abi-darwin-x64-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-input/darwin-x64
 
       - name: Download macOS arm64 archive and evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-c-abi-darwin-arm64-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-input/darwin-arm64
 
       - name: Download Linux archive and evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-c-abi-linux-x64-gnu-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-input/linux-x64-gnu
 
       - name: Download formal release identity evidence
         if: inputs.release_mode == 'release'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-identity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-identity-input
 
       - name: Download formal npm release manifest evidence
         if: inputs.release_mode == 'release'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-npm-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-npm-input
@@ -356,7 +356,7 @@ jobs:
 
       - name: Upload exact validated C ABI release asset set
         if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release-c-abi-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: release-c-abi-output/

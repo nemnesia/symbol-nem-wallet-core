@@ -60,12 +60,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
       - name: Install Node.js 24
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.x"
 
@@ -100,7 +100,7 @@ jobs:
           node scripts/test-browser-parity.mjs
 
       - name: Upload source evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release-source-${{ github.run_id }}-${{ github.sha }}
           path: release-source.json
@@ -112,7 +112,7 @@ jobs:
     needs: source
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
@@ -147,7 +147,7 @@ jobs:
     needs: source
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
@@ -158,7 +158,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install Node.js 24
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.x"
 
@@ -194,7 +194,7 @@ jobs:
             --output release-wasm/wasm-evidence.json
 
       - name: Upload WASM artifact and evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release-wasm-${{ github.run_id }}-${{ github.sha }}
           path: release-wasm/
@@ -226,7 +226,7 @@ jobs:
             runner: ubuntu-24.04
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
@@ -281,7 +281,7 @@ jobs:
             --output "release-native/${{ matrix.target_id }}.json"
 
       - name: Upload native artifact and evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release-native-${{ matrix.target_id }}-${{ github.run_id }}-${{ github.sha }}
           path: release-native/
@@ -317,12 +317,12 @@ jobs:
             xcode_sdk: iphonesimulator
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
       - name: Install Node.js 24
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.x"
 
@@ -732,7 +732,7 @@ jobs:
             --output "$artifact_dir/${{ matrix.target_id }}.json"
 
       - name: Upload RN target artifact and evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release-react-native-${{ matrix.target_id }}-${{ github.run_id }}-${{ github.sha }}
           path: release-react-native/
@@ -744,12 +744,12 @@ jobs:
     needs: react-native
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
       - name: Download the two controlled iOS archives
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: release-react-native-ios-*
           path: release-ios
@@ -1013,9 +1013,9 @@ jobs:
           fi
           cat "$launch_log"
           if ! wait_for_markers 120 \
-            'SNWC_RN_NATIVE_SMOKE_PASS:16' \
-            'SNWC_RN_NATIVE_STALE_GATE_ARMED'; then
-            fail_lifecycle "initial smoke or stale-output gate was not observed within 120 seconds"
+            'SNWC_RN_NATIVE_RUNTIME_READY:' \
+            'SNWC_RN_NATIVE_SMOKE_PASS:16'; then
+            fail_lifecycle "initial runtime identity or 16 API smoke was not observed within 120 seconds"
           fi
           if ! wait_for_markers 120 \
             'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED' \
@@ -1024,21 +1024,25 @@ jobs:
             'SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE'; then
             fail_lifecycle "reload completion or stale cleanup evidence was not observed within 120 seconds"
           fi
-          runtime_lines="$(grep 'SNWC_RN_NATIVE_RUNTIME_READY:' "$lifecycle_log" || true)"
-          runtime_count="$(printf '%s\n' "$runtime_lines" | sed '/^$/d' | wc -l | tr -d ' ')"
-          if [[ "$runtime_count" -lt 2 ]]; then
-            fail_lifecycle "iOS RN did not report both old and new runtime identities"
+          # Runtime initialization is emitted by native code before JS starts and
+          # survives an immediate RCTHost reload without depending on JS console
+          # flushing. Use it to prove that the old and new JSI runtimes differ.
+          runtime_init_lines="$(grep 'SNWC_RN_NATIVE_RUNTIME_INITIALIZED:' "$lifecycle_log" || true)"
+          runtime_init_count="$(printf '%s\n' "$runtime_init_lines" | sed '/^$/d' | wc -l | tr -d ' ')"
+          if [[ "$runtime_init_count" -lt 2 ]]; then
+            fail_lifecycle "iOS RN did not report both old and new native runtime initializations"
           fi
-          first_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '1p')"
-          second_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '2p')"
-          runtime_identity() { printf '%s\n' "$1" | sed -E 's/.*"runtime_identity":"([^"]+)".*/\1/'; }
-          registration_identity() { printf '%s\n' "$1" | sed -E 's/.*"registration_identity":"([^"]+)".*/\1/'; }
-          provider_generation() { printf '%s\n' "$1" | sed -E 's/.*"provider_generation":([0-9]+).*/\1/'; }
-          if [[ "$(runtime_identity "$first_runtime")" == "$(runtime_identity "$second_runtime")" ]]; then
-            fail_lifecycle "old and new runtime identities are equal"
+          first_runtime="$(printf '%s\n' "$runtime_init_lines" | sed -n '1p' | sed -E 's/.*SNWC_RN_NATIVE_RUNTIME_INITIALIZED:[^:]+:[^:]+:([^ ]+).*/\1/')"
+          second_runtime="$(printf '%s\n' "$runtime_init_lines" | sed -n '2p' | sed -E 's/.*SNWC_RN_NATIVE_RUNTIME_INITIALIZED:[^:]+:[^:]+:([^ ]+).*/\1/')"
+          if [[ -z "$first_runtime" || -z "$second_runtime" || "$first_runtime" == "$second_runtime" ]]; then
+            fail_lifecycle "old and new native runtime identities are missing or equal"
           fi
-          if [[ "$(provider_generation "$first_runtime")" == "$(provider_generation "$second_runtime")" ]]; then
-            fail_lifecycle "old and new provider generations are equal"
+          # The post-reload JS probe must still prove that the replacement
+          # provider generation advanced beyond the initial generation.
+          replacement_runtime="$(grep 'SNWC_RN_NATIVE_RUNTIME_READY:' "$lifecycle_log" | tail -n 1 || true)"
+          replacement_generation="$(printf '%s\n' "$replacement_runtime" | sed -E 's/.*"provider_generation":([0-9]+).*/\1/')"
+          if [[ ! "$replacement_generation" =~ ^[0-9]+$ || "$replacement_generation" -le 1 ]]; then
+            fail_lifecycle "replacement provider generation did not advance beyond generation 1"
           fi
           if ! wait_for_smoke_generations 120; then
             fail_lifecycle "post-reload 16 API smoke was not observed within 120 seconds"
@@ -1048,7 +1052,7 @@ jobs:
           grep -E 'SNWC_RN_NATIVE_(LIFECYCLE_RELOAD_REQUESTED|LIFECYCLE_RELOAD_COMPLETED|RUNTIME_READY|STALE_COMPLETION_REJECTED|SMOKE_PASS:16)' "$lifecycle_log"
 
       - name: Upload the independently produced XCFramework evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release-react-native-xcframework-${{ github.run_id }}-${{ github.sha }}
           path: release-ios-output/
@@ -1060,7 +1064,7 @@ jobs:
     needs: source
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
@@ -1071,7 +1075,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install Node.js 24
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.x"
 
@@ -1098,7 +1102,7 @@ jobs:
     needs: [source, core-c-abi, wasm, native, react-native, react-native-ios-xcframework, parity-regression]
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
@@ -1108,7 +1112,7 @@ jobs:
           toolchain: stable
 
       - name: Install Node.js 24
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.x"
 
@@ -1126,40 +1130,40 @@ jobs:
         run: corepack pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Download all native artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: release-native-*
           path: release-input/native
           merge-multiple: true
 
       - name: Download source evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-source-${{ github.run_id }}-${{ github.sha }}
           path: release-input/source
 
       - name: Download the canonical WASM artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-wasm-${{ github.run_id }}-${{ github.sha }}
           path: release-input/wasm
 
       - name: Download Android React Native target artifacts and evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: release-react-native-android-*
           path: release-input/react-native
           merge-multiple: true
 
       - name: Download iOS React Native target artifacts and evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: release-react-native-ios-*
           path: release-input/react-native
           merge-multiple: true
 
       - name: Download the independently produced iOS XCFramework
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-react-native-xcframework-${{ github.run_id }}-${{ github.sha }}
           path: release-input/react-native-xcframework
@@ -1501,7 +1505,7 @@ jobs:
 
       - name: Upload final npm release candidate evidence bundle
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release-npm-package-${{ github.run_id }}-${{ github.sha }}
           path: release-output/
@@ -1541,17 +1545,17 @@ jobs:
             node: "24.x"
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
       - name: Install Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
 
       - name: Download final npm tarball
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-npm-package-${{ github.run_id }}-${{ github.sha }}
           path: release-output
@@ -1570,12 +1574,12 @@ jobs:
     needs: package
     steps:
       - name: Check out release source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
       - name: Install Node.js 24
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.x"
 
@@ -1583,7 +1587,7 @@ jobs:
         run: corepack pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Download final npm tarball
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-npm-package-${{ github.run_id }}-${{ github.sha }}
           path: release-output
