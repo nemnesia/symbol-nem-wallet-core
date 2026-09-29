@@ -842,37 +842,22 @@ jobs:
           }
 
           lifecycle_log="$RUNNER_TEMP/snwc-ios-lifecycle.log"
-          lifecycle_stream_error="$RUNNER_TEMP/snwc-ios-lifecycle-stream.stderr"
+          lifecycle_capture_log="$RUNNER_TEMP/snwc-ios-lifecycle-capture.log"
           boot_log="$RUNNER_TEMP/snwc-ios-boot.log"
           install_log="$RUNNER_TEMP/snwc-ios-install.log"
           launch_log="$RUNNER_TEMP/snwc-ios-launch.log"
           process_log="$RUNNER_TEMP/snwc-ios-process.log"
           simulator_log="$RUNNER_TEMP/snwc-ios-simulator.log"
           crash_log="$RUNNER_TEMP/snwc-ios-crash.log"
-          lifecycle_history_log="$RUNNER_TEMP/snwc-ios-lifecycle-history.log"
-          lifecycle_history_capture="$RUNNER_TEMP/snwc-ios-lifecycle-history-capture.log"
-          lifecycle_stream_pid=""
           : >"$lifecycle_log"
-          : >"$lifecycle_stream_error"
-          : >"$lifecycle_history_log"
 
-          stop_lifecycle_stream() {
-            if [[ -n "${lifecycle_stream_pid:-}" ]]; then
-              if kill -0 "$lifecycle_stream_pid" 2>/dev/null; then
-                kill "$lifecycle_stream_pid" 2>/dev/null || true
-              fi
-              wait "$lifecycle_stream_pid" 2>/dev/null || true
-              lifecycle_stream_pid=""
-            fi
-          }
-
-          collect_lifecycle_history() {
-            if ! run_with_deadline 30 "$lifecycle_history_capture" \
-              xcrun simctl spawn "$simulator_udid" log show --last 5m --style compact \
+          refresh_lifecycle_log() {
+            if ! run_with_deadline 30 "$lifecycle_capture_log" \
+              xcrun simctl spawn "$simulator_udid" log show --last 10m --style compact \
               --predicate 'process == "SnwcRnBuild" AND eventMessage CONTAINS[c] "SNWC_RN_NATIVE_"'; then
               return 1
             fi
-            grep -F 'SNWC_RN_NATIVE_' "$lifecycle_history_capture" >"$lifecycle_history_log" || true
+            grep -F 'SNWC_RN_NATIVE_' "$lifecycle_capture_log" >"$lifecycle_log" || true
           }
 
           marker_summary() {
@@ -898,7 +883,7 @@ jobs:
 
           diagnostics() {
             local reason="$1"
-            stop_lifecycle_stream
+            refresh_lifecycle_log || true
             echo "::group::iOS simulator lifecycle diagnostics"
             echo "failure: $reason"
             marker_summary
@@ -922,8 +907,6 @@ jobs:
             cat "$boot_log" 2>/dev/null || echo "boot output unavailable"
             echo "install output:"
             cat "$install_log" 2>/dev/null || echo "install output unavailable"
-            echo "filtered log stream stderr:"
-            cat "$lifecycle_stream_error" 2>/dev/null || echo "log stream stderr unavailable"
             echo "recent filtered simulator logs:"
             if ! run_with_deadline 30 "$simulator_log" xcrun simctl spawn "$simulator_udid" log show --last 2m --style compact --predicate 'process == "SnwcRnBuild" OR eventMessage CONTAINS[c] "SNWC_RN_NATIVE_"'; then
               echo "limited simulator log collection timed out or failed"
@@ -947,6 +930,7 @@ jobs:
             shift
             local deadline=$((SECONDS + seconds))
             while (( SECONDS < deadline )); do
+              refresh_lifecycle_log || true
               local all_observed=true
               for marker in "$@"; do
                 if ! grep -Fq "$marker" "$lifecycle_log"; then
@@ -960,7 +944,7 @@ jobs:
               if grep -Fq 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_FAILED' "$lifecycle_log"; then
                 return 125
               fi
-              sleep 1
+              sleep 5
             done
             return 124
           }
@@ -969,6 +953,7 @@ jobs:
             local seconds="$1"
             local deadline=$((SECONDS + seconds))
             while (( SECONDS < deadline )); do
+              refresh_lifecycle_log || true
               local smoke_count
               smoke_count="$(grep -Fc 'SNWC_RN_NATIVE_SMOKE_PASS:16' "$lifecycle_log" || true)"
               if [[ "$smoke_count" -ge 2 ]]; then
@@ -977,7 +962,7 @@ jobs:
               if grep -Fq 'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_FAILED' "$lifecycle_log"; then
                 return 125
               fi
-              sleep 1
+              sleep 5
             done
             return 124
           }
@@ -998,8 +983,6 @@ jobs:
             return 124
           }
 
-          trap stop_lifecycle_stream EXIT
-
           boot_request_log="$RUNNER_TEMP/snwc-ios-boot-request.log"
           if ! xcrun simctl boot "$simulator_udid" >"$boot_request_log" 2>&1; then
             if ! xcrun simctl list devices available | grep -F "($simulator_udid)" | grep -Fq "Booted"; then
@@ -1015,41 +998,20 @@ jobs:
           fi
 
           # The app was just installed and has not been launched in this job.
-          # Do not issue a speculative terminate here: if the client-side timeout
-          # kills simctl while CoreSimulator keeps the terminate request alive,
-          # the following launch can remain serialized behind that stale request.
-          xcrun simctl spawn "$simulator_udid" log stream \
-            --style compact \
-            --level debug \
-            --predicate 'eventMessage CONTAINS[c] "SNWC_RN_NATIVE_"' \
-            >"$lifecycle_log" 2>"$lifecycle_stream_error" &
-          lifecycle_stream_pid=$!
-          stream_deadline=$((SECONDS + 10))
-          stream_ready=false
-          while (( SECONDS < stream_deadline )); do
-            if kill -0 "$lifecycle_stream_pid" 2>/dev/null; then
-              stream_ready=true
-              break
-            fi
-            sleep 1
-          done
-          if [[ "$stream_ready" != true ]]; then
-            fail_lifecycle "filtered simulator log stream did not stay alive"
-          fi
-
+          # Do not issue a speculative terminate here. Also avoid killing the
+          # launch client while CoreSimulator is still servicing its request:
+          # hosted macOS runners have shown >5 minute launch latency even though
+          # the app eventually starts and completes both runtime generations.
           launch_status=0
-          run_with_deadline 180 "$launch_log" xcrun simctl launch "$simulator_udid" "$bundle_id" || launch_status=$?
+          run_with_deadline 600 "$launch_log" xcrun simctl launch "$simulator_udid" "$bundle_id" || launch_status=$?
           if [[ "$launch_status" -ne 0 ]]; then
             if [[ "$launch_status" -ne 124 ]]; then
               fail_lifecycle "consumer app launch returned a non-timeout error"
             fi
-            # Killing the simctl client does not guarantee cancellation of an
-            # already-enqueued CoreSimulator launch. Avoid issuing another
-            # simulator command while that request may still complete.
-            if ! wait_for_application_process 120; then
-              fail_lifecycle "consumer app launch did not complete and no app process was observed within 300 seconds"
+            if ! application_process_is_running; then
+              fail_lifecycle "consumer app launch did not complete and no app process was observed within 600 seconds"
             fi
-            echo "simctl launch did not return within 180 seconds, but the app process appeared; continuing to marker gates"
+            echo "simctl launch did not return within 600 seconds, but the app process is running; continuing to marker gates"
           fi
           cat "$launch_log"
           if ! wait_for_markers 120 \
@@ -1064,13 +1026,13 @@ jobs:
             'SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE'; then
             fail_lifecycle "reload completion or stale cleanup evidence was not observed within 120 seconds"
           fi
-          # Runtime initialization can precede attachment of the live log stream.
-          # Re-read the simulator's unified-log history after the reload gates so
-          # the first native runtime cannot be lost to that attachment race.
-          if ! collect_lifecycle_history; then
+          # Runtime initialization is emitted before JS starts. Unified-log
+          # history is the observation source so the first runtime cannot be lost
+          # to a live-stream attachment race.
+          if ! refresh_lifecycle_log; then
             fail_lifecycle "iOS RN lifecycle history could not be collected"
           fi
-          runtime_init_lines="$(grep 'SNWC_RN_NATIVE_RUNTIME_INITIALIZED:' "$lifecycle_history_log" || true)"
+          runtime_init_lines="$(grep 'SNWC_RN_NATIVE_RUNTIME_INITIALIZED:' "$lifecycle_log" || true)"
           runtime_init_count="$(printf '%s\n' "$runtime_init_lines" | sed '/^$/d' | wc -l | tr -d ' ')"
           if [[ "$runtime_init_count" -lt 2 ]]; then
             fail_lifecycle "iOS RN did not report both old and new native runtime initializations"
@@ -1090,7 +1052,6 @@ jobs:
           if ! wait_for_smoke_generations 120; then
             fail_lifecycle "post-reload 16 API smoke was not observed within 120 seconds"
           fi
-          stop_lifecycle_stream
           echo "iOS RN actual reload and generation replacement evidence:"
           grep -E 'SNWC_RN_NATIVE_(LIFECYCLE_RELOAD_REQUESTED|LIFECYCLE_RELOAD_COMPLETED|RUNTIME_READY|STALE_COMPLETION_REJECTED|SMOKE_PASS:16)' "$lifecycle_log"
 
