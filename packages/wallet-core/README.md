@@ -46,7 +46,104 @@ backend、raw `.node`、raw `.wasm`、generated binding module、manifest、back
 
 ## クイックスタート
 
-次は、Node.js ESM で既存の Mnemonic から Profile を復元し、Symbol の Software Key を導出して public account を取得する最小例です。Mnemonic と password はソースコードへ直接書かず、この例では環境変数から受け取ります。
+### 1. 30秒で動作確認
+
+Node.js ESM では、まず秘密情報なしで package root の初期化を確認できます。
+
+```ts
+import { create_empty_store, list_profiles } from "@nemnesia/symbol-nem-wallet-core";
+
+const store = create_empty_store();
+const profiles = list_profiles(store);
+
+console.log(profiles.value); // []
+```
+
+### 2. 新規 Wallet を作る
+
+新規 Wallet は次の順で作成します。
+
+```text
+空 Store
+  ↓
+prepare_generated_profile
+  ↓
+Mnemonic を intended user に提示
+  ↓
+利用者から明示的な受領確認
+  ↓
+finalize_generated_profile
+  ↓
+derive_software_key
+  ↓
+get_public_account
+```
+
+`prepare_generated_profile` は Mnemonic と Pending Profile を返しますが、まだ Profile は Store に確定されません。Application が Mnemonic 全体を intended user に提示し、**現在の操作について明示的な受領確認を得た後だけ** `finalize_generated_profile(..., { status: "confirmed" })` を呼び出してください。
+
+```ts
+import {
+  create_empty_store,
+  derive_software_key,
+  finalize_generated_profile,
+  get_public_account,
+  prepare_generated_profile,
+} from "@nemnesia/symbol-nem-wallet-core";
+
+const passwordText = process.env.WALLET_PASSWORD;
+if (passwordText === undefined) {
+  throw new Error("WALLET_PASSWORD is required");
+}
+
+const password_utf8 = new TextEncoder().encode(passwordText);
+let store = create_empty_store();
+
+const prepared = prepare_generated_profile(store, password_utf8, 1);
+
+// Application responsibility:
+// 1. prepared.value.mnemonic_utf8 全体を intended user に安全に提示する。
+// 2. 現在の操作について明示的な受領確認を取得する。
+// 3. 確認できなければ、ここで中止する。
+const handoffConfirmed = await presentMnemonicAndWaitForExplicitConfirmation(
+  prepared.value.mnemonic_utf8,
+);
+if (!handoffConfirmed) {
+  throw new Error("Mnemonic handoff was not confirmed");
+}
+
+const finalized = finalize_generated_profile(
+  store,
+  prepared.value.pending_profile,
+  password_utf8,
+  { status: "confirmed" },
+);
+store = finalized.store;
+
+const derived = derive_software_key(
+  store,
+  finalized.value.profile_id,
+  password_utf8,
+  1, // symbol
+  0, // account index
+);
+store = derived.store;
+
+const account = get_public_account(
+  store,
+  finalized.value.profile_id,
+  derived.value.key_id,
+  { chain: "symbol", network: "mainnet" },
+  password_utf8,
+);
+
+console.log(account.value.address);
+```
+
+`presentMnemonicAndWaitForExplicitConfirmation` は Application が実装する UI / handoff 処理です。Wallet Core が自動で確認する関数ではありません。サンプルを動かすためだけに常に `true` を返したり、確認なしで `confirmed` を渡したりしないでください。また Mnemonic を log / analytics / diagnostics へ出力しないでください。
+
+### 3. 既存 Wallet を復元する
+
+既存 Mnemonic がある場合は `restore_profile` を使います。この経路では generated Mnemonic の handoff は発生しません。
 
 ```ts
 import {
@@ -67,7 +164,6 @@ const mnemonic_utf8 = encoder.encode(mnemonicText);
 const password_utf8 = encoder.encode(passwordText);
 
 let store = create_empty_store();
-
 const restored = restore_profile(store, mnemonic_utf8, password_utf8, 1);
 store = restored.store;
 
@@ -91,9 +187,11 @@ const account = get_public_account(
 console.log(account.value.address);
 ```
 
-`1` は top-level input の `Network` における mainnet 値、`Chain` における symbol 値です。出力 DTO の `network` / `chain` は、それぞれ `"mainnet"` / `"symbol"` の文字列です。
+`Network` / `Chain` の top-level input は `0 = testnet / nem`、`1 = mainnet / symbol` です。output DTO では `"testnet" | "mainnet"`、`"nem" | "symbol"` を使用します。
 
-入力 `store` は直接変更されません。状態変更が成功するたびに、`result.store` が完全な置換後の Store になります。次の操作には、その値を渡してください。Application が永続化に失敗した場合は、直前の確定済み Store を現在の Store として維持します。失敗結果には、置換後の Store は含まれません。
+### Store を必ず置き換える
+
+入力 `store` は直接変更されません。Mutation が成功するたびに `result.store` が完全な replacement Store になります。次の操作と永続化にはその値を使用し、永続化に失敗した場合は直前の確定済み Store を維持してください。
 
 ## 公開関数 (16)
 

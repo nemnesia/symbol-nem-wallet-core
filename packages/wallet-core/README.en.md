@@ -4,7 +4,7 @@
 
 The Japanese version is authoritative if there is any discrepancy.
 
-`@nemnesia/symbol-nem-wallet-core` is the synchronous TypeScript facade for the Symbol / NEM Wallet Core. Node.js and Browser applications import the package root to work with Mnemonics, Profiles, Software Keys, public accounts, and raw signing payloads.
+`@nemnesia/symbol-nem-wallet-core` is the synchronous TypeScript facade for the Symbol / NEM Wallet Core. Node.js, Browser, and React Native Android / iOS applications import the package root to work with Mnemonics, Profiles, Software Keys, public accounts, and raw signing payloads.
 
 ## Install
 
@@ -46,7 +46,104 @@ The backend, raw `.node`, raw `.wasm`, generated binding modules, manifest, and 
 
 ## Quick Start
 
-The following Node.js ESM example restores a Profile from an existing Mnemonic, derives a Symbol Software Key, and obtains its public account. Secrets are not embedded in source code; the example uses environment input.
+### 1. 30-second smoke test
+
+With Node.js ESM, first verify package-root initialization without any secret input.
+
+```ts
+import { create_empty_store, list_profiles } from "@nemnesia/symbol-nem-wallet-core";
+
+const store = create_empty_store();
+const profiles = list_profiles(store);
+
+console.log(profiles.value); // []
+```
+
+### 2. Create a new Wallet
+
+Create a new Wallet in this order:
+
+```text
+empty Store
+  ↓
+prepare_generated_profile
+  ↓
+present the Mnemonic to the intended user
+  ↓
+obtain explicit acknowledgement
+  ↓
+finalize_generated_profile
+  ↓
+derive_software_key
+  ↓
+get_public_account
+```
+
+`prepare_generated_profile` returns a Mnemonic and Pending Profile but does not commit a Profile to the Store. Call `finalize_generated_profile(..., { status: "confirmed" })` only after the Application has presented the complete Mnemonic to the intended user and obtained explicit acknowledgement for the current operation.
+
+```ts
+import {
+  create_empty_store,
+  derive_software_key,
+  finalize_generated_profile,
+  get_public_account,
+  prepare_generated_profile,
+} from "@nemnesia/symbol-nem-wallet-core";
+
+const passwordText = process.env.WALLET_PASSWORD;
+if (passwordText === undefined) {
+  throw new Error("WALLET_PASSWORD is required");
+}
+
+const password_utf8 = new TextEncoder().encode(passwordText);
+let store = create_empty_store();
+
+const prepared = prepare_generated_profile(store, password_utf8, 1);
+
+// Application responsibility:
+// 1. Present all prepared.value.mnemonic_utf8 to the intended user securely.
+// 2. Obtain explicit acknowledgement for this operation.
+// 3. Abort here if acknowledgement is not obtained.
+const handoffConfirmed = await presentMnemonicAndWaitForExplicitConfirmation(
+  prepared.value.mnemonic_utf8,
+);
+if (!handoffConfirmed) {
+  throw new Error("Mnemonic handoff was not confirmed");
+}
+
+const finalized = finalize_generated_profile(
+  store,
+  prepared.value.pending_profile,
+  password_utf8,
+  { status: "confirmed" },
+);
+store = finalized.store;
+
+const derived = derive_software_key(
+  store,
+  finalized.value.profile_id,
+  password_utf8,
+  1, // symbol
+  0, // account index
+);
+store = derived.store;
+
+const account = get_public_account(
+  store,
+  finalized.value.profile_id,
+  derived.value.key_id,
+  { chain: "symbol", network: "mainnet" },
+  password_utf8,
+);
+
+console.log(account.value.address);
+```
+
+`presentMnemonicAndWaitForExplicitConfirmation` is an Application-implemented UI / handoff operation, not a Wallet Core function. Do not make it always return `true` merely to run the sample, and do not pass `confirmed` without acknowledgement. Do not write the Mnemonic to logs, analytics, or diagnostics.
+
+### 3. Restore an existing Wallet
+
+If you already have a Mnemonic, use `restore_profile`. Generated-Mnemonic handoff does not apply to this path.
 
 ```ts
 import {
@@ -67,7 +164,6 @@ const mnemonic_utf8 = encoder.encode(mnemonicText);
 const password_utf8 = encoder.encode(passwordText);
 
 let store = create_empty_store();
-
 const restored = restore_profile(store, mnemonic_utf8, password_utf8, 1);
 store = restored.store;
 
@@ -91,9 +187,11 @@ const account = get_public_account(
 console.log(account.value.address);
 ```
 
-`1` is the top-level `Network` value for mainnet and the `Chain` value for Symbol. Output DTOs use the string values `"mainnet"` and `"symbol"` for `network` and `chain`.
+Top-level `Network` / `Chain` inputs use `0 = testnet / nem` and `1 = mainnet / symbol`. Output DTOs use `"testnet" | "mainnet"` and `"nem" | "symbol"`.
 
-The input `store` is not mutated in place. After every successful mutation, use `result.store` as the complete replacement Store for the next operation. The Application keeps the previous committed Store if persistence of the replacement fails. A failed result does not provide a successful replacement Store.
+### Always replace the Store after a mutation
+
+The input `store` is never mutated in place. After each successful mutation, `result.store` is the complete replacement Store. Use it for the next operation and persistence; if persistence fails, retain the previous committed Store.
 
 ## Public functions (16)
 

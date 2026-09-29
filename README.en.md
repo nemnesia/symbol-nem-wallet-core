@@ -29,63 +29,35 @@ A Profile has one Mnemonic and Network, and its Network is fixed at creation. A 
 npm install @nemnesia/symbol-nem-wallet-core
 ```
 
-### Quick Start
+### Choose your runtime first
 
-The following Node.js ESM example restores a Profile from an existing Mnemonic, derives a Symbol Software Key, and obtains its public account. Secrets are not hardcoded in source; the example uses environment input.
+| Runtime | First step |
+| --- | --- |
+| Node.js 22+ | Import the package root and use it directly |
+| Browser | Import the package root; package-local WASM is used |
+| React Native 0.87.x | Connect the native provider and lifecycle after npm install, then follow [React Native integration](packages/wallet-core/README.en.md#react-native-integration) |
+
+React Native does not work from `npm install` alone. Bare React Native `0.87.x` is the currently validated line in this repository.
+
+### 30-second smoke test
+
+With Node.js ESM, verify package initialization without any secret input.
 
 ```ts
-import {
-  create_empty_store,
-  derive_software_key,
-  get_public_account,
-  restore_profile,
-} from "@nemnesia/symbol-nem-wallet-core";
+import { create_empty_store, list_profiles } from "@nemnesia/symbol-nem-wallet-core";
 
-const mnemonicText = process.env.WALLET_MNEMONIC;
-const passwordText = process.env.WALLET_PASSWORD;
-if (mnemonicText === undefined || passwordText === undefined) {
-  throw new Error("WALLET_MNEMONIC and WALLET_PASSWORD are required");
-}
-
-const encoder = new TextEncoder();
-const mnemonic_utf8 = encoder.encode(mnemonicText);
-const password_utf8 = encoder.encode(passwordText);
-
-let store = create_empty_store();
-const restored = restore_profile(store, mnemonic_utf8, password_utf8, 1);
-store = restored.store;
-
-const derived = derive_software_key(
-  store,
-  restored.value.profile_id,
-  password_utf8,
-  1,
-  0,
-);
-store = derived.store;
-
-const account = get_public_account(
-  store,
-  restored.value.profile_id,
-  derived.value.key_id,
-  { chain: "symbol", network: "mainnet" },
-  password_utf8,
-);
-
-console.log(account.value.address);
+const store = create_empty_store();
+console.log(list_profiles(store).value); // []
 ```
 
-`1` is the top-level `Network` value for mainnet and the `Chain` value for Symbol. Output DTOs use `"mainnet"` and `"symbol"` for `network` and `chain`.
+### What to do next
 
-The input Store is not mutated in place. After a successful mutation, always use `result.store` as the next current Store and atomically apply only replacements that were persisted successfully. Keep the previous committed Store on failure.
+- **Create a new Wallet**: `prepare_generated_profile` → Mnemonic handoff → `finalize_generated_profile` → Software Key → address. See [Create a new Wallet](packages/wallet-core/README.en.md#create-a-new-wallet).
+- **Restore an existing Wallet**: `restore_profile` → Software Key → address. See [Restore an existing Wallet](packages/wallet-core/README.en.md#restore-an-existing-wallet).
+- **Sign**: the Application displays the transaction / payload and obtains approval before calling `sign`. See [Signing](packages/wallet-core/README.en.md#signing).
+- **Use React Native**: Android / iOS require native setup. See [React Native integration](packages/wallet-core/README.en.md#react-native-integration).
 
-Node.js prefers a package-local native artifact when the target is supported. `node --no-addons` and unsupported targets without a native artifact use package-local WASM. A missing, corrupt, unreadable, or initialization-failing declared native artifact fails closed and is not silently retried through WASM. Browser applications use the package-local canonical WASM and do not download remote assets.
-
-React Native Android / iOS use the `react-native` conditional export from the same npm package root and a New Architecture TurboModule / JSI binding. The 16 functions, DTOs, `Uint8Array` model, and synchronous contract are shared with the existing facade; there is no fallback to the Node addon or WASM.
-
-The v1 specification covers stable RN `0.86.x` / `0.87.x`, Android API 24+ with `arm64-v8a` / `x86_64`, and iOS 15.1+ with an arm64 device or Apple Silicon simulator. The specified Expo subset is SDK 57 + RN `0.86.x` using a Development Build / Prebuild custom-native-module workflow; Expo Go is unsupported. At present, only Bare RN `0.87.x` is backed by the repository's source-controlled consumer, lockfiles, and build workflow. RN `0.86.x` and the Expo SDK 57 pair still require formal release compatibility evidence and must not be treated as validated environments yet.
-
-Android and iOS require native provider and lifecycle integration in addition to npm installation and import. See [React Native integration in the npm package README](packages/wallet-core/README.en.md#react-native-integration) for the setup and the detailed 16-function contract.
+After every successful mutation, use `result.store` as the next Store. Atomically persist only successful replacement Stores and retain the previous committed Store on failure.
 
 ## npm public API overview
 

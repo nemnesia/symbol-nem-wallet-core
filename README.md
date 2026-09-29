@@ -29,63 +29,35 @@ Profile は1つの Mnemonic と Network を持ち、Network は作成時に固�
 npm install @nemnesia/symbol-nem-wallet-core
 ```
 
-### クイックスタート
+### まず実行環境を選ぶ
 
-次は、Node.js ESM で既存の Mnemonic から Profile を復元し、Symbol の Software Key を導出して public account を取得する最小例です。秘密情報はソースコードへ直接書かず、環境変数から受け取ります。
+| 環境 | 最初にすること |
+| --- | --- |
+| Node.js 22+ | package root を import してそのまま利用 |
+| Browser | package root を import。package-local WASM を使用 |
+| React Native 0.87.x | npm install 後に native provider / lifecycle の接続が必要。[React Native 導入](packages/wallet-core/README.md#react-native-の導入)へ進む |
+
+React Native は `npm install` だけでは動作しません。現在リポジトリで実証済みなのは Bare React Native `0.87.x` です。
+
+### 30秒で動作確認
+
+Node.js ESM では、秘密情報なしで package の初期化を確認できます。
 
 ```ts
-import {
-  create_empty_store,
-  derive_software_key,
-  get_public_account,
-  restore_profile,
-} from "@nemnesia/symbol-nem-wallet-core";
+import { create_empty_store, list_profiles } from "@nemnesia/symbol-nem-wallet-core";
 
-const mnemonicText = process.env.WALLET_MNEMONIC;
-const passwordText = process.env.WALLET_PASSWORD;
-if (mnemonicText === undefined || passwordText === undefined) {
-  throw new Error("WALLET_MNEMONIC and WALLET_PASSWORD are required");
-}
-
-const encoder = new TextEncoder();
-const mnemonic_utf8 = encoder.encode(mnemonicText);
-const password_utf8 = encoder.encode(passwordText);
-
-let store = create_empty_store();
-const restored = restore_profile(store, mnemonic_utf8, password_utf8, 1);
-store = restored.store;
-
-const derived = derive_software_key(
-  store,
-  restored.value.profile_id,
-  password_utf8,
-  1,
-  0,
-);
-store = derived.store;
-
-const account = get_public_account(
-  store,
-  restored.value.profile_id,
-  derived.value.key_id,
-  { chain: "symbol", network: "mainnet" },
-  password_utf8,
-);
-
-console.log(account.value.address);
+const store = create_empty_store();
+console.log(list_profiles(store).value); // []
 ```
 
-`1` は top-level input の `Network` における mainnet 値、`Chain` における symbol 値です。出力 DTO では `network` / `chain` が `"mainnet"` / `"symbol"` になります。
+### 次にやること
 
-入力 Store は直接変更されません。状態変更に成功したら、必ず `result.store` を次の Store として使用してください。永続化に成功した置換後の Store だけを原子的に適用し、失敗時は直前の確定済み Store を維持します。
+- **新規 Wallet を作る**: `prepare_generated_profile` → Mnemonic handoff → `finalize_generated_profile` → Software Key → Address。安全な実装例は [新規 Wallet を作る](packages/wallet-core/README.md#新規-wallet-を作る)。
+- **既存 Wallet を復元する**: `restore_profile` → Software Key → Address。[既存 Wallet を復元する](packages/wallet-core/README.md#既存-wallet-を復元する)。
+- **署名する**: Application が transaction / payload を表示して approval を取得してから `sign`。[Signing](packages/wallet-core/README.md#signing)。
+- **React Native で使う**: Android / iOS の native setup が必要。[React Native の導入](packages/wallet-core/README.md#react-native-の導入)。
 
-Node.js は、対応環境向けの Native 成果物が package 内にあれば、それを優先します。`node --no-addons` を指定した場合と、Native 成果物がない非対応環境では、package 内の WASM を使用します。宣言済みの Native 成果物が欠落・破損している場合や、読み込み・初期化に失敗した場合は安全側に失敗し、WASM へ暗黙に切り替えません。Browser も package 内の正式な WASM を使用し、外部からダウンロードしません。
-
-React Native Android / iOS は、同じ npm package root の `react-native` conditional export から New Architecture の TurboModule / JSI binding を使用します。16関数、DTO、`Uint8Array`、同期呼び出しの契約は既存 facade と共通で、Node addon / WASM への fallback はありません。
-
-v1仕様の対象は stable React Native `0.86.x` / `0.87.x`、Android API 24 以上の `arm64-v8a` / `x86_64`、iOS 15.1 以上の arm64 device / Apple Silicon simulator です。Expo は SDK 57 + React Native `0.86.x` の Development Build / Prebuild custom native module workflow を対象とし、Expo Go は対象外です。ただし、現時点でリポジトリ内の consumer、lockfile、build workflow により実証済みなのは Bare React Native `0.87.x` です。React Native `0.86.x` と Expo SDK 57 の組合せは、正式リリース前の互換性検証が未完了であり、検証済みの対応環境とは扱いません。
-
-Android / iOS では、npm install と import に加えて native provider と lifecycle の接続が必要です。導入手順と16関数の詳細は [npm package README の React Native 導入](packages/wallet-core/README.md#react-native-の導入) を参照してください。
+状態変更が成功したら、必ず `result.store` を次の Store として使用してください。永続化に成功した replacement Store だけを原子的に適用し、失敗時は直前の確定済み Store を維持します。
 
 ## npm 公開 API の概要
 
