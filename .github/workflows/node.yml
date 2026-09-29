@@ -1013,9 +1013,9 @@ jobs:
           fi
           cat "$launch_log"
           if ! wait_for_markers 120 \
-            'SNWC_RN_NATIVE_SMOKE_PASS:16' \
-            'SNWC_RN_NATIVE_STALE_GATE_ARMED'; then
-            fail_lifecycle "initial smoke or stale-output gate was not observed within 120 seconds"
+            'SNWC_RN_NATIVE_RUNTIME_READY:' \
+            'SNWC_RN_NATIVE_SMOKE_PASS:16'; then
+            fail_lifecycle "initial runtime identity or 16 API smoke was not observed within 120 seconds"
           fi
           if ! wait_for_markers 120 \
             'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED' \
