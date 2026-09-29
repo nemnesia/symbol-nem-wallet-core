@@ -102,7 +102,7 @@ jobs:
       - name: Upload source evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-source-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: release-source-${{ github.run_id }}-${{ github.sha }}
           path: release-source.json
 
   core-c-abi:
@@ -196,7 +196,7 @@ jobs:
       - name: Upload WASM artifact and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-wasm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: release-wasm-${{ github.run_id }}-${{ github.sha }}
           path: release-wasm/
 
   native:
@@ -283,7 +283,7 @@ jobs:
       - name: Upload native artifact and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-native-${{ matrix.target_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: release-native-${{ matrix.target_id }}-${{ github.run_id }}-${{ github.sha }}
           path: release-native/
 
   react-native:
@@ -734,7 +734,7 @@ jobs:
       - name: Upload RN target artifact and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-react-native-${{ matrix.target_id }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: release-react-native-${{ matrix.target_id }}-${{ github.run_id }}-${{ github.sha }}
           path: release-react-native/
 
   react-native-ios-xcframework:
@@ -1050,7 +1050,7 @@ jobs:
       - name: Upload the independently produced XCFramework evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-react-native-xcframework-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: release-react-native-xcframework-${{ github.run_id }}-${{ github.sha }}
           path: release-ios-output/
 
   parity-regression:
@@ -1135,13 +1135,13 @@ jobs:
       - name: Download source evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-source-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: release-source-${{ github.run_id }}-${{ github.sha }}
           path: release-input/source
 
       - name: Download the canonical WASM artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-wasm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: release-wasm-${{ github.run_id }}-${{ github.sha }}
           path: release-input/wasm
 
       - name: Download Android React Native target artifacts and evidence
@@ -1161,7 +1161,7 @@ jobs:
       - name: Download the independently produced iOS XCFramework
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-react-native-xcframework-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: release-react-native-xcframework-${{ github.run_id }}-${{ github.sha }}
           path: release-input/react-native-xcframework
 
       - name: Recheck the independent iOS producer comparison before npm assembly
@@ -1503,7 +1503,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-npm-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: release-npm-package-${{ github.run_id }}-${{ github.sha }}
           path: release-output/
 
   npm-consumer:
@@ -1553,7 +1553,7 @@ jobs:
       - name: Download final npm tarball
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-npm-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: release-npm-package-${{ github.run_id }}-${{ github.sha }}
           path: release-output
 
       - name: Run ESM, CJS, WASM fallback, and fail-closed consumer smoke
@@ -1585,7 +1585,7 @@ jobs:
       - name: Download final npm tarball
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-npm-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: release-npm-package-${{ github.run_id }}-${{ github.sha }}
           path: release-output
 
       - name: Run Vite, webpack 5, esbuild, Browser, and MV3 smoke
