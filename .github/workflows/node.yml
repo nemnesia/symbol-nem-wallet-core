@@ -575,9 +575,15 @@ jobs:
             diagnostics
             exit 1
           fi
-          initial_runtime_count="$(grep -Fc 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true)"
+          runtime_marker_lines() {
+            {
+              grep 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true
+            } | sed -E 's/^.*SNWC_RN_NATIVE_RUNTIME_READY:/SNWC_RN_NATIVE_RUNTIME_READY:/' \
+              | awk 'NF && !seen[$0]++'
+          }
+          initial_runtime_count="$(runtime_marker_lines | wc -l | tr -d ' ')"
           if [[ "$initial_runtime_count" -ne 1 ]]; then
-            echo "Android RN did not produce exactly one initial runtime identity before reload: $initial_runtime_count"
+            echo "Android RN did not produce exactly one distinct initial runtime identity before reload: $initial_runtime_count"
             diagnostics
             exit 1
           fi
@@ -623,7 +629,7 @@ jobs:
             local deadline=$((SECONDS + seconds))
             while (( SECONDS < deadline )); do
               local runtime_count
-              runtime_count="$(grep -Fc 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true)"
+              runtime_count="$(runtime_marker_lines | wc -l | tr -d ' ')"
               if [[ "$runtime_count" -ge 2 ]]; then
                 return 0
               fi
@@ -639,7 +645,7 @@ jobs:
             diagnostics
             exit 1
           fi
-          runtime_lines="$(grep 'SNWC_RN_NATIVE_RUNTIME_READY:' "$logcat_log" || true)"
+          runtime_lines="$(runtime_marker_lines)"
           runtime_count="$(printf '%s\n' "$runtime_lines" | sed '/^$/d' | wc -l | tr -d ' ')"
           first_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '1p')"
           second_runtime="$(printf '%s\n' "$runtime_lines" | sed -n '2p')"
@@ -647,6 +653,8 @@ jobs:
           provider_generation() { printf '%s\n' "$1" | sed -E 's/.*"provider_generation":([0-9]+).*/\1/'; }
           test "$(runtime_identity "$first_runtime")" != "$(runtime_identity "$second_runtime")"
           test "$(provider_generation "$first_runtime")" != "$(provider_generation "$second_runtime")"
+          second_runtime_line="$(awk -v marker="$second_runtime" 'index($0, marker) { print NR; exit }' "$logcat_log")"
+          test -n "$second_runtime_line"
           stale_rejected_count="$(grep -Fc 'SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED' "$logcat_log" || true)"
           if [[ "$stale_rejected_count" -lt 1 ]]; then
             echo "Android RN stale output-bearing completion was not rejected."
@@ -659,16 +667,22 @@ jobs:
             diagnostics
             exit 1
           fi
-          smoke_count=0
+          second_generation_smoke=false
           for attempt in $(seq 1 90); do
-            smoke_count="$(grep -Fc 'SNWC_RN_NATIVE_SMOKE_PASS:16' "$logcat_log" || true)"
-            if [[ "$smoke_count" -ge 2 ]]; then
+            if awk -v start="$second_runtime_line" '
+              NR >= start && index($0, "SNWC_RN_NATIVE_SMOKE_PASS:16") {
+                found = 1
+                exit
+              }
+              END { exit(found ? 0 : 1) }
+            ' "$logcat_log"; then
+              second_generation_smoke=true
               break
             fi
             sleep 2
           done
-          if [[ "$smoke_count" -lt 2 ]]; then
-            echo "Android RN did not complete 16 API smoke in both generations."
+          if [[ "$second_generation_smoke" != true ]]; then
+            echo "Android RN did not complete the 16 API smoke after the replacement runtime became ready."
             diagnostics
             exit 1
           fi
