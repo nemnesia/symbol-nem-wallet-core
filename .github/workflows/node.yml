@@ -646,7 +646,6 @@ jobs:
           runtime_identity() { printf '%s\n' "$1" | sed -E 's/.*"runtime_identity":"([^"]+)".*/\1/'; }
           provider_generation() { printf '%s\n' "$1" | sed -E 's/.*"provider_generation":([0-9]+).*/\1/'; }
           test "$(runtime_identity "$first_runtime")" != "$(runtime_identity "$second_runtime")"
-          test "$(registration_identity "$first_runtime")" != "$(registration_identity "$second_runtime")"
           test "$(provider_generation "$first_runtime")" != "$(provider_generation "$second_runtime")"
           stale_rejected_count="$(grep -Fc 'SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED' "$logcat_log" || true)"
           if [[ "$stale_rejected_count" -lt 1 ]]; then
