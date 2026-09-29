@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0] - 2026-09-29
+
+- React Native New Architecture に対応。
+- Android `arm64-v8a` / `x86_64`、iOS arm64 device / Apple Silicon simulator をサポート。
+- Bare React Native `0.87.x` を検証済み環境として追加。
+- React Native を含む npm package / release validation を強化。
+- README に npm Quick Start と Wallet の作成・復元・React Native 導入手順を追加。
+
 ## [0.1.0] - 2026-09-03
 
 - Symbol / NEM wallet core を初回 production release 候補として確定。

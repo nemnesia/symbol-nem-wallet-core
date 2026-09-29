@@ -2,17 +2,17 @@
 
 [日本語](README.md) | [English](README.en.md)
 
-この日本語版が canonical / authoritative documentation です。
+この日本語版を正式な正本文書とします。
 
-`@nemnesia/symbol-nem-wallet-core` は、Symbol / NEM Wallet Core の同期 TypeScript facade です。Node.js と Browser から package root を import し、Mnemonic、Profile、Software Key、public account、raw payload の署名を扱えます。
+`@nemnesia/symbol-nem-wallet-core` は、Symbol / NEM Wallet Core を同期的に呼び出す TypeScript facade です。Node.js、Browser、React Native Android / iOS から package root を import し、Mnemonic、Profile、Software Key、public account、raw payload の署名を扱えます。
 
-## Install
+## インストール
 
 ```bash
 npm install @nemnesia/symbol-nem-wallet-core
 ```
 
-## Requirements と実行環境
+## 動作要件と実行環境
 
 - Node.js `>=22.0.0`
 - Browser は ESM と WebAssembly をサポートする modern evergreen 環境を対象とします。Manifest V3 extension でも利用できます。
@@ -22,7 +22,7 @@ npm install @nemnesia/symbol-nem-wallet-core
 
 Browser では package に同梱された WASM と、bundler が扱う package-local asset を使用します。Application が WASM asset を remote URL へ差し替える契約はありません。
 
-## Import
+## インポート
 
 ESM の public entry point は package root だけです。
 
@@ -44,9 +44,106 @@ const {
 
 backend、raw `.node`、raw `.wasm`、generated binding module、manifest、backend selector は public subpath ではありません。consumer は package root だけを import してください。
 
-## Quick Start
+## クイックスタート
 
-次は Node.js ESM で既存 Mnemonic から Profile を復元し、Symbol の Software Key を導出して public account を取得する最小例です。Mnemonic と password は source code に埋め込まず、例では environment input を使用します。
+### 1. 30秒で動作確認
+
+Node.js ESM では、まず秘密情報なしで package root の初期化を確認できます。
+
+```ts
+import { create_empty_store, list_profiles } from "@nemnesia/symbol-nem-wallet-core";
+
+const store = create_empty_store();
+const profiles = list_profiles(store);
+
+console.log(profiles.value); // []
+```
+
+### 2. 新規 Wallet を作る
+
+新規 Wallet は次の順で作成します。
+
+```text
+空 Store
+  ↓
+prepare_generated_profile
+  ↓
+Mnemonic を intended user に提示
+  ↓
+利用者から明示的な受領確認
+  ↓
+finalize_generated_profile
+  ↓
+derive_software_key
+  ↓
+get_public_account
+```
+
+`prepare_generated_profile` は Mnemonic と Pending Profile を返しますが、まだ Profile は Store に確定されません。Application が Mnemonic 全体を intended user に提示し、**現在の操作について明示的な受領確認を得た後だけ** `finalize_generated_profile(..., { status: "confirmed" })` を呼び出してください。
+
+```ts
+import {
+  create_empty_store,
+  derive_software_key,
+  finalize_generated_profile,
+  get_public_account,
+  prepare_generated_profile,
+} from "@nemnesia/symbol-nem-wallet-core";
+
+const passwordText = process.env.WALLET_PASSWORD;
+if (passwordText === undefined) {
+  throw new Error("WALLET_PASSWORD is required");
+}
+
+const password_utf8 = new TextEncoder().encode(passwordText);
+let store = create_empty_store();
+
+const prepared = prepare_generated_profile(store, password_utf8, 1);
+
+// Application responsibility:
+// 1. prepared.value.mnemonic_utf8 全体を intended user に安全に提示する。
+// 2. 現在の操作について明示的な受領確認を取得する。
+// 3. 確認できなければ、ここで中止する。
+const handoffConfirmed = await presentMnemonicAndWaitForExplicitConfirmation(
+  prepared.value.mnemonic_utf8,
+);
+if (!handoffConfirmed) {
+  throw new Error("Mnemonic handoff was not confirmed");
+}
+
+const finalized = finalize_generated_profile(
+  store,
+  prepared.value.pending_profile,
+  password_utf8,
+  { status: "confirmed" },
+);
+store = finalized.store;
+
+const derived = derive_software_key(
+  store,
+  finalized.value.profile_id,
+  password_utf8,
+  1, // symbol
+  0, // account index
+);
+store = derived.store;
+
+const account = get_public_account(
+  store,
+  finalized.value.profile_id,
+  derived.value.key_id,
+  { chain: "symbol", network: "mainnet" },
+  password_utf8,
+);
+
+console.log(account.value.address);
+```
+
+`presentMnemonicAndWaitForExplicitConfirmation` は Application が実装する UI / handoff 処理です。Wallet Core が自動で確認する関数ではありません。サンプルを動かすためだけに常に `true` を返したり、確認なしで `confirmed` を渡したりしないでください。また Mnemonic を log / analytics / diagnostics へ出力しないでください。
+
+### 3. 既存 Wallet を復元する
+
+既存 Mnemonic がある場合は `restore_profile` を使います。この経路では generated Mnemonic の handoff は発生しません。
 
 ```ts
 import {
@@ -67,7 +164,6 @@ const mnemonic_utf8 = encoder.encode(mnemonicText);
 const password_utf8 = encoder.encode(passwordText);
 
 let store = create_empty_store();
-
 const restored = restore_profile(store, mnemonic_utf8, password_utf8, 1);
 store = restored.store;
 
@@ -91,9 +187,11 @@ const account = get_public_account(
 console.log(account.value.address);
 ```
 
-`1` は top-level input の `Network` における mainnet 値、`Chain` における symbol 値です。出力 DTO の `network` / `chain` は、それぞれ `"mainnet"` / `"symbol"` の文字列です。
+`Network` / `Chain` の top-level input は `0 = testnet / nem`、`1 = mainnet / symbol` です。output DTO では `"testnet" | "mainnet"`、`"nem" | "symbol"` を使用します。
 
-入力 `store` は inplace mutation されません。mutation が成功するたびに `result.store` が完全な replacement Store になるため、次の operation にはその値を渡してください。Application が永続化に失敗した場合は、以前の committed Store を current Store として維持します。失敗結果には成功用の replacement Store はありません。
+### Store を必ず置き換える
+
+入力 `store` は直接変更されません。Mutation が成功するたびに `result.store` が完全な replacement Store になります。次の操作と永続化にはその値を使用し、永続化に失敗した場合は直前の確定済み Store を維持してください。
 
 ## 公開関数 (16)
 
@@ -247,7 +345,7 @@ Signature = { signature: Uint8Array }; // raw 64 bytes
 
 `DecodeWarning` は `{ code, object_type, object_id, field }` で、`object_id` と `field` の値は `string | undefined` です。warning は秘密情報を含まない構造化 diagnostics であり、ログ文字列ではありません。unit mutation の `value` は JavaScript `null` です。
 
-## Wallet Store と replacement rule
+## Wallet Store と置換規則
 
 `store` は opaque な Wallet Store blob、`pending_profile` は opaque な Pending Profile blob です。Application は CBOR、version、暗号化 payload、index などの内部表現を解釈、編集、normalize、migration してはいけません。v1 は Store / Profile version migration を提供しません。
 
@@ -260,7 +358,7 @@ Signature = { signature: Uint8Array }; // raw 64 bytes
 
 Application / persistence layer は、保存に成功した replacement Store だけを current Store として atomic に適用します。Core と facade は過去の Store の currentness、stale 判定、rollback 防止を記憶に基づいて行いません。
 
-## Important operation flows
+## 重要な操作フロー
 
 ### Generated Mnemonic handoff
 
@@ -344,7 +442,7 @@ const signed = sign(
 
 `SigningApproval`、Core の password authorization、`AccountContext` と保存済み Profile / Software Key の compatibility は別々の条件です。facade は approval や context を補完・変換しません。
 
-## Binary data
+## バイナリデータ
 
 公開 declaration の binary 型はすべて `Uint8Array` です。
 
@@ -363,7 +461,60 @@ Node runtime では `Buffer` が `Uint8Array` compatible input として受理�
 
 入力 binary の ownership は caller にあり、facade は入力を保持しません。返却 binary は caller が所有する新しい copy です。Mnemonic、password、private key、decrypted secret material、signature を log、analytics、diagnostics、cache、長期 state、不要な storage へコピーしないでください。目的の handoff / export / signing が終わったら、caller が sensitive buffer を上書きし、参照を破棄してください。
 
-## Node / Browser backend behavior
+## React Native の導入
+
+React Native Android / iOS は、同じ package root から利用できます。RN の runtime resolver は `react-native` conditional export で private native entry を選び、New Architecture の TurboModule / JSI adapter から同じ Rust Core / C ABI を呼び出します。RN 側に Node addon や WASM の fallback はありません。
+
+v1仕様の対象は stable React Native `0.86.x` / `0.87.x`（`0.87.x` を primary validation line）、New Architecture、Android API 24 以上の `arm64-v8a` / `x86_64`、iOS 15.1 以上の arm64 device / Apple Silicon simulator です。Expo は SDK 57 と React Native `0.86.x` の Development Build / Prebuild（custom native module workflow）を対象とし、Expo Go は対象外です。
+
+現時点でリポジトリ内の consumer、lockfile、build workflow により実証済みなのは Bare React Native `0.87.x` です。React Native `0.86.x` と Expo SDK 57 + React Native `0.86.x` は、v1仕様の対象ですが正式リリース前の互換性検証が未完了です。該当環境を検証済みの対応環境とは扱わないでください。
+
+native artifact の integrity または provider / registration が確認できない場合は `WalletCoreBackendInitializationError` で失敗します。runtime download、postinstall compile、別 RN package、RN 用の別 WASM binary、Legacy Architecture / bridge fallback はありません。RN native build は package の `codegenConfig` と同梱の platform source / artifact manifest を使用します。
+
+RN の16関数もすべて同期 API で、公開バイナリ型は `Uint8Array` です。Store、Pending Profile、Mnemonic、password、private key、payload、signature の扱いと、成功時に返る置換後の Store の適用規則は Node.js / Browser と同じです。
+
+### 共通の前提
+
+- New Architecture を有効にし、package root だけを import します。
+- 公開 npm package に、対象 platform の `dist/react-native` artifact と manifest が含まれていることを確認します。
+- provider、artifact または lifecycle registration が欠けている場合は `WalletCoreBackendInitializationError` になります。Node addon / WASM へ切り替えないでください。
+- このリポジトリの [`integration/react-native/consumer`](../../integration/react-native/consumer) は、実証済みの Bare RN `0.87.x` 統合例です。
+
+### Android
+
+package は generic Android autolinking を使用しないため、Application 側で次を接続します。
+
+1. `settings.gradle` で `node_modules/@nemnesia/symbol-nem-wallet-core/android` を Gradle project として登録します。
+2. app module から `implementation(project(":symbol-nem-wallet-core"))` を追加します。
+3. application-level `CMakeLists.txt` から package の `android/CMakeLists.txt` を `add_subdirectory` し、`symbol_nem_wallet_core_rn` を `appmodules` target へ link します。
+4. application-level `OnLoad.cpp` で package の provider-aware `android/OnLoad.cpp` を使用します。
+5. `MainApplication` の `cxxReactPackageProviders` へ `SymbolNemWalletCoreCxxReactPackage.create(context)` を登録し、作成した `ReactHost` を `SymbolNemWalletCoreRnLifecycle.attach(host)` へ渡します。
+
+必要な設定の全体は、consumer の [`settings.gradle`](../../integration/react-native/consumer/android/settings.gradle)、[`app/build.gradle`](../../integration/react-native/consumer/android/app/build.gradle)、[`CMakeLists.txt`](../../integration/react-native/consumer/android/app/src/main/jni/CMakeLists.txt)、[`OnLoad.cpp`](../../integration/react-native/consumer/android/app/src/main/jni/OnLoad.cpp)、[`MainApplication.kt`](../../integration/react-native/consumer/android/app/src/main/java/com/snwcrnbuild/MainApplication.kt) を確認してください。
+
+### iOS
+
+1. Podfile で `node_modules/@nemnesia/symbol-nem-wallet-core/ios` の `SymbolNemWalletCoreRN` pod を追加し、`pod install` を実行します。
+2. `AppDelegate` で通常の `RCTReactNativeFactory` の代わりに `SnwcRnReactNativeFactory` を使用します。
+3. Application delegate を `SnwcRnLifecycleDelegate` の subclass とし、runtime の生成・reload・破棄を package lifecycle へ接続します。
+
+設定例は consumer の [`Podfile`](../../integration/react-native/consumer/ios/Podfile) と [`AppDelegate.swift`](../../integration/react-native/consumer/ios/SnwcRnBuild/AppDelegate.swift) を確認してください。
+
+### Expo
+
+Expo Go は native module を追加できないため利用できません。Development Build / Prebuild を使い、prebuild 後の native project に上記 Android / iOS と同じ provider、CMake / Pod、lifecycle integration を適用してから development client を再ビルドします。SDK 57 + RN `0.86.x` の互換性証跡はまだ揃っていないため、正式リリースで検証が完了するまでは検証済み環境として扱いません。
+
+### 最初の呼び出し
+
+native integration 後も import は package root だけです。次の呼び出しが同期的に `Uint8Array` を返せば、conditional export、provider および native artifact の初期化が完了しています。
+
+```ts
+import { create_empty_store } from "@nemnesia/symbol-nem-wallet-core";
+
+const store = create_empty_store();
+```
+
+## Node.js / Browser のバックエンド選択
 
 ### Node.js
 
@@ -381,7 +532,7 @@ Browser ESM は package-local の一つの canonical WASM binary と generated g
 
 raw `.node`、raw `.wasm`、generated module、manifest は implementation asset であり、public package subpath ではありません。
 
-## Security と責任分界
+## セキュリティと責任分界
 
 ### Application の責任
 

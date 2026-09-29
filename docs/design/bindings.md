@@ -2,19 +2,19 @@
 
 ## 1. 目的、対象、対象外
 
-本書は、Rust Wallet Core を Desktop / Mobile / Web / Node.js の Application へ接続する Native C ABI、Node-API および Web / WASM Binding について、責務、依存方向、trust boundary、所有権および lifecycle の配置を定める。Web には Web Application と Browser Extension を含む。
+本書は、Rust Wallet Core を Desktop / React Native Android / React Native iOS / Web / Node.js の Application へ接続する Native C ABI、Node-API、Web / WASM、React Native Binding について、責務、依存方向、信頼境界、所有権、ライフサイクルの配置を定める。Web には Web Application と Browser Extension を含む。React Native は Mobile の具体的な v1 実行環境である。
 
 Binding は、Core が所有する処理と各実行環境の間で、入力、出力、representation、ownership、lifecycle および error / warning を橋渡しする境界層である。Binding は Core の単一の security meaning、成功・失敗境界および authorization boundary を変更しない。
 
-対象は Native C ABI、Node-API および Web / WASM Binding に共通する設計責任である。特定の crate、ABI、JavaScript 型、package、storage API、Browser context または memory technique は本書で決定しない。
+対象は Native C ABI、Node-API、Web / WASM、React Native Binding に共通する設計責任と、React Native の Android / iOS 接続方式、package 内 runtime 分離、Native 成果物、buffer、error、failure policy である。特定の crate、ABI、JavaScript 型、package exports JSON、storage API、Browser context、memory technique は本書で決定しない。
 
 対象外は、Core の暗号、Mnemonic / Software Key の生成・導出・検証、Profile password authorization、署名 primitive、Store の内部解釈、Store の currentness / historical rollback の判定、UI / user intent の判定、Browser / OS / host の侵害防止および統合先 Application の architecture である。これらの責任を Binding に複製しない。
 
 ## 2. 上流根拠と用語
 
-### 2.1 Source of Truth と依存方向
+### 2.1 正本と依存方向
 
-Bindings Design の normative upstream は次のとおりである。
+Bindings Design の規範となる上流資料は次のとおりである。
 
 - [`docs/consept/concept-sheet.md`](../consept/concept-sheet.md): 製品目的、v1 範囲、対象環境、Core の継続 ownership および通常処理での秘密情報非開示
 - [`docs/requirements/requirements.md`](../requirements/requirements.md): Binding を含む責任、security property、processing-unit authentication、handoff、export、signing、Store、Chain / Network および受入条件
@@ -26,9 +26,7 @@ Concept
   ↓
 Requirements
   ↓
-Architecture
-  ↓
-Security Design / Bindings Design
+Design（Architecture / Security Design / Bindings Design）
   ↓
 Specification
   ↓
@@ -43,13 +41,13 @@ Concept / Requirements の review、Architecture / Security Design の review �
 
 ### 2.2 用語
 
-- **Binding**: Application と Rust Wallet Core の間で、値、representation、ownership、lifecycle、error および warning を橋渡しする境界層。Core の security authority ではない。
+- **Binding**: Application と Rust Wallet Core の間で、値、表現、所有権、ライフサイクル、エラー、警告を橋渡しする境界層。Core のセキュリティ上の権限は持たない。React Native では TypeScript facade、private runtime entry、JSI / TurboModule adapter、Android / iOS Native 層を含む。
 - **Core-owned security meaning**: Core / Architecture / Security Design が定める authorization、user intent、success / failure、handoff、export、pending / committed、Store、compatibility および Profile / Software Key の状態の意味。
 - **Mediation**: 外部環境から Core へ入力を渡し、Core の結果を同じ意味で外部環境へ返すこと。意味の生成、補正、推測または昇格は含まない。
 - **Core 管理下の秘密情報**: Mnemonic、Software Key private key、derived / decrypted secret および Profile password に関係する秘密情報。継続的な owner は Core である。
 - **Committed state / Pending state**: Core が成功を最終確定し、Application が必要な replacement を保存した正常状態と、それ以前の未確定・部分状態。Binding は両者の意味を変更しない。
 
-## 3. システムコンテキストと trust / guarantee boundary
+## 3. システムコンテキストと信頼・保証境界
 
 ```text
              ┌──────────────────────────────────────────┐
@@ -60,7 +58,7 @@ Concept / Requirements の review、Architecture / Security Design の review �
                               │
 User / 利用者 ──表示・確認・承認──> Application / UI
                                       │
-                    Native C ABI、Node-API または Web / WASM Binding
+                    Native C ABI、Node-API、Web / WASM または React Native Binding
                                       │
                                       ▼
                               Rust Wallet Core
@@ -70,7 +68,7 @@ Application ──opaque Store──> Binding ──> Core
 Application ──承認済み要求──> Binding ──> Core
 ```
 
-### 3.1 Binding non-authority
+### 3.1 Binding が権限を持たない範囲
 
 Binding は thin かつ non-authoritative な境界である。Core / Architecture / Security Design が確定した security meaning、success / failure boundary および authorization boundary を、Binding は生成、変更、補正または推測せず橋渡しする。次の正本および security authority は Core または上位 Application の責任であり、Binding は代替しない。
 
@@ -83,9 +81,9 @@ Binding は thin かつ non-authoritative な境界である。Core / Architectu
 
 Binding は、Core の `result`、`error`、`warning`、`pending`、`replacement` および公開結果を、security meaning を変更せず Application へ伝達する。Binding を通過したこと、値を返せたことまたは Application が値を受け取れたことだけを成功条件に追加しない。
 
-### 3.2 Native / Node.js / Web 共通の guarantee boundary
+### 3.2 Native / Node.js / Web / React Native 共通の保証境界
 
-Native C ABI、Node-API、Desktop、Mobile、Web、WASM の方式差は、実行環境との representation、ownership および lifecycle の橋渡しに限定する。次の invariant は全経路で共通とし、Native C ABI または Node-API を Web / WASM より強い secret isolation boundary と扱わない。
+Native C ABI、Node-API、Desktop、Mobile、Web、WASM の方式差は、実行環境との表現、所有権、ライフサイクルの橋渡しに限定する。次の不変条件は全経路で共通とし、Native C ABI または Node-API を Web / WASM より強い秘密情報の隔離境界として扱わない。
 
 - Mnemonic と Software Key の継続的な secret owner は Core である。
 - Binding は authorization、user intent、signing approval または Core の security policy を持たない。
@@ -120,7 +118,7 @@ Binding は次だけを担う。
 - Application と Core の間の representation、型、opaque data、ownership および lifecycle の mediation
 - Core への入力と Core からの公開結果、error、warning、pending および replacement の transport
 - Binding 自身の境界で検出できる入力・変換・ownership / lifecycle の失敗を安全側に終了させること
-- Native C ABI / Node-API / Web WASM の経路差が Core の security meaning、secret policy、authorization または failure policy を変更しないことの維持
+- Native C ABI / Node-API / Web WASM / React Native の経路差によって、Core のセキュリティ上の意味、秘密情報の方針、認可、失敗時の方針が変わらないことの維持
 
 Binding は暗号、認証、Mnemonic validation、導出、署名、Store / Profile version の解釈、migration、重複判定、Chain / Network policy、Transaction の意味解釈および UI / permission の判定を複製しない。Node-API は C ABI を JavaScript FFI から呼び出さず、独立した security authority とならない。
 
@@ -140,12 +138,12 @@ Application は、Core 管理下の秘密情報の継続 owner、Core の signin
 ### 4.4 依存方向
 
 ```text
-Application / UI → Native C ABI、Node-API または Web / WASM Binding → Rust Wallet Core
+Application / UI → Native C ABI、Node-API、Web / WASM または React Native Binding → Rust Wallet Core
 ```
 
 Application と Binding は Core の security authority を代替しない。Core は UI、Browser、OS または host-specific policy に依存しない。Binding は、別の Binding、Application または下流の具体形式へ authority を逆流させない。
 
-## 5. データ所有、秘密情報境界および lifecycle
+## 5. データ所有、秘密情報境界、ライフサイクル
 
 ### 5.1 所有と公開範囲
 
@@ -170,7 +168,7 @@ v1 は Store / Profile version migration を提供しない。この policy、un
 
 Store の version、validity、integrity、consistency、対応範囲および reject の最終判断は Core が所有する。具体的な Store / Pending Profile の representation、schema、parser、wire および error 契約は下流で定める。
 
-## 6. 主要フローと意味の無変更 mediation
+## 6. 主要フローと意味を変えない仲介
 
 ### 6.1 共通原則
 
@@ -186,7 +184,7 @@ Binding は、Core の入力条件と Application の確認・承認条件を混
 
 Binding は、Core contract に含まれる request の field、status、target、payload および AccountContext を欠落・書換えせずに伝達する。Binding は assertion の freshness を生成・補完・判定せず、conversion failure または受渡し不能を成功として扱わない。
 
-### 6.2 Processing-unit authentication
+### 6.2 操作単位の認証
 
 Binding は次の認証状態を持たない。
 
@@ -198,7 +196,7 @@ Binding は次の認証状態を持たない。
 
 retry は新しい operation として Core へ橋渡しする。必要な入力、Profile password authorization および現在の operation に対する fresh な user confirmation / approval は、その operation のために上位責任主体が再取得しなければならない。Binding は過去に保存された `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用せず、retry を再認証済み operation として扱わない。Core が assertion freshness を独立に証明しないこと、challenge、nonce、expiry または one-shot token を v1 Core に追加しないことを、Binding は変更しない。
 
-### 6.3 Initial Mnemonic handoff
+### 6.3 初回 Mnemonic の受け渡し
 
 すべての新規 Mnemonic 生成における初回 handoff の success boundary は、次の6段階を変更せずに維持する。handoff を行わない新規生成経路は v1 で提供しない。既存 Mnemonic の restore は生成時 handoff confirmation の対象外であり、通常の restore 条件に従う。
 
@@ -213,7 +211,7 @@ Binding は、この順序と責任を shortcut しない。Binding を通過し
 
 提示不能、受領未確認、確認伝達不能、中断または Core の最終確定失敗時は、Binding が新規 Profile、partial state または secret output を成功として作らない。具体的な受渡し、確認表現、pending representation および Core への伝達契約は下流へ委譲する。
 
-### 6.4 Explicit export
+### 6.4 明示的なエクスポート
 
 Mnemonic または Software Key private key の export は通常処理から分離し、次の条件を別々に維持する。
 
@@ -258,11 +256,11 @@ Binding は次を行わない。
 - unsupported な組合せを fallback する
 - Chain / Network の implicit conversion を行う
 
-Native C ABI、Node-API と Web / WASM の representation 差は、Core の compatibility、signing authority、secret ownership、authorization または failure meaning を変更しない。具体的な identifier、byte 表現、address、derivation、protocol および interop contract は下流へ委譲する。
+Native C ABI、Node-API、Web / WASM、React Native の representation 差は、Core の compatibility、signing authority、secret ownership、authorization または failure meaning を変更しない。具体的な identifier、byte 表現、address、derivation、protocol、interop contract は下流へ委譲する。
 
-## 8. Native boundary の安全側責任と guarantee limitation
+## 8. Native 境界の安全側責任と保証の限界
 
-### 8.1 Binding の正の Design intent
+### 8.1 Binding に求める設計上の役割
 
 Binding が受け付ける外部入力境界では、Binding 自身が検証可能な範囲について、次を責任として持つ。
 
@@ -271,9 +269,9 @@ Binding が受け付ける外部入力境界では、Binding 自身が検証可�
 - ownership / lifecycle conversion failure を fail-safe に扱う
 - Binding 自身が検出可能な境界条件違反を fail-safe に扱う
 
-この責任により、Binding は検証可能な不正入力を意味不明のまま Core へ渡さず、失敗を success に変換せず、Core の result / error / warning の meaning を置き換えない。失敗経路で secret output、secret retention、persistent secret state または partial state を増やさず、existing committed state を成功状態として壊さない。この intent は Native C ABI に固有の緩和ではなく、Native C ABI / Node-API / Web WASM の共通 security invariant と整合する。
+この責任により、Binding は検証できる不正入力をそのまま Core へ渡さず、失敗を成功に変換せず、Core の結果・エラー・警告の意味を置き換えない。失敗経路で秘密情報の出力や保持、永続的な秘密状態、部分状態を増やさず、既存の確定状態を壊さない。この方針は Native C ABI だけの緩和ではなく、Native C ABI / Node-API / Web WASM / React Native に共通するセキュリティ不変条件と整合する。
 
-### 8.2 Guarantee limitation
+### 8.2 保証の限界
 
 Binding は、次を保証する層ではない。
 
@@ -285,23 +283,23 @@ Binding は、次を保証する層ではない。
 
 ## 9. 採用した設計判断と代替案
 
-### 9.1 Thin / non-authoritative mediation
+### 9.1 薄く、権限を持たない仲介
 
 - **判断**: Binding は representation、ownership、lifecycle、error / warning および transport の mediation に限定し、Core の security meaning を変更しない。
 - **根拠**: Concept / Requirements の Core 継続 ownership と全環境共通責任、および Architecture / Security Design の Binding non-authority。
 - **代替案**: Binding ごとに認証、秘密情報管理、Store 解釈または signing approval を実装する方式は、環境ごとの authority と security architecture を分岐させるため採用しない。
-- **影響**: Native C ABI / Node-API / Web WASM の具体方式が変わっても、Core ownership、per-operation authorization、non-disclosure、failure safety および compatibility policy を維持できる。
+- **影響**: Native C ABI / Node-API / Web WASM / React Native の具体方式が変わっても、Core の所有責任、操作単位の認可、非開示、失敗時の安全性、互換性方針を維持できる。
 - **見直し条件**: Core と Binding の責任分担を変更する上位 Requirements または Architecture が承認された場合。
 
-### 9.2 Native / Node.js / Web 共通の guarantee boundary
+### 9.2 Native / Node.js / Web / React Native 共通の保証境界
 
-- **判断**: Native C ABI、Node-API と Web / WASM を同一の security invariant、host compromise limitation および non-authority boundary で扱う。Native C ABI または Node-API を Web より強い秘密隔離境界としない。
+- **判断**: Native C ABI、Node-API、Web / WASM、React Native を同一の security invariant、host compromise limitation、non-authority boundary で扱う。Native C ABI または Node-API を Web より強い秘密隔離境界としない。
 - **根拠**: Concept / Requirements の全環境共通原則、Architecture の全環境 trust boundary および Security Design の guarantee boundary。
-- **代替案**: Web だけに host compromise limitation を置く方式は、Native / Mobile / Desktop の責任を曖昧にするため採用しない。
+- **代替案**: Web だけに host environment 侵害時の制約を置く方式は、Native / Mobile / Desktop の責任を曖昧にするため採用しない。
 - **影響**: host compromise 防止は保証外のまま、全環境の通常処理 non-disclosure、non-retention、authorization および failure safety を維持する。Node.js host process の compromise に対する native-isolation guarantee は追加しない。
 - **見直し条件**: 対象環境または上位 security responsibility が承認済み資料で変更された場合。
 
-### 9.3 Store の opaque mediation、current Store authority および v1 no migration
+### 9.3 Store の不透明な仲介、現在の Store を選ぶ責任、v1 の移行非対応
 
 - **判断**: Binding / Application は Store を opaque として渡し、Core の version、validity、reject、replacement および existing committed state の意味を変更しない。Application / persistence layer は current Store を選択・保存し、successful replacement を適用し、stale / historical Store の再適用を防止する。Binding は Store history、freshness または rollback を判断せず、Core も過去 Store を記憶しない。v1 は Store / Profile version migration を提供しない。
 - **根拠**: Requirements の Store policy、SEC-005、AC-048、Architecture の Store boundary および Security Design の fail-closed / no migration invariant。
@@ -309,7 +307,7 @@ Binding は、次を保証する層ではない。
 - **影響**: Store の具体 wire / schema / parser が変わっても、opaque boundary、Core ownership、reject および既存状態保護を維持できる。valid historical Store の freshness / rollback は v1 Core / Binding の保証外であり、Application / persistence layer の current-state responsibility として下流へ引き継ぐ。
 - **見直し条件**: migration を提供する上位 Requirements と、それに対応する Architecture / Security Design が承認された場合。
 
-### 9.4 Design invariant と implementation technique の分離
+### 9.4 設計上の不変条件と実装手法の分離
 
 - **判断**: 本書は Binding responsibility、trust / guarantee boundary、security meaning の無変更 mediation、secret non-retention、failure responsibility および downstream handoff を定める。具体的な実装・packaging・representation technique は定めない。
 - **根拠**: Concept / Requirements の下流委譲、Architecture / Security Design の phase boundary および Binding の environment-independent invariant。
@@ -319,7 +317,7 @@ Binding は、次を保証する層ではない。
 
 ## 10. 未決定事項と下流への引継ぎ
 
-### 10.1 Specification へ引き継ぐもの
+### 10.1 仕様へ引き継ぐもの
 
 - API、ABI、DTO、request / result / warning / pending / replacement の具体契約
 - representation、ownership transfer、lifecycle、error mapping および malformed input の外部可視契約
@@ -328,7 +326,7 @@ Binding は、次を保証する層ではない。
 - Account / Chain / Network compatibility と mismatch reject の具体契約
 - pending / partial、failure、retry、restart および committed state の外部観測可能な契約
 
-### 10.2 Implementation / release verification へ引き継ぐもの
+### 10.2 実装・リリース検証へ引き継ぐもの
 
 - Native C ABI / Node-API / WASM の具体 bridge、crate、directory、package、build および distribution
 - exact C ABI、struct、pointer、NULL / length、alias、free、ownership mechanics および panic handling
@@ -346,7 +344,7 @@ WASM が JavaScript / Browser compromise の secret isolation boundary ではな
 
 特定の crate、directory、`wasm-bindgen`、`cdylib`、`staticlib`、exact C ABI、pointer / NULL / length、free contract、exact JavaScript type、`Uint8Array`、raw / UTF-8 表現、hex / Base64、package layout、generated package、Browser storage API、`localStorage`、`sessionStorage`、`IndexedDB`、具体的な zeroize API、panic implementation、process isolation または memory lifetime は、本書で固定しない。これらを変えても Binding の responsibility、trust boundary および security invariant が変わらない構成とする。
 
-## 11. Traceability と参照資料
+## 11. トレーサビリティと参照資料
 
 ### 11.1 上流・同一 Design・下流の対応
 
@@ -363,6 +361,7 @@ WASM が JavaScript / Browser compromise の secret isolation boundary ではな
 | Account / Chain / Network | Requirements FR-013、FR-024、DR-005、AC-013、AC-047 | §5.1、§7 | §7 | §3.1、§7 |
 | Native / Node.js / Web 共通 guarantee boundary | Concept §7、§9、Requirements NFR-004、SEC-020 | §3.1、§4.4、§8 | §3、§8 | §3.2、§9.2 |
 | Native / Node-API boundary safety intent | Requirements NFR-002〜NFR-003、SEC-012、SEC-018 | §4.2、§8 | §3、§10 | §4.2、§8 |
+| React Native architecture、runtime resolution、artifact、buffer、error、sync resource evidence、support matrix、verification | Requirements FR-019、NFR-006〜NFR-015、AC-051〜AC-061、UF-RN-001、DR-RN-001〜DR-RN-004 | §12.1〜§12.15 | §12.1〜§12.15 | §12.1〜§12.17 |
 | Core secret processing の side-channel property | Requirements SEC-023、AC-049、§12.2〜§12.3 | §4.1、§8、§10 | §8.1、§8.3、§10 | §8.1、§10.2 |
 
 ### 11.2 参照資料の役割
@@ -376,3 +375,501 @@ WASM が JavaScript / Browser compromise の secret isolation boundary ではな
 | 履歴資料 | `docs/reviews/` | review の状態と判断履歴。本書の normative source ではない |
 
 本書は、Architecture / Security Design と相互整合する Binding の責務・境界・invariant を統合する。下流の具体方式が本書の security meaning、ownership、authorization、failure safety または trust boundary を変更しないことを、Specification / Implementation へ引き継ぐ。
+
+## 12. React Native Android / iOS Binding 設計
+
+### 12.1 適用範囲と現行構成への接続
+
+React Native 対応は、既存の単一 repository、単一 npm package および単一 Rust Wallet Core に追加する runtime-specific な Binding である。現行 repository の `crates/core`、`crates/c-abi`、`crates/node`、`crates/wasm` と `packages/wallet-core` の構造を前提にするが、RN 用の source directory、manifest、artifact filename、build script または package exports object を本書で確定しない。RN 専用 npm package、別の Core、別の暗号実装は作らない。
+
+論理的な内部構成は次とする。
+
+```text
+@nemnesia/symbol-nem-wallet-core の public TypeScript facade
+        │ 共通の operation / DTO / Uint8Array / error semantics
+        ▼
+private RN runtime entry / runtime resolver
+        ▼
+RN-private JSI / TurboModule adapter
+        │ New Architecture では TurboModule registration / Codegen と整合
+        ▼
+Android / iOS の薄い native layer
+        │ library loading / platform registration / lifetime mediation
+        ▼
+existing public C ABI contract
+        │ RN からは非公開
+        ▼
+Rust Wallet Core
+```
+
+JSI は同期 invocation と binary transfer の内部 transport、TurboModule は RN の module lifecycle、registration および typed native boundary として扱う。TurboModule の公開 spec、JSI HostObject、Codegen 生成物、JNI、Swift / Objective-C++ の method、または C ABI の関数形式は下流へ委譲する。この設計は「JSI を直接公開する」ことも「RN Application が C ABI を直接呼ぶ」ことも意味しない。
+
+### 12.2 Binding アーキテクチャの比較と推奨
+
+| 候補 | 評価 | Design 判断 |
+| --- | --- | --- |
+| New Architecture / TurboModule を module boundary として使う | 型付き spec、Codegen、module lifecycle、RN の将来経路と整合する。単独では binary の同期・低 copy transport の詳細を解決しない | 採用。New Architecture の mandatory registration boundary とする |
+| JSI を内部 invocation / binary substrate として使う | direct call と byte buffer の mediation に適し、既存 synchronous facade との整合を取りやすい。単独では module registration、typed contract、autolinking および lifecycle の責任が不足する | 採用。ただし private adapter の内部機構に限定する |
+| Legacy Native Module / async bridge のみ | legacy compatibility は広いが、serialization、非同期制約および追加 copy が synchronous 16-operation facade と衝突し得る。将来の RN support も主軸にしにくい | `PD-RN-006` により formal support 外。互換層を追加しない |
+| Android JNI と iOS Swift / Objective-C++ の個別 binding | platform の native integration は必要だが、個別 Rust binding を持つと semantics、error、ownership の重複が生じる | 薄い platform layer として採用。business logic / cryptographic logic は持たせない |
+| existing public C ABI contract を RN-private adapter から再利用 | Rust Core との既存責務境界、ABI error / ownership boundary および native mediation の考え方を再利用できる。JSI から C ABI までの mediation は必要 | 推奨。RN Application-facing API には露出させず、RN 専用 public C ABI は作らない |
+| Rust から RN 専用 binding surface を別経路で追加 | C ABI の境界を避けられる可能性はあるが、Rust 側の変換、error、secret lifetime、テストおよび release 証跡を重複させる | 不採用。C ABI が要件を満たせない具体的証拠が出た場合だけ Design を再検討する |
+| RN 専用 npm package | consumer の導入が単純になる可能性はあるが、single package、同一 facade および routing policy に反する | 不採用 |
+
+従って、推奨案は「TurboModule / New Architecture を RN integration の registration boundary とし、JSI を内部の同期・binary mediation に使い、薄い Android / iOS layer の RN-private adapter から existing public C ABI contract を呼ぶ hybrid」である。ここで再利用するのは C ABI の contract / semantics と Core への既存境界であり、既存 C ABI の standalone release artifact を RN consumer に別途 install させることではない。RN package に同梱する target-specific native artifact は npm release chain が所有する RN integration artifact として扱い、既存 C ABI の public consumer 向け release identity と混同しない。C ABI はあくまで internal implementation detail であり、C ABI が Core の cryptographic semantics を決めたり、RN が C ABI を直接見ることはない。Binding 内に duplicate business logic、password policy、Store processor、signing policy または key management を追加しない。
+
+既存 C ABI の contract / ownership / error semantics だけでは RN の buffer lifetime、registration または platform lifecycle を安全に表現できない具体的な不足が確認された場合に限り、RN-private adaptation の必要性を別途 Design decision として再評価する。単なる実装都合で新しい public C ABI surface、RN-only symbol または既存 public ABI の破壊的変更を追加しない。
+
+React Native New Architecture の current direction は、公式資料上も JSI、Turbo Native Module および Codegen を中心にしている。現行 product policy は [`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md) の `PD-RN-001` と `PD-RN-006 = APPROVED` により、stable RN `0.86.x / 0.87.x` の finite support window と New Architecture mandatory を採用し、Legacy Architecture / Bridge を formal support に含めない。具体的な integration API は Specification へ委譲する。将来 Legacy support を追加する場合は、同期契約、lifecycle、security および追加 CI / release evidence を含む新しい正式判断を必要とする。
+
+### 12.3 公開 API の基準と同期・非同期方針
+
+現行 facade の 16 operation を RN の baseline とする。
+
+```text
+create_empty_store
+prepare_generated_profile
+finalize_generated_profile
+restore_profile
+list_profiles
+export_mnemonic
+export_private_key
+list_software_keys
+derive_software_key
+import_software_key
+generate_software_key
+get_public_account
+sign
+change_profile_password
+delete_software_key
+delete_profile
+```
+
+RN でも同じ operation set、同じ TypeScript-facing DTO semantics、同じ `Uint8Array` を中心とする binary model、同じ Core error semantics および既存 synchronous call contract を compatibility baseline として扱う。RN 固有 API、backend selector、native handle、session object、Promise 版の別 API または秘密情報を容易に返す convenience API は追加しない。exact signature、DTO field、error code、exports および generated declaration は Specification へ委譲する。
+
+現行の TypeScript public API の synchrony と、native / Rust Core が実際に処理する execution context は分離して設計する。public sync は、呼出し側がその call の return または throw を同期的に観測する contract を意味し、Rust Core が必ず JS runtime thread 上で直接実行されることを意味しない。RN adapter は admission、native invocation、Core completion、output validation および result delivery を一つの同期 call の責任範囲として扱う。worker / native thread へ処理を移す構成は許容候補になり得るが、同期 call が worker 完了まで blocking wait するだけなら JS responsiveness の問題を解消しないため、同じ evidence gate を通過しなければならない。
+
+v1 の execution baseline は、bounded な operation / input / Store envelope、reasonable な worst-case execution、許容不能な JS runtime blocking を生じない responsiveness、native lifetime / failure cleanup の安全性および reentrancy 不在を確認できる範囲で、existing synchronous public contract を維持することである。operation は少なくとも次の概念クラスで評価する。
+
+- **Lightweight**: metadata / validation 的処理、小さな deterministic transformation。
+- **Potentially expensive**: password KDF、Wallet Store encrypt / decrypt、Mnemonic seed / derivation、key derivation、signing、大きな Store processing。これらを常に遅いと仮定せず、実測対象となる可能性がある class とする。
+
+Specification を確定して RN Implementation / formal support claim へ進む前に、代表的な Android device、代表的な iOS device、production-equivalent native build（debug build だけではない）、代表的な Store / input size および合理的な worst-case input class を用いた prototype / benchmark / 実測 gate を設ける。Implementation 後および release evidence 作成時には同じ operation class と入力 envelope を再確認する。execution cost、JS runtime thread の blocking、responsiveness、memory / resource behavior、cancellation / interruption の実現可能性および成功・失敗・例外時の cleanup を評価し、exact device、threshold および measurement protocol は下流へ委譲する。
+
+この evidence により対象 operation の同期実行が reasonable responsiveness、resource boundedness、safe lifetime / cleanup または必要な cancellation / interruption semantics を満たせない場合は、対象 operation と影響範囲を特定して `NEEDS USER DECISION` に戻す。選択肢は async public contract の採用または当該 RN support claim の除外であり、async 化は API design / compatibility change として記録する。user decision なしの Promise 化、async 化、sync / async の runtime-specific な黙った分岐または自動 async fallback は行わない。同期 baseline は「API parity のために危険な blocking を受容する」意味ではない。
+
+同期 baseline は public cancellation contract を新設しない。admission 前の待機 request は secret-bearing payload を保持せずに破棄可能とし、Core invocation 後の処理を任意に thread kill しない。安全な cancellation semantics が必要で sync contract で成立しない場合も、async 化または support scope を `NEEDS USER DECISION` とする。
+
+RN の native module / artifact 初期化が operation 実行前に必要な場合、その失敗は明示的な initialization failure とする。初期化の具体的な同期点、load API、prewarm、thread dispatch および lifecycle callback は下流へ委譲するが、consumer の通常 operation が暗黙に Node / WASM backend へ切り替わる設計は許可しない。
+
+### 12.4 単一 package と実行環境別の内部構成
+
+public package root は共通 facade を提供し、runtime-specific implementation は package 内部の論理 backend として分離する。
+
+| Runtime | 通常の内部 backend | 通常経路で選ばない backend |
+| --- | --- | --- |
+| Node.js | 現行 Node native addon routing。target artifact が存在しない既存の許容ケースは現行 policy に従う | RN native layer、Browser-only module |
+| Browser | 現行 package-local WASM routing | RN native layer、Node addon |
+| Browser Extension | Browser と同じ WASM routing。Extension page / worker の統合責任は Application 側 | RN native layer、Node addon |
+| React Native Android / iOS | RN private entry から対応する native artifact / adapter | Node addon、Browser / WASM backend |
+
+consumer が通常利用時に backend を直接選択しないよう、resolver と entry は private にする。RN consumer が `process.platform`、Node-API addon、Node 用 `.node` artifact または Browser/WASM entry を通常経路で要求しないことを invariant とする。Browser consumer が RN native implementation を要求することも許可しない。package root は共通だが、internal backend の cross-runtime import や public subpath export を前提にしない。exact package exports JSON、条件名および bundler 設定は Specification へ委譲する。
+
+### 12.5 実行環境の選択と誤判定の防止
+
+RN は一般的な `window`、`process`、`navigator` または user-agent heuristic で推測しない。package resolver が利用できる RN ecosystem の entry resolution / condition を第一候補とし、必要なら dedicated private RN entry へ分離する。build-time resolver が RN entry を選び、runtime native layer が実際の platform / architecture / module availability を確認するという二段階の分離を採る。
+
+resolver が RN entry を選べない、RN native module が登録されていない、platform が Android / iOS 以外、artifact が対象外、または host が想定外の場合は、`Unsupported runtime/platform` または native initialization / load failure として明示的に失敗する。誤検出を WASM または Node addon の成功へ変換しない。Node / Browser / RN の resolver 条件が複数成立し得る曖昧な設計、backend implementation の public selector、silent fallback は採用しない。test-only の internal override は検証のためだけに存在できるが、public contract と release package へ露出させない。
+
+### 12.6 Android integration
+
+Android は package に同梱する、release で識別・検証可能な per-ABI Rust native library の集合を native layer が利用する論理構成とする。Application は C ABI、Rust symbol または artifact filename を直接扱わない。Android native layer は loader、RN registration、JSI / TurboModule adapter および buffer / error lifetime の mediation に限定し、Core semantics を持たない。
+
+```text
+RN TypeScript facade
+  → private RN entry
+  → Android JSI / TurboModule adapter
+  → Android native loader / registration
+  → internal Native C ABI
+  → Rust Core
+```
+
+ABI は build / packaging で選択し、JavaScript が ABI を選択しない。missing artifact、load error、ABI mismatch、registration / initialization failure、invocation failure または invalid output は明示的に伝播させ、Browser/WASM、Node addon、別 ABI へ fallback しない。RN native artifact は source revision、package version、Android target / ABI、digest および release provenance evidence と結び付いた approved package input でなければならない。package / release assembly が target identity、package-approved artifact および integrity relationship を検証してから、Android loader が使用する。runtime の各 load で暗号学的 hash を再検証することは本 Design で要求しないが、loader は実行時の target / ABI と package-approved entry の不一致を成功として扱わない。入力は一つの bounded な native mediation を経て existing public C ABI contract / Core へ渡し、出力は呼出し結果の所有権を明確にした新しい JS `Uint8Array` として返す。`minSdk = 24` と approved ABI は Design input として固定し、exact JNI symbol、Gradle / CMake、`targetSdk` / `compileSdk` policy、artifact filename、AAR layout、C ABI signature、pointer / free rule は下流へ委譲する。
+
+Android の approved support matrix は `PD-RN-002` / `PD-RN-004` に従い、`minSdk = 24`、`arm64-v8a` device と `x86_64` emulator とする。`armeabi-v7a`、`x86` その他の ABI は formal support に含めない。`targetSdk` / `compileSdk` の時点依存 policy、Gradle / CMake / AAR の具体構成は下流へ委譲するが、API floor と formal ABI を未決定として扱わない。
+
+Android の module initialization は RN adapter が一意に管理し、初期化完了前の operation admission を許可しない。Application の background / foreground 遷移は Profile state、current Store、password authorization または secret の永続化・継続保持を発生させない。teardown、runtime invalidation または process termination が発生した場合、新規 admission を停止し、in-flight operation は完了して検証済みの結果を返すか、失敗して temporary、native resource および authorization-capable state を cleanup する。Core invocation を thread kill で強制中断したことを成功とみなさず、復帰後は lifecycle が有効な adapter と native artifact の初期化境界から再開する。Android lifecycle callback、keep-alive、再初期化の具体方式は下流へ委譲する。
+
+### 12.7 iOS integration
+
+iOS は package に同梱する、承認済み device / simulator slice を含む統合 native artifact を native layer が利用する論理構成とする。予測可能な load、link および application packaging のため、static linkage を第一候補とするが、exact archive / framework / XCFramework / pod / Swift Package boundary は下流へ委譲する。dynamic runtime download や JS による artifact 選択は行わない。
+
+```text
+RN TypeScript facade
+  → private RN entry
+  → iOS JSI / TurboModule adapter
+  → ObjC++ / Swift registration / loader
+  → internal Native C ABI
+  → Rust Core
+```
+
+device / simulator の slice は native build が選択する。RN native artifact は source revision、package version、iOS target / slice、digest および release provenance evidence と結び付いた approved package input でなければならない。iOS は static / integrated artifact の link input、framework / archive composition、package assembly および release evidence の段階で approved artifact だけを受け入れる。static linkage では Android のような runtime load 前 hash verification を要求せず、link / build 時の source・target・slice・package identity の検証を trust point とする。missing slice、unsupported device / simulator、link / load failure、ABI mismatch、initialization failure または invalid output は native infrastructure error として明示的に失敗させ、WASM / Node addon へ fallback しない。static / dynamic の最終形式、Xcode build setting、podspec、artifact filename、method signature、buffer release は下流へ委譲する。
+
+iOS の approved support matrix は `PD-RN-003` / `PD-RN-005` に従い、Bare RN `15.1+`、Expo subset `16.4+`、arm64 device と arm64 Apple Silicon simulator とする。Intel `x86_64` simulator は formal support に含めない。device / simulator の同一 artifact grouping を release evidence で検証できる構成にする。将来 x86_64 simulator を追加する場合は、対応 slice、Intel host / runtime、CI および同等の lifecycle / security evidence を含む新しい正式判断を必要とする。
+
+iOS の module initialization、device / simulator artifact の利用可能性および adapter lifecycle は一意に管理し、初期化・link 確認前の operation admission を許可しない。Application の background / foreground 遷移、scene の切替または native teardown は secret、authorization、Profile state または current Store の継続 owner を生じさせない。teardown、runtime invalidation または process termination では新規 admission を停止し、in-flight operation の成功は Core completion、output validation および replacement の完全性が確認できた場合だけ delivery する。それ以外は失敗として temporary、native resource および authorization-capable state を cleanup し、復帰後に stale result や partial replacement を再利用しない。iOS lifecycle callback、scene integration、再初期化および link boundary の具体方式は下流へ委譲する。
+
+### 12.8 バイトバッファの境界と所有権
+
+既存 public contract の canonical binary model は JS `Uint8Array` とする。hex、Base64、UTF-8 string または JSON array を RN native boundary の暗黙変換形式にしない。
+
+```text
+JS Uint8Array（caller-owned input）
+  → validated native view または bounded owned temporary
+  → Rust C ABI byte slice / owned temporary
+  → Core operation
+  → native owned output
+  → 新しい JS Uint8Array（caller-owned output）
+```
+
+入力は caller-owned のまま Core が保持する前提にせず、native layer は call 中だけ有効な view または必要最小限の owned temporary を用いる。Core へ渡す pointer / slice は呼出し中にだけ有効とし、JS object、proxy、detached buffer、length 不整合または変換不能値は Core invocation 前に拒否する。出力は native buffer の alias を外へ返さず、JS が所有する新しい値へ移す。入力を in-place mutation せず、output は caller が解放・GC する通常の JS value とし、native temporary は return / error / exception の全経路で release する。
+
+copy count、zero-copy の可否、allocator、memory layout、pointer / length、release API、zeroization target および exact C ABI struct は Specification / Implementation へ委譲する。「zero-copy」または JS memory 上の secret が直ちに消えることを保証しない。ただし不要な string 化、immutable object の追加保持、global cache、native singleton または input / output alias は設計上作らない。
+
+### 12.9 React Native における秘密情報のメモリフロー
+
+JS から秘密情報を一切通さない保証は既存 public API と矛盾するため採用しない。代わりに、JS、native adapter および Core の各責任範囲で copy と lifetime を限定する。
+
+| 操作 / asset | JS / Application 境界 | native / C ABI 境界 | Core / 終了条件 |
+| --- | --- | --- | --- |
+| Profile password | 現行 operation の入力として一時的に存在し得る。object / string 化、global state、log を避ける | validated byte input を bounded temporary として一度 mediation し、operation 終了時・failure・exception・cancellation path で release / zeroize responsibility を果たす | 各 operation の authorization にだけ使い、継続 cache / unlock session を持たない |
+| Mnemonic handoff | 新規生成の明示された初回 handoff だけ、Application が利用者に提示するための output copy が存在し得る | Core の output を一時 buffer として transport し、handoff 未確認なら success / committed として扱わない | handoff 完了前に Profile success を確定せず、Core 内原本を継続所有する |
+| Mnemonic import | 利用者入力として一時的に存在し得る。通常結果へ再出力しない | input view / temporary から Core へ渡し、完了後に native retention を残さない | restore / import semantics、検証、保存および破棄を Core が所有する |
+| private key import | 明示的な import input として一時的に存在し得る | bounded temporary から Core へ渡し、登録後に binding が private key を保持しない | Software Key の登録・保護を Core が所有し、通常結果で返さない |
+| private key export | 明示的 target / user request / confirmation が成立した成功時だけ output copy が存在し得る | Core output を一時 native buffer から新しい JS `Uint8Array` へ移す | Core は target / authorization を判定し、失敗時は secret output を返さない。Core 外 copy の保管は Application / user の責任 |
+| signing | payload と password input が一時的に存在し得る。private key は facade output にしない | request / password の mediation に限定し、private key の native retention を作らない | Core が authorization、compatibility、private key use および signature を所有する |
+| Wallet Store blob | Application / persistence が current opaque bytes を所有する | Store は opaque byte buffer として渡し、binding が profile state や Store history を保持しない | Core が validity / integrity / replacement を判定し、Application が成功 replacement を current Store として適用する |
+
+immutable DTO、proxy、detached / altered typed array および例外経路で追加の secret copy を残さないことを binding invariant とする。JS engine、GC、crash dump、OS swap、debugger または host compromise における全 copy 消去は保証外だが、保証外であることを不要な retention、log または診断出力の理由にしてはならない。
+
+concurrency serialization のための待機列は、password、Mnemonic、private key、decrypted material または plaintext Store を queue item として長期保持する secret cache になってはならない。secret-bearing input は admission 後、実行直前に必要最小限だけ native materialize し、admission 前の待機 request は descriptor / cancellation state だけで表現して secret を所有しない。queued request の rejection、cancellation、exception、shutdown または initialization failure では、その一時値と native resource を cleanup し、diagnostic へ secret を出さない。JS の call frame に自然に存在する期間と、binding が ownership を取得する期間を混同しない。
+
+### 12.10 エラーモデルと安全側への失敗の伝播
+
+内部的には、少なくとも次の原因領域を区別できる構造とする。
+
+| 原因領域 | 例 | Application-facing 方針 |
+| --- | --- | --- |
+| Core error | password authorization、Store validity、Chain / Network mismatch、Core operation reject | 既存 facade の Core error semantics を維持する |
+| Binding conversion error | `Uint8Array` 形状、DTO、detached / altered buffer、output validation、ownership conversion | success に変換せず、secret / replacement を破棄して明示的に失敗する |
+| Native initialization error | module registration、adapter initialization、required native state の確立失敗 | operation 前に明示的に失敗し、Node / WASM へ fallback しない |
+| Native library load error | artifact missing、load failure、ABI / slice mismatch、integrity failure | infrastructure failure として明示し、別 runtime backend を選ばない |
+| Unsupported runtime / platform | RN entry 以外の host、unsupported Android / iOS platform / architecture | fail clearly / fail closed。silent success を作らない |
+| Internal binding failure | invocation exception、unexpected native result、release / allocation failure、reentrancy violation | Core error と混同せず、部分 output / replacement を commit しない |
+
+Application が Core operation failure と RN infrastructure failure を識別できる分類を持つことを設計要求とする。exact class、error name、numeric code、message、cause chain および mapping は Specification へ委譲する。error、warning、diagnostic、native exception、load path または crash report に password、Mnemonic、private key、Store plaintext または signature input の秘密部分を含めない。
+
+次の状態では RN native backend を唯一の通常経路として fail closed にする。
+
+- resolver の mis-detection、RN module 未登録、unsupported runtime / platform
+- package artifact、device / simulator slice または ABI の欠落・不整合
+- native library load、integrity、initialization、registration の失敗
+- Core invocation、buffer conversion、unexpected output、release または exception の失敗
+
+これらを Browser / WASM、Node addon、別 architecture または stale native result へ fallback しない。Core が返した operation error と binding infrastructure error のどちらでも、未保存 replacement、partial Profile、secret output および既存 committed Store を success として扱わない。
+
+### 12.11 スレッド、並行実行、状態を持たない Store 処理
+
+RN adapter を v1 の concurrency boundary / serialization authority とする。ただし、その authority は一つの logical consumer context に閉じず、同一 process 内で RN から同じ C ABI / Rust Core に到達し得る全 runtime / module-registry domain を覆う process-wide RN binding coordination の配下に置く。複数の RN JS runtime、module registry、module instance および logical consumer context は許可できるが、各 context が独立して Core access を認可する構成や、Core / C ABI の global thread-safety を前提にした構成は採用しない。
+
+責任階層は `process-wide RN binding coordination → runtime / module-registry scope → logical consumer context → RN adapter admission → existing public C ABI contract → Rust Wallet Core` とする。process-wide coordination は全 RN domain の Core / C ABI admission、shared native resource の initialization / shutdown barrier、cross-context ordering、stale completion rejection および process-wide resource ownership を管理する。runtime / module-registry scope は登録状態、runtime validity、結果 delivery、runtime-local teardown を管理し、logical consumer context は context 内 ordering、reentrancy および request lifecycle を管理する。いずれの下位 scope も process-wide coordinator を bypass せず、別 runtime の lifecycle や共有 resource を破棄しない。
+
+RN runtime からの全 Core invocation は process-wide coordinator と context adapter の双方の admission を通過する。v1 では read / mutation、secret-capable operation および Store processing を含め、process-wide に同時 Core / C ABI 実行を許可せず、process-wide admission order を実行順とする。context 内 serialization は cross-context safety の代替ではない。Core または C ABI の reentrant / concurrent capability を RN integration の public contract とせず、Core は許可された一つの invocation に対して既存の stateless semantics を実行する。Application が current Store authority として replacement を適用する責任は変わらず、Binding は Store history、Profile state、password cache、unlocked state、decrypted secret または current Store を共有保持しない。
+
+process-wide admission 順序を process-wide execution 順序として扱い、現在の operation が Core completion、output validation、temporary release および result delivery の可否判定を終えるまで、別 context を含む次の operation を Core へ開始しない。callback 中の public facade 再入、JS callback、UI re-entry、同一 adapter への recursive invoke および shutdown 中の新規 invoke を禁止する。process-wide initialization は single-flight または同等の一意な lifecycle とし、未初期化状態でいずれの runtime からも operation を開始しない。runtime-local shutdown / invalidation は当該 context の admission barrier、process-wide teardown は全 runtime registration と in-flight operation を対象にする coordinator の barrier として区別する。
+
+runtime A の teardown、reload、module registry 再生成または A の cancellation は A の新規 admission と A への result delivery を停止するが、runtime B の利用可能な lifecycle を暗黙に破棄しない。A の completion は process-wide lifecycle と A の runtime / context lifecycle がともに有効な場合だけ delivery し、無効なら stale result として cleanup 後に破棄する。shared native resource の load / initialization / integrity failureなど process-wide に access safety を保証できない failure の場合だけ、coordinator が全 RN domain の新規 admission を止め、影響する operation を明示的に失敗させる。context-local conversion、Core operation error、cancellation および result delivery failureは原則として当該 context に閉じ込める。mutex、queue、executor、thread affinity、generation、single-flight primitive、memory ordering および具体的な teardown hook は下流へ委譲する。
+
+authority の依存方向は上位 coordination から下位 adapter、C ABI、Core への一方向とし、context-local coordination と process-wide coordination が相互に完了を待つ構造を要求しない。teardown は invalidated context の callback / result delivery を待って共有 resource を解放する方式を前提にせず、operation completion と cleanup の barrier を process-wide coordinator が管理する。exact lock ordering、queue scheduling および callback mechanism は下流で定義する。
+
+この serialization は Core thread-safety の代替であるが、password/session/key cache、unlocked state、decrypted secret、Profile state、mutable Wallet Core singleton または current Store cache を意味しない。queued request は前節の secret lifetime policy に従い、待機中の plaintext secret を保持しない。same logical consumer context の mutation は無秩序に並列実行せず、Application が current Store authority として成功 replacement を順序どおり適用する。Binding は Store を merge、retry、reorder、deduplicate または current Store として判断しない。
+
+v1 では read-only / independent operation も最適化目的で並列化しない。将来の並列化は、Core の事実、secret overlap、ordering、reentrancy、lifetime および error semantics を再評価した明示的な Design / Specification change として扱う。failure、cancellation、exception、retry、restart の後に authorization または secret-capable state を継続しない。
+
+### 12.12 Native 成果物、サプライチェーン、package 境界
+
+Android は approved ABI ごとの native library group、iOS は approved device / simulator slice を含む統合 artifact group を単一 package の release input とする。artifact は package-local で、runtime download や postinstall compile を通常経路にしない。RN artifact の trust chain は次で一意に定める。
+
+```text
+Git source revision
+        ↓
+controlled release build
+        ↓
+target-specific RN Android / iOS artifact
+        ↓
+target identity + package version + digest / provenance evidence
+        ↓
+approved npm package assembly
+        ↓
+published @nemnesia/symbol-nem-wallet-core package
+```
+
+trust authority は source revision と、それを基にした controlled CI / release build および release evidence である。Android の package / release assembly は target / ABI、package-approved artifact および digest / provenance relationship を検証してから loader の使用可能 input とし、iOS の package assembly / framework or archive composition / link input は target / slice と同じ関係を検証してから published package または native integration input とする。runtime は毎回 artifact の hash を再計算する責任を持たないが、target identity、package-approved entry または link / load の不一致を成功として扱わない。
+
+existing public C ABI release artifact と RN package-internal artifact は別の release concept である。RN consumer は public C ABI artifact を別途 install せず、RN package の approved native artifact を利用する。RN artifact の release ownership は npm release / package assembly chain に属し、RN-only internal symbol を supported public C ABI として宣言しない。RN adapter は public C ABI contract の semantics、ownership および error boundary を変更しない。
+
+artifact の取得、link / load、ABI / slice 選択および integrity 検証は native / packaging / release boundary の責任であり、JavaScript consumer の backend selector にしない。missing artifact、wrong target / ABI / slice、manifest mismatch、release evidence mismatch または unapproved artifact は fail closed とし、Node / WASM へ fallback しない。package layout、manifest field、digest format、archive / framework形式、Gradle / pod / build integration、autolinking および release workflow は Specification / Implementation / release verification へ委譲する。
+
+### 12.13 バージョン、アーキテクチャ、New Architecture、Expo の承認済み基準
+
+RN-specific product policy は [`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md) の `PD-RN-001〜PD-RN-007 = APPROVED` を現行 baseline とする。以下の Option / Rationale / Compatibility / Maintenance の比較は承認前の判断根拠を保存する **履歴的・非規範的な比較**であり、各表の `Approved baseline` が現在の Design 判断である。候補比較から現行 support status を再推論してはならない。現行 Node.js 22.x / 24.x policy と既存 Browser / native Node / WASM の保証は変更しない。
+
+#### Minimum React Native version
+
+| 項目 | 内容 |
+| --- | --- |
+| Option | A: 実装開始時点で選んだ stable RN major のみを minimum とする。B: legacy interop を含む古い major まで広げる。 |
+| Rationale | A は JSI / TurboModule / Codegen と native artifact の検証対象を限定し、B は既存 consumer の移行余地を広げる。 |
+| Compatibility impact | A は古い RN / legacy bridge consumer を対象外にし、B は resolver・registration・test matrix を増やす。 |
+| Maintenance impact | A は support branch を抑え、B は New Architecture と legacy の二重 adapter を維持する。 |
+| Recommendation | New Architecture / JSI の安定実装を利用できる stable line に範囲を限定する。 |
+| Approved baseline | `>= 0.86.x` を floor とし、stable `0.86.x` を compatibility line、stable `0.87.x` を primary validation line とする。`0.88.x` 以降、canary、nightly、`next` は正式なre-baselineまでunsupported。 |
+
+#### Minimum Android API level
+
+| 項目 | 内容 |
+| --- | --- |
+| Option | A: target Application / RN template が採用する modern API floor。B: より古い Android API まで native artifact と loader を維持する。 |
+| Rationale | A は ABI、loader、security patch、test matrix を絞り、B は device coverage を広げる。 |
+| Compatibility impact | A は古い端末を対象外にし、B は build / runtime 検証と保守範囲を拡大する。 |
+| Maintenance impact | A を採用し、API 24 をcurrent floorとして維持する。 |
+| Recommendation | current RN support floor と実利用端末の共通範囲を採用し、legacy compatibility を「念のため」に足さない。 |
+| Approved baseline | `minSdk = 24`。`targetSdk` / `compileSdk` はrelease時点のofficial policyへ追従する。 |
+
+#### Minimum iOS version
+
+| 項目 | 内容 |
+| --- | --- |
+| Option | A: RN の stable support floor と target Application が採用する iOS floor の高い方。B: older iOS device まで維持する。 |
+| Rationale | A は static artifact、JSI / TurboModule、simulator / device test を単純化し、B は device coverage を広げる。 |
+| Compatibility impact | A は古い iOS を対象外にし、B は native API / packaging matrix を増やす。 |
+| Maintenance impact | A を採用し、Bare RN とExpo subsetの異なるfloorをmatrixで管理する。 |
+| Recommendation | RN integration と target application が共通に検証できる modern floor。 |
+| Approved baseline | Bare RN `15.1+`。Expo SDK 57 subsetは`16.4+`。 |
+
+#### Supported browser baseline
+
+| 項目 | 内容 |
+| --- | --- |
+| Option | A: 既存の modern evergreen の current / previous major baseline を継続する。B: older browser / special embedded WebView を追加する。 |
+| Rationale | A は既存 ESM / WASM / Browser Extension routing と整合し、B は WASM / storage / worker matrix を増やす。 |
+| Compatibility impact | A は既存 baseline 外を対象外にし、B は Browser guarantee と release evidence を拡大する。 |
+| Maintenance impact | A を推奨し、RN 対応を理由に Browser baseline を変更しない。 |
+| Recommendation | 既存 package / specification が示す modern evergreen current / previous major、Extension は既存 MV3 policy を継続する。 |
+| Current status | RN platform decision の対象外。Browser baseline は既存 package / Specification と整合する別の product policy として、引き続き `NEEDS USER DECISION`。 |
+
+#### Android architecture matrix
+
+| 項目 | 内容 |
+| --- | --- |
+| Option | A: `arm64-v8a` device + `x86_64` emulator。B: `armeabi-v7a`、`x86` 等も追加する。 |
+| Rationale | A は現行の主要 device / emulator coverage と artifact count の均衡がよい。B は古い・非主要 target を追加する。 |
+| Compatibility impact | A は 32-bit device / x86 emulator を対象外にし、B は対応端末を増やす。 |
+| Maintenance impact | A を推奨し、B は build、test、release integrity evidence を ABI ごとに増やす。 |
+| Recommendation | arm64-v8a と x86_64 にformal evidenceを集中し、legacy ABIを根拠なく追加しない。 |
+| Approved baseline | `arm64-v8a` device + `x86_64` emulator。`armeabi-v7a`、`x86` その他のABIはunsupported。 |
+
+#### iOS architecture matrix
+
+| 項目 | 内容 |
+| --- | --- |
+| Option | A: arm64 device + arm64 simulator。B: x86_64 simulator も追加する。 |
+| Rationale | A は現行 Apple Silicon 開発 / simulator と device の主要範囲を満たし、B は Intel Mac simulator 互換を加える。 |
+| Compatibility impact | A は x86_64 simulator host を対象外にし、B は追加 slice / test を必要とする。 |
+| Maintenance impact | A を推奨し、B は必要な consumer が明確な場合だけ追加する。 |
+| Recommendation | arm64 device / arm64 Apple Silicon simulatorにformal evidenceを集中する。 |
+| Approved baseline | arm64 physical device + arm64 Apple Silicon simulator。Intel `x86_64` simulatorはunsupported。 |
+
+#### React Native New Architecture policy
+
+| 項目 | 内容 |
+| --- | --- |
+| Option | A: New Architecture only。B: New Architecture primary + legacy compatibility adapter。C: legacy-compatible design を主軸にする。 |
+| Rationale | A は将来方向と構造が最も単純、B は現行 consumer 移行を吸収、C は古い consumer を優先するが将来負債が大きい。RN 0.82 以降の公式方向は New Architecture only であり、legacy interop は移行用の位置付けである。 |
+| Compatibility impact | A は legacy app を除外、B は両方を検証、C は future RN との整合を損なう可能性がある。 |
+| Maintenance impact | A が最小、B は二重 registration / test matrix、C は legacy bridge を長期維持する。 |
+| Recommendation | New Architecture mandatory。将来Legacyを追加する場合だけ、別の正式判断と追加evidenceを要求する。 |
+| Approved baseline | New Architecture / TurboModule / Codegen / private JSIをmandatoryとし、Legacy Architecture / Bridgeはunsupported。async化は§12.3 / DDR-RN-004の条件付きfuture decisionとして別管理する。 |
+
+#### Expo compatibility
+
+| 項目 | 内容 |
+| --- | --- |
+| Option | A: bare RN と Expo development build / prebuild で native project を生成した範囲。B: Expo Go も含む。 |
+| Rationale | Wallet Core は custom native code / artifact を必要とする。Expo Go は固定 native library のため、任意の native module を後から追加する経路ではない。development build は custom native code を含められる。 |
+| Compatibility impact | A は Expo Go を対象外とするが、native artifact を load できる。B は Expo Go の固定 runtime と矛盾し、RN native backend の保証を崩す。 |
+| Maintenance impact | A は config plugin / prebuild / native project の version matrix を管理し、B は実現不能または別の non-native fallback を要求する。 |
+| Recommendation | Bare RN、Development Build、Prebuild / CNGをformal native integrationとして扱い、Expo Goへfallbackしない。 |
+| Approved baseline | Bare RN、Expo Development Build、Expo Prebuild / CNG、custom native module workflowをformal supportとする。Expo SDK 57 stable + RN 0.86.xをformal compatibility lineとし、Expo Go、canary / nightly、unlisted SDK / RN mismatchはunsupported。 |
+
+### 12.14 セキュリティ上の攻撃面と対策の配置
+
+RN 追加で増える threat surface は、JS/native boundary、malformed / detached / altered typed array、unexpected object / proxy、C ABI pointer / length、native library substitution、ABI / slice mismatch、package resolver mis-detection、error object leakage、secret copy lifetime、crash dump、JSI reentrancy、native initialization race および concurrent Store mutation である。
+
+設計上の主な対策は次とする。
+
+- typed array、length、detached state、DTO および output を binding boundary で検証し、変換不能時は Core invocation / commit 前に fail closed する。
+- C ABI、JSI、TurboModule、JNI および Swift / Objective-C++ を security authority とせず、Core に任せる validation / authorization を複製しない。
+- artifact allowlist / integrity / provenance、ABI / slice check および resolver の明示的 environment check を行い、load failure を WASM / Node へ隠さない。既存 release / supply-chain invariant は維持する。
+- native adapter、JS object、error、warning、log、diagnostic、crash-facing message に secret を含めず、operation-local temporary 以外の cache / singleton を作らない。
+- JS callback、reentrancy、初期化 race、部分 output、stale replacement および same-Store mutation を成功境界に混ぜない。
+- host、GC、crash dump、OS、debugger および compromised Application の完全な秘密隔離は保証外と明示する。ただし通常処理の non-disclosure、不要 retention、per-operation authorization および failure safety は維持する。
+
+既存 Node native / Browser WASM の lessons（package-local routing、declared artifact failure の非 fallback、malformed input reject、Core の単一 authority、host compromise limitation）を RN に再利用する。RN だけに弱い fallback、秘密情報の追加 export または security exception を設けない。
+
+### 12.15 テスト容易性と検証設計
+
+Implementation / CI の具体 command は固定せず、次の検証面を将来の Specification / Implementation / release verification が直接テストできる構造にする。
+
+- Android RN consumer と iOS RN consumer が同じ 16 operation、DTO、binary、warning / error semantics を観測できること。
+- Node / Browser / Browser Extension との API parity、error parity、Chain / Network reject、Store failure、既存 routing の non-regression。
+- arm64-v8a / x86_64 Android、arm64 device / simulator iOS の各 artifact と、選択された追加 matrix の load / invoke / release 検証。
+- missing artifact、load failure、ABI / slice mismatch、initialization failure、unsupported platform / architecture、invocation failure、invalid output が明示的に失敗し、WASM / Node へ fallback しないこと。
+- malformed、truncated、invalid-length、detached / altered `Uint8Array`、unexpected object / proxy、wrong DTO が secret operation / Store commit 前に reject されること。
+- password、Mnemonic、private key、Store blob の failure / exception / cancellation / retry / restart で、binding cache、log、diagnostic、partial output、authorization carry-over が発生しないことを観測可能な範囲で確認すること。JS GC / crash dump 全体の消去は guarantee 外として別記すること。
+- repeated invocation、concurrent invocation、same-Store mutation ordering、reentrancy、initialization race および process restart 後の statelessness。
+- package artifact の integrity / provenance、consumer が Node addon / WASM backend を RN で要求しないこと、および unsupported environment が fail clearly すること。
+- Potentially expensive operation について、代表的な Android / iOS device、production-equivalent native build、代表的な Store / input size および合理的な worst-case input class で execution cost、JS blocking、responsiveness、resource bound、cancellation / interruption および failure cleanup を測定できること。worker へ移した後の同期 wait も別の実行方式として評価し、debug build だけを根拠にしないこと。
+- synchronous baseline が安全に成立しない evidence が出た場合、対象 operation と影響範囲、compatibility impact、async contract または support exclusion の候補を記録し、user decision 前に public semantics を変更しないこと。
+
+### 12.16 React Native の設計判断記録
+
+#### DDR-RN-001: RN binding architecture
+
+- **Decision**: New Architecture / TurboModule を registration boundary、JSI を内部の同期・binary substrate、Android / iOS native layer を薄い platform mediation、C ABI を Rust Core への internal boundary とする。
+- **Alternatives considered**: legacy bridge only、pure JSI public surface、platform ごとの Rust binding、RN 専用 package。
+- **Rationale**: 同一 Core、既存 synchronous facade、binary transfer、New Architecture の将来方向、共通性および maintenance cost の均衡を取る。
+- **Security implications**: RN adapter は authorization、暗号、Store semantics、secret ownership を持たず、JS/native boundary を fail-closed にする。
+- **Compatibility implications**: New Architecture / TurboModule / Codegen / private JSI を mandatory とし、stable RN `0.86.x` を compatibility line、`0.87.x` を primary validation line とする。Legacy Architecture / Bridge、`0.88.x` 以降、canary、nightly、`next` は formal support に含めない。将来範囲を拡張する場合は別の正式判断と追加 evidence を必要とする。
+- **Deferred details**: TurboModule spec、Codegen、JSI object、JNI / ObjC++ method、thread dispatch、build integration、test command。
+
+#### DDR-RN-002: C ABI boundary
+
+- **Decision**: RN-private adapter は existing public C ABI contract を内部境界として再利用する。RN TypeScript / Application は C ABI を直接見ない。RN package の target-specific artifact は npm release chain が所有する内部 integration artifact とし、既存 C ABI の standalone public release artifact と同一視しない。既存 C ABI の semantics、ownership、error、release identity は変更しない。
+- **Alternatives considered**: Rust から RN 専用 public binding surface を新設、Application が C ABI を FFI 呼出し、C ABI contract を満たせない根拠なしに adapted public C ABI を追加。
+- **Rationale**: Core の semantics、error、ownership、security boundary および既存 C ABI consumer との互換性の重複を避け、RN-specific transport / lifecycle を private adapter に閉じ込める。
+- **Security implications**: C ABI / RN adapter は cryptographic semantics、authorization、Store processing、secret ownership を変更せず、duplicate business logic、secret cache、authorization shortcut を追加しない。
+- **Compatibility implications**: RN consumer は public C ABI artifact を別途 install しない。RN artifact は同じ Core source / C ABI contract に bind された npm asset だが、RN-only internal symbol は supported public C ABI ではない。
+- **Deferred details**: C ABI contract の適用範囲、必要な RN-private transport adaptation、ABI versioning、struct、pointer / free、artifact build / load。existing contract で安全に表現できない具体的不足が見つかった場合だけ、別 Design decision とする。
+
+#### DDR-RN-003: package runtime separation
+
+- **Decision**: public package root と共通 facade を維持し、Node / Browser / Extension / RN backend と private entry / resolver を内部分離する。
+- **Alternatives considered**: RN 専用 package、consumer に backend selector を公開、単一 universal backend、platform heuristic。
+- **Rationale**: single package、API parity、cross-runtime non-regression、accidental backend loading 防止。
+- **Security implications**: RN が Node addon / WASM に fallback せず、Browser が native artifact を要求しないため、misrouting と artifact confusion を減らす。
+- **Compatibility implications**: Node の既存 routing、Browser / Extension の WASM routing および Node 22.x / 24.x policy を変更しない。
+- **Deferred details**: exact exports condition、entry filename、bundler / Metro integration、artifact manifest。
+
+#### DDR-RN-004: synchronous public contract baseline
+
+- **Decision**: existing 16 operation の synchronous TypeScript facade を RN の compatibility baseline とする。bounded operation / input、reasonable worst-case execution、許容不能でない JS responsiveness、safe lifetime / cleanup および reentrancy 不在を evidence で確認できる範囲で維持し、async 化、Promise variant または automatic fallback は導入しない。
+- **Alternatives considered**: all async RN API、operation ごとの hybrid API、native worker + blocking wait、native worker + Promise。
+- **Rationale**: public API preservation、DTO / error / binary parity を baseline としつつ、API parity を理由に危険な JS blocking、resource exhaustion、unsafe lifetime または不可能な cancellation semantics を受容しないため。
+- **Security implications**: operation-local ownership、failure cleanup、per-call authorization、queue 上の secret non-retention および no reentrancy を一つの admission / invocation 境界で扱う。worker + synchronous wait は responsiveness の解決とみなさない。
+- **Compatibility implications**: prototype / benchmark / measurement evidence が対象 operation の synchronous contract を安全に成立させられないことを示した場合、対象と影響範囲を明示し、async public contract または RN support exclusion の採否を `NEEDS USER DECISION` とする。user decision 前に RN だけ Promise 化しない。
+- **Deferred details**: operation envelope、measurement protocol / threshold、initialization timing、thread dispatch、worker、timeout / cancellation、exception translation。
+
+#### DDR-RN-005: secret buffer ownership
+
+- **Decision**: input は caller-owned `Uint8Array` から operation-local native temporary / view を経て Core へ渡し、output は新しい JS `Uint8Array` とする。native buffer、Core secret、Core 外 output copy の ownership を分離する。
+- **Alternatives considered**: string / Base64 transport、shared mutable alias、global native cache、JS から secret を完全排除する主張。
+- **Rationale**: 既存 binary contract、不要 copy の削減、lifetime の限定および現実的な host guarantee。
+- **Security implications**: private key は Core 内に留め、handoff / export だけ明示 output。failure / exception / cancellation で temporary を cleanup する。
+- **Compatibility implications**: JS consumer の binary semantics を変更せず、JS engine による copy retention は guarantee 外として明示する。
+- **Deferred details**: exact copy count、zero-copy opportunity、allocator、zeroization、pointer / free、detached buffer handling。
+
+#### DDR-RN-006: fail-closed backend behavior
+
+- **Decision**: RN backend の resolver、artifact、load、ABI、initialization、invocation、output または platform failure は明示的に伝播し、Node / WASM へ fallback しない。
+- **Alternatives considered**: universal WASM fallback、Node addon fallback、best-effort platform choice、stale last-known backend。
+- **Rationale**: NFR-010、NFR-014、runtime mis-detection 防止および security semantics の一貫性。
+- **Security implications**: unavailable native path が weaker / unintended backend へ切り替わらず、invalid output / partial replacement を commit しない。
+- **Compatibility implications**: RN native artifact を package / native project に正しく含める責任が必要。unsupported environment は対象外として観測可能に失敗する。
+- **Deferred details**: error mapping、artifact integrity format、initialization retry policy、message / code。
+
+#### DDR-RN-007: Android artifact model
+
+- **Decision**: package-local per-approved-ABI Rust native artifact group を Android native layer が loader / registration する。
+- **Alternatives considered**: runtime download、single universal binary、JavaScript FFI、Application-managed external artifact。
+- **Rationale**: offline determinism、release evidence、ABI-specific loading、C ABI reuse および supply-chain boundary。
+- **Security implications**: artifact allowlist / integrity / provenance と mismatch fail-closed を適用し、runtime substitution を黙って受け入れない。
+- **Compatibility implications**: `minSdk = 24`、`arm64-v8a` device および `x86_64` emulator を formal support とする。`armeabi-v7a`、`x86` その他の ABI は unsupported とし、将来追加する場合は build、test、artifact、release evidence を伴う別の正式判断を必要とする。
+- **Deferred details**: AAR / jni layout、Gradle / CMake、filename、`targetSdk` / `compileSdk` policy、loader method。
+
+#### DDR-RN-008: iOS artifact model
+
+- **Decision**: package-local grouped native artifact with approved device / simulator slices を static linkage first で利用する。
+- **Alternatives considered**: dynamic download、device-only archive、Application-built Rust artifact、JS/WASM fallback。
+- **Rationale**: link / load の予測可能性、device / simulator parity、単一 package、release provenance。
+- **Security implications**: missing slice / link / load / integrity failure を fail-closed にし、未知 artifact を runtime 取得しない。
+- **Compatibility implications**: Bare RN は iOS `15.1+`、Expo subset は iOS `16.4+` とし、arm64 physical device と arm64 Apple Silicon simulator を formal support とする。Intel `x86_64` simulator は unsupported とし、将来追加する場合は build、test、artifact、release evidence を伴う別の正式判断を必要とする。
+- **Deferred details**: XCFramework / static archive / pod boundary、Xcode setting、artifact filename、approved slice の検証方式、link flags。
+
+#### DDR-RN-009: process-wide RN binding concurrency authority
+
+- **Decision**: process-wide RN binding coordination を、同一 process 内の全 RN runtime / module registry / logical consumer context に対する Core invocation admission、serialization、cross-context ordering、reentrancy、shared initialization および process-wide teardown barrier の authority とする。runtime / module-registry scope と logical consumer context は各自の registration、local validity、local ordering および result delivery を管理するが、process-wide boundary を bypass しない。Core / C ABI の concurrent thread-safety を RN integration contract にしない。
+- **Alternatives considered**: context ごとの独立 serialization、Core / C ABI の thread-safety を public integration にする、mutation だけを条件付きで serialize して read を無秩序に並列化する、Application ごとに任意の ordering を任せる、複数 runtime を拒否する。
+- **Rationale**: 複数 RN runtime / module registry が存在しても concurrency、initialization、shutdown、stale completion および shared resource lifetime の責任を一意にし、Store mutation ordering、secret overlap、reentrancy および failure cleanup を予測可能にする。複数 context は process-wide boundary の下で分離し、local failure を不要に他 context へ伝播させない。
+- **Security implications**: process-wide coordination は secret/session/key cache、Profile state、current Store または authorization authority ではない。queued secret を保持しない admission policy、stale result rejection、callback re-entry 禁止および Core の zeroize / fail-closed semantics を維持する。
+- **Compatibility implications**: v1 は read-only を含めて process-wide に並列化せず、既存 public synchronous contract と同じ operation / error / binary semantics を保つ。runtime-local teardown は他 runtime の shared resource を破棄せず、Node / Browser / WASM routing は変更しない。将来の cross-context 並列化は明示的な Design / Specification change が必要である。
+- **Deferred details**: coordinator の実装、queue / mutex / executor、thread affinity、single-flight、generation、cancellation、shutdown barrier、lock ordering および memory ordering。
+
+#### DDR-RN-010: RN artifact trust chain
+
+- **Decision**: RN Android / iOS artifact は `Git source revision → controlled release build → target-specific artifact → target identity + digest / provenance evidence → approved npm assembly → published package` の chain に bind する。package / release assembly が approved artifact を検証した後だけ native load / link input とし、unapproved / mismatched artifact は fail closed にする。
+- **Alternatives considered**: local artifact の自己申告、runtime download、runtime ごとの毎回 hash verification を唯一の根拠にする、RN artifact を既存 C ABI artifact と同じ standalone release asset とみなす。
+- **Rationale**: source、version、platform、architecture / slice、artifact bytes、package inclusion および release evidence を追跡可能にし、既存 Node / WASM の supply-chain assurance を RN package に接続する。
+- **Security implications**: missing、wrong target / ABI / slice、digest / provenance / package manifest mismatch および unapproved artifact は Node / WASM fallback なしで失敗する。runtime hash verification の追加を本 Design で要求せず、verification responsibility を assembly / link / load boundary に分ける。
+- **Compatibility implications**: RN consumer は published package の approved native artifact と対応 native project を利用する。既存 public C ABI release artifact、Node routing、Browser / WASM routing および release workflow の semantics は変更しない。
+- **Deferred details**: artifact filename、digest / manifest schema、attestation format、Android package / loader、iOS framework / archive composition、CI / release workflow および exact verification predicate。
+
+### 12.17 仕様と実装の境界
+
+本 section で確定したのは、RN の責務構造、共通 facade、runtime 分離、C ABI の内部再利用、sync policy、secret / buffer ownership の invariant、error category、fail-closed、thread / Store 境界および承認済み support baseline である。次の事項は Specification / Implementation / release verification に委譲する。
+
+- exact public TypeScript declaration、operation parameter / result、error name / numeric code、package exports JSON、resolver condition、private entry filename
+- TurboModule spec、Codegen schema、JSI object / HostObject、JNI / Swift / Objective-C++ signature、callback / exception ABI
+- exact C ABI signature、struct / pointer / length、allocator、free、zeroization、copy count、memory layout、thread primitive、reentrancy guard
+- approved Android API / ABI および iOS version / architecture baseline を実現する Gradle / CMake / AAR / per-ABI filename、podspec / XCFramework / archive / slice verification、Metro / autolinking / prebuild integration
+- artifact digest / manifest / provenance format、build command、test command、CI job、release workflow および publish evidence
+- exact malformed input detection、output validation、initialization retry、timeout、cancellation、error message および fixture
+
+sync baseline を維持できるかを判断する exact operation envelope、benchmark device、production-equivalent build definition、measurement threshold、resource budget および evidence format も下流へ委譲する。ただし、unsafe evidence が出た場合に async 化を自動採用せず `NEEDS USER DECISION` とする責任境界は本書で確定する。
+
+#### Design Review follow-up traceability
+
+次表は canonical Design における correction の所在を示すものであり、既存 review artifact の finding status を変更するものではない。正式な `Resolved` 判定は、更新後の Design に対する次の Design Review で行う。
+
+| Finding | Canonical Design における解消内容 | 主な位置 |
+| --- | --- | --- |
+| UF-RN-001 | Requirements `NFR-008`、`NFR-015` および `AC-061` を、operation 分類、実行コンテキスト、blocking / resource evidence、failure cleanup および async 化の future decision gate へ接続する | `bindings.md` §12.3、§12.9、§12.17; `architecture.md` §12.3; `security.md` §12.5 |
+| DR-RN-001 | public synchrony と Core の execution context を分離し、adapter-owned admission、worker + blocking wait の扱い、bounded baseline、benchmark gate、cancellation / interruption および automatic async fallback 禁止を一意に定める | `bindings.md` §12.3、§12.11、DDR-RN-004 |
+| DR-RN-002 | process-wide RN binding coordination が全 RN runtime / module registry / logical consumer context の Core / C ABI admission、cross-context ordering、shared lifecycle、stale completion および teardown barrier を一意に管理し、下位 scope は bypass しない | `architecture.md` §12.3、§12.7; `bindings.md` §12.11、DDR-RN-009; `security.md` §12.5 |
+| DR-RN-003 | RN-private adapter が existing public C ABI contract を内部再利用し、RN Application には公開せず、RN artifact の release ownership を npm package assembly chain に置く。RN-specific public C ABI は追加しない | `bindings.md` §12.1、§12.2、§12.12、DDR-RN-002 |
+| DR-RN-004 | RN artifact を source revision から controlled build、target、digest / provenance、approved npm assembly、published package まで bind し、Android は package / release assembly、iOS は package / link / composition を verification point とする | `bindings.md` §12.6、§12.7、§12.12、DDR-RN-010; `security.md` §12.4 |
+| DR-RN-005 | `PD-RN-001〜PD-RN-007` の承認済み version、OS、ABI / architecture、New Architecture および Expo baseline を canonical Design へ反映し、承認前の選択肢比較を履歴的・非規範的情報、Browser baseline と negative-evidence 後の async / support exclusion を別の未決定レーンとして区別する | `architecture.md` §12.4、§12.6、§12.7、§13; `bindings.md` §12.2、§12.6〜§12.7、§12.13、DDR-RN-001、DDR-RN-007〜DDR-RN-008、§12.17、§13 |
+
+## 13. React Native 技術資料の参照位置
+
+次の公式資料は、New Architecture、JSI、TurboModule、Codegen および Expo の技術的 feasibility を確認するための参考資料であり、minimum version、support scope、public API または release policy の normative source ではない。
+
+- [React Native New Architecture](https://reactnative.dev/architecture/landing-page)
+- [Turbo Native Modules](https://reactnative.dev/docs/turbo-native-modules-introduction)
+- [React Native Codegen](https://reactnative.dev/docs/the-new-architecture/what-is-codegen)
+- [Pure C++ Turbo Native Modules](https://reactnative.dev/docs/the-new-architecture/pure-cxx-modules)
+- [React Native 0.82 New Architecture](https://reactnative.dev/blog/2025/10/08/react-native-0.82)
+- [Expo: customizing development builds](https://docs.expo.dev/workflow/customizing/)
+- [Expo development builds](https://docs.expo.dev/develop/development-builds/introduction/)
+
+これらの資料で示される ecosystem の方向性は、承認前の候補比較における feasibility と rationale の参考に限る。現在の product policy は [`react-native-platform-baseline.md`](../decisions/react-native-platform-baseline.md) の `PD-RN-001〜PD-RN-007 = APPROVED` を normative input とし、外部資料だけから再推論しない。Browser baseline と、negative responsiveness evidence 後の async contract / operation-specific RN support exclusion は、この承認済み RN platform baseline とは別の未決定レーンとして扱う。

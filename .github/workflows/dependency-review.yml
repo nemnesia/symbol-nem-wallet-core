@@ -23,3 +23,7 @@ jobs:
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: moderate
+          # React Native 0.87 / Metro transitively resolves image-size. As of
+          # 2026-09-29 no installable patched release exists; keep this exception
+          # advisory-specific and remove it when upstream publishes a fix.
+          allow-ghsas: GHSA-w3rx-r6r6-pgpr, GHSA-5p2g-fcmc-qvqq

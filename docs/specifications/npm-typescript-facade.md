@@ -1,4 +1,4 @@
-# Stage 7A — npm / TypeScript facade public contract
+# Stage 7A — npm / TypeScript facade 公開契約
 
 ## 1. 位置づけ
 
@@ -6,6 +6,11 @@
 `3ee039d59618e68478be886cc8ff11b0649469fa` に対する Stage 7A の仕様である。
 Stage 6 Node-API Binding completion gate が PASS したことを前提に、Stage 7B の実装前に
 公開 npm package と TypeScript facade の外部可視契約を固定する。
+
+React Native Android / iOS の platform-specific binding、runtime identity、process-wide
+coordination、native artifact、Expo の契約は [`react-native.md`](react-native.md) に定める。
+本書の public facade、Node / Browser routing、Node artifact、WASM の契約は、RN 対応後も
+共通契約として維持する。
 
 対象 package は次の一つだけとする。
 
@@ -18,13 +23,13 @@ Stage 6 Node-API Binding completion gate が PASS したことを前提に、Sta
 契約であり、4 platform の release build、npm pack、clean install、各 bundler の検証は
 Stage 9 に委譲する。
 
-Normative terms such as **MUST**, **MUST NOT** and **MAY** are used as follows:
+規範語は次の意味で使用する。
 
 - **MUST**: 実装が満たさなければならない契約
 - **MUST NOT**: 実装および consumer-facing package が提供してはならないもの
 - **MAY**: 契約を変更しない範囲で許可される実装上の選択
 
-## 2. 根拠と現行 surface の追跡
+## 2. 根拠と現行の公開範囲の追跡
 
 本書のプロジェクト固有の根拠は次の順で扱う。
 
@@ -60,7 +65,7 @@ Chain / Network policy を変更してはならない。facade は representatio
 
 ## 3. 公開境界と責務
 
-### 3.1 公開 runtime surface
+### 3.1 実行時の公開範囲
 
 consumer-facing な runtime export は、次の named function 16 個だけとする。
 
@@ -91,10 +96,14 @@ delete_profile
 - backend object、native addon object、raw wasm-bindgen module
 - runtime `ErrorCode` object、debug helper、manifest loader
 
+React Native の `react-native` conditional entry は上記 16 function を同じ root facade として
+提供するための private backend resolution であり、named export、backend selector、native object
+または RN-specific public API を追加しない。
+
 `type`、`interface`、generic result alias および error declaration は TypeScript declaration
 上の型であり、runtime named export の数を増やさない。
 
-### 3.2 Facade の authority
+### 3.2 Facade の責任
 
 facade の authority は次の範囲だけとする。
 
@@ -117,9 +126,9 @@ Store と PendingProfile は facade にとって opaque な bytes である。fa
 approval、export intent、authorization または Network / Chain policy を生成、補完、推測、
 書き換えしない。
 
-## 4. Scalar、ID および binary contract
+## 4. Scalar、ID、バイナリの契約
 
-### 4.1 TypeScript scalar types
+### 4.1 TypeScript の scalar 型
 
 ```ts
 export type Network = 0 | 1;
@@ -150,7 +159,7 @@ Node/WASM output surface と同じ `NetworkName` / `ChainName` string representa
 解釈できなければならない。Core から返す UUID は lowercase とする。facade は UUID を
 別形式へ正規化せず、曖昧な ID や別 Profile の key を選択しない。
 
-### 4.2 Binary
+### 4.2 バイナリ
 
 公開 declaration の全 binary は `Uint8Array` とする。
 
@@ -175,7 +184,7 @@ payload 解釈を行わない。
 参照を破棄する。facade は秘密値を cache、log、warning、error、diagnostics または
 global state へコピーしない。
 
-## 5. Exact TypeScript declarations
+## 5. TypeScript 宣言
 
 次の declaration を v1 facade の公開型契約とする。すべての field は required であり、
 明示した field 以外を追加しない。`?` を使う field は `ExportTarget` の mnemonic
@@ -462,7 +471,7 @@ export function delete_profile(
 ): UnitMutationResult;
 ```
 
-### 5.1 Declaration interpretation
+### 5.1 宣言の解釈
 
 - 16 function declaration の return type はすべて同期型であり、`Promise` を含まない。
 - `create_empty_store` だけが単純な `Uint8Array` を返す。その他は Core の read または
@@ -477,7 +486,7 @@ export function delete_profile(
 - `AccountContext` の strings は DTO representation であり、facade が numeric
   `Network` / `Chain` を受けて補正してはならない。
 
-## 6. Operation traceability と success semantics
+## 6. 操作のトレーサビリティと成功の意味
 
 | public function              | Core operation                     | Node current export          | WASM current export          | result                              |
 | ---------------------------- | ---------------------------------- | ---------------------------- | ---------------------------- | ----------------------------------- |
@@ -509,7 +518,7 @@ Key fixed Chain に一致しなければならず、facade は他の context へ
 `sign` の `payload` は raw bytes として Core へ渡し、facade は transaction、hash、prefix、
 generation、fee または chain-specific serialization を解釈しない。
 
-## 7. DTO の security contract
+## 7. DTO のセキュリティ契約
 
 `HandoffConfirmation`、`ExportRequest`、`SigningRequest`、`AccountContext` の field は
 省略、再命名、既定値補完または暗黙変換をしない。次の条件は Core の既存仕様をそのまま
@@ -530,7 +539,7 @@ secret-containing DTO は成功時だけ返す。error、warning、exception mes
 representation、package metadata、manifest、artifact filename に Mnemonic、private key、
 password、seed、ciphertext、Store contents または payload の内容を含めない。
 
-## 8. ErrorCode と error representation
+## 8. ErrorCode とエラー表現
 
 ### 8.1 Core ErrorCode
 
@@ -561,7 +570,7 @@ Core の現行 `#[non_exhaustive]` enum に将来 code が加わった場合、�
 成功や既存 code へ黙って畳み込まない。新しい consumer-visible code が必要なら本書の
 仕様変更として扱う。
 
-### 8.2 Core operation error
+### 8.2 Core 操作のエラー
 
 Core operation の失敗は、Node/WASM どちらから来ても、次の facade error shape に正規化
 して throw する。
@@ -595,7 +604,7 @@ representation failure の正規化は次の通りとする。
 であり、facade が Core validation、crypto または security policy を実装することを意味
 しない。
 
-### 8.3 Backend initialization error
+### 8.3 Backend 初期化エラー
 
 Core `ErrorCode` と package/backend initialization error は別の namespace とする。次の
 失敗は `WalletCoreError` の 18 code に偽装してはならない。
@@ -621,18 +630,19 @@ artifact filename、raw loader detail、hash、package local path または秘�
 ESM では module evaluation の rejection、CJS では `require()` の throw になり得るが、
 どちらも operation の Core error result ではない。
 
-## 9. Conditional exports と public subpath
+## 9. Conditional exports と公開 subpath
 
-### 9.1 Exact `package.json` exports
+### 9.1 `package.json` の exports
 
 `package.json` の `exports` field は次の JSON を exact contract とする。object の条件順は
-意味を持つため、`types`、`node-addons`、`default` の順序を変更しない。
+意味を持つため、`types`、`react-native`、`node-addons`、`default` の順序を変更しない。
 
 ```json
 {
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "react-native": "./dist/react-native/index.js",
       "node-addons": {
         "import": "./dist/node/index.mjs",
         "require": "./dist/node/index.cjs"
@@ -646,9 +656,12 @@ ESM では module evaluation の rejection、CJS では `require()` の throw �
 }
 ```
 
-`browser` condition、独自 `wasm` / `native` condition、`process` / `window` heuristic に
-よる backend routing condition を追加しない。`types` は型解決のための先頭条件であり、
-runtime backend を選択しない。
+`react-native` condition は `node-addons` および `default` より前に置く。Metro / React Native
+native platform はこの condition を解決し、Node / Browser は従来どおり `node-addons` または
+`default` を解決する。`browser` condition、独自 `wasm` / `native` condition、
+`process` / `window` heuristic による backend routing condition を追加しない。`types` は型解決の
+ための先頭条件であり、runtime backend を選択しない。RN entry は [`react-native.md`](react-native.md)
+§3.2 の private entry contract に従い、public subpath ではない。
 
 公開 entry point は root のみである。
 
@@ -697,9 +710,9 @@ package metadata の基本値は次の通りとする。
 Node 22.x の途中で追加された API を最低 runtime に要求しない。primary verification line
 は Node 24.x とする。
 
-## 10. Backend routing と fallback
+## 10. Backend の選択とフォールバック
 
-### 10.1 Routing authority
+### 10.1 選択する責任
 
 backend の一次選択は package `exports` の条件解決だけで行う。
 
@@ -707,13 +720,14 @@ backend の一次選択は package `exports` の条件解決だけで行う。
 Node 通常起動       -> node-addons -> Node native adapter
 node --no-addons    -> default     -> WASM adapter
 Browser / bundler   -> default     -> WASM adapter
+React Native        -> react-native -> private RN entry -> TurboModule / JSI native adapter
 ```
 
 Node branch に入った後の `process.platform`、`process.arch` および libc 情報は native
 artifact lookup のためだけに使う。これは native / WASM backend の一次選択 authority では
 なく、unsupported target の場合に WASM adapter へ明示的に進むための lookup 結果である。
 
-### 10.2 許可される fallback
+### 10.2 許可されるフォールバック
 
 次の fallback だけを許可する。
 
@@ -745,9 +759,14 @@ supported native target の native load / initialization failure は fail closed
 WASM で再試行しない。retry により重複 mutation、異なる RNG、異なる backend semantics または
 failure masking を起こしてはならない。
 
+React Native branch は別の fallback domain である。`react-native` entry の provider、artifact、
+ABI / slice、initialization、invocation、conversion または lifecycle が失敗しても、`default`
+WASM adapter、`node-addons`、Node addon、remote artifact または別 ABI へ silent fallback しては
+ならない。RN の exact contract は [`react-native.md`](react-native.md) §3〜§21 に従う。
+
 ## 11. Node native target lookup
 
-### 11.1 Canonical mapping
+### 11.1 正式な対応表
 
 native v1 mandatory target は次の 4 個だけとする。
 
@@ -804,9 +823,9 @@ Linux では native load を試して libc を判定してはならない。Node
 Node.js の report API と `glibcVersionRuntime` は [Node.js Diagnostic report
 documentation](https://nodejs.org/api/report.html) を根拠とする。
 
-## 12. Native artifact manifest
+## 12. Native 成果物の manifest
 
-### 12.1 Location と exact schema
+### 12.1 配置場所と schema
 
 Stage 7 package 内の manifest は次の location だけに置く。
 
@@ -870,7 +889,7 @@ manifest field の validation は次の通りとする。
 上記以外の top-level field、artifact field、null、wildcard、target alias または unknown
 target を v1 contract に含めない。
 
-### 12.2 Manifest truth rule と hash verification
+### 12.2 Manifest の正本規則と hash 検証
 
 manifest entry の存在は、その package assembly が当該 native artifact を実際に提供する
 ことを意味する。assembler は次を満たさない entry を生成してはならない。
@@ -898,7 +917,13 @@ manifest の `sha256` は assembly / release evidence と runtime integrity veri
 承認済み release implementation により実装する。失敗は `BackendInitializationError` とし、Core
 error や WASM retry に変換しない。
 
-## 13. Stage 7 / Stage 9 assembly boundary
+React Native artifact は本 manifest に混在させない。RN manifest は
+`dist/react-native/artifact-manifest.json` に置き、Android `arm64-v8a` / `x86_64` と iOS device /
+Apple Silicon simulator slice の identity、digest、source revision および package assembly を
+[`react-native.md`](react-native.md) §21 に従って検証する。Node target entry がないことによる既存の
+WASM fallback と、RN artifact / provider failure は同一視しない。
+
+## 13. Stage 7 / Stage 9 の構成責任の境界
 
 ### 13.1 Stage 7 の責務
 
@@ -936,9 +961,9 @@ parity 責務を Stage 7 local build へ逆流させない。glibc baseline 不�
 fallback で隠してはならず、manifest entry が存在する supported artifact の load failure
 は従来どおり fail closed とする。
 
-## 14. WASM artifact と initialization
+## 14. WASM 成果物と初期化
 
-### 14.1 Artifact contract
+### 14.1 成果物の契約
 
 `crates/wasm` を唯一の WASM binding source とする。consumer package の WASM area は次の
 構造を持つ。
@@ -962,7 +987,7 @@ export にしない。
 remote CDN、remote URL、user-provided URL、network capability probe、install-time download
 を使用しない。package は同梱 asset だけで動作する。
 
-### 14.2 Universal loader contract
+### 14.2 共通 loader の契約
 
 `node-addons` または `default` の conditional branch が選択された後の WASM asset loading
 mechanism は backend selection ではなく asset loading の責務である。host ごとに次の方法
@@ -990,7 +1015,7 @@ synchronous instantiation documentation](https://wasm-bindgen.github.io/wasm-bin
 および [wasm-bindgen deployment documentation](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html)
 を根拠とする。
 
-### 14.3 Initialization failure
+### 14.3 初期化失敗
 
 次は全て `BackendInitializationError` とし、Core の `InvalidStore`、`CryptoFailure`、
 `BindingFailure`、native operation error または WASM retry に置き換えない。
@@ -1018,7 +1043,7 @@ Browser support baseline は次の通りとする。
 Stage 7 は Application の storage、service worker lifecycle、page/background routing を
 定義しない。これらは facade package の責務ではない。
 
-## 16. Package contents と install contract
+## 16. Package の内容とインストール契約
 
 ### 16.1 Allowlist
 
@@ -1042,6 +1067,10 @@ dist/native/<declared target>/<supplied .node artifact>
 `dist/wasm` の generated glue は adapter が必要とする内部 asset に限る。`dist/native` の
 `.node` は manifest に実在 entry がある artifact だけを含める。
 
+React Native private entry、RN artifact manifest、Android ABI artifact および iOS XCFramework slice は
+[`react-native.md`](react-native.md) §3.2、§16、§21 の package inventory に従う。これらは同じ single
+npm package の assembly に含めるが、本書の Node manifest に混在させない。
+
 次は package に含めない。
 
 ```text
@@ -1057,7 +1086,7 @@ raw C ABI artifact
 development config
 ```
 
-### 16.2 Install contract
+### 16.2 インストール契約
 
 package は同梱 artifact だけで成立し、次を持たない。
 
@@ -1074,7 +1103,7 @@ cargo execution
 が、最終 tarball の過不足は Stage 9 npm pack review で確認する。npm registry に publish
 済みであるとは本書で主張しない。
 
-## 17. Node-API compatibility detail
+## 17. Node-API 互換性の詳細
 
 Stage 6 Node-API Binding が SharedArrayBuffer を Rust slice 生成前に拒否するために使う
 `napi-rs compat-mode` / `JsTypedArray` は Node Binding 内部 implementation detail である。
@@ -1082,7 +1111,7 @@ Stage 6 Node-API Binding が SharedArrayBuffer を Rust slice 生成前に拒否
 contract または WASM adapter へ露出しない。Stage 7 で別の箇所へ compat-mode dependency を
 拡散しない。
 
-## 18. README 追加予定内容
+## 18. README に反映する内容
 
 Stage 7 実装後の README には、少なくとも次を追加する。
 
@@ -1093,20 +1122,22 @@ Stage 7 実装後の README には、少なくとも次を追加する。
 - Browser WASM
 - `node --no-addons` は WASM
 - unsupported native target は WASM
+- React Native は `react-native` conditional entry と package-local native artifact を使用する
+- React Native は Bare RN / Expo Development Build / Expo Prebuild を正式サポートとし、Expo Go は対象外とする
 - backend を直接選択する public API はない
 - raw native / WASM backend は非公開
 
 README に registry publish 済み、release 完了または Stage 9 の全 target build 済みとは
 記載しない。README の変更自体は本 Stage 7A の scope 外である。
 
-## 19. Unresolved decisions / blocked status
+## 19. 未解決の判断と作業停止状態
 
-### 19.1 NEEDS USER DECISION
+### 19.1 ユーザー判断が必要
 
 なし。既存の承認済み decision、Core/Node/WASM の現行 surface および package routing から、
 本書の public representation、routing、manifest、single-WASM loader boundary を確定できる。
 
-### 19.2 BLOCKED
+### 19.2 作業停止中
 
 なし。Browser ESM は module initialization を async、Node ESM / CJS は package-local
 同期 initialization とすることで、public operation の synchronous contract と single
@@ -1114,7 +1145,7 @@ WASM binary invariant を同時に満たす形を仕様化できる。実装時�
 toolchain がこの adapter arrangement を実現できない場合は、実装で別 semantics を導入せず、
 その時点で `BLOCKED / facade WASM initialization contract gap` として別途報告する。
 
-## 20. Traceability と Stage 7A acceptance
+## 20. トレーサビリティと Stage 7A の受け入れ条件
 
 Stage 7A の仕様書は次を満たすことを acceptance condition とする。
 
@@ -1150,6 +1181,7 @@ Stage 7A の仕様書は次を満たすことを acceptance condition とする�
 - `docs/design/bindings.md`
 - `docs/specifications/specification.md`
 - `docs/specifications/wallet-store-format-v1.md`
+- `docs/specifications/react-native.md`
 - `crates/core/src/lib.rs`
 - `crates/core/src/types.rs`
 - `crates/core/src/error.rs`

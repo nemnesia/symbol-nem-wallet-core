@@ -4,7 +4,7 @@
 
 The Japanese version is authoritative if there is any discrepancy.
 
-`@nemnesia/symbol-nem-wallet-core` is the synchronous TypeScript facade for the Symbol / NEM Wallet Core. Node.js and Browser applications import the package root to work with Mnemonics, Profiles, Software Keys, public accounts, and raw signing payloads.
+`@nemnesia/symbol-nem-wallet-core` is the synchronous TypeScript facade for the Symbol / NEM Wallet Core. Node.js, Browser, and React Native Android / iOS applications import the package root to work with Mnemonics, Profiles, Software Keys, public accounts, and raw signing payloads.
 
 ## Install
 
@@ -46,7 +46,104 @@ The backend, raw `.node`, raw `.wasm`, generated binding modules, manifest, and 
 
 ## Quick Start
 
-The following Node.js ESM example restores a Profile from an existing Mnemonic, derives a Symbol Software Key, and obtains its public account. Secrets are not embedded in source code; the example uses environment input.
+### 1. 30-second smoke test
+
+With Node.js ESM, first verify package-root initialization without any secret input.
+
+```ts
+import { create_empty_store, list_profiles } from "@nemnesia/symbol-nem-wallet-core";
+
+const store = create_empty_store();
+const profiles = list_profiles(store);
+
+console.log(profiles.value); // []
+```
+
+### 2. Create a new Wallet
+
+Create a new Wallet in this order:
+
+```text
+empty Store
+  ↓
+prepare_generated_profile
+  ↓
+present the Mnemonic to the intended user
+  ↓
+obtain explicit acknowledgement
+  ↓
+finalize_generated_profile
+  ↓
+derive_software_key
+  ↓
+get_public_account
+```
+
+`prepare_generated_profile` returns a Mnemonic and Pending Profile but does not commit a Profile to the Store. Call `finalize_generated_profile(..., { status: "confirmed" })` only after the Application has presented the complete Mnemonic to the intended user and obtained explicit acknowledgement for the current operation.
+
+```ts
+import {
+  create_empty_store,
+  derive_software_key,
+  finalize_generated_profile,
+  get_public_account,
+  prepare_generated_profile,
+} from "@nemnesia/symbol-nem-wallet-core";
+
+const passwordText = process.env.WALLET_PASSWORD;
+if (passwordText === undefined) {
+  throw new Error("WALLET_PASSWORD is required");
+}
+
+const password_utf8 = new TextEncoder().encode(passwordText);
+let store = create_empty_store();
+
+const prepared = prepare_generated_profile(store, password_utf8, 1);
+
+// Application responsibility:
+// 1. Present all prepared.value.mnemonic_utf8 to the intended user securely.
+// 2. Obtain explicit acknowledgement for this operation.
+// 3. Abort here if acknowledgement is not obtained.
+const handoffConfirmed = await presentMnemonicAndWaitForExplicitConfirmation(
+  prepared.value.mnemonic_utf8,
+);
+if (!handoffConfirmed) {
+  throw new Error("Mnemonic handoff was not confirmed");
+}
+
+const finalized = finalize_generated_profile(
+  store,
+  prepared.value.pending_profile,
+  password_utf8,
+  { status: "confirmed" },
+);
+store = finalized.store;
+
+const derived = derive_software_key(
+  store,
+  finalized.value.profile_id,
+  password_utf8,
+  1, // symbol
+  0, // account index
+);
+store = derived.store;
+
+const account = get_public_account(
+  store,
+  finalized.value.profile_id,
+  derived.value.key_id,
+  { chain: "symbol", network: "mainnet" },
+  password_utf8,
+);
+
+console.log(account.value.address);
+```
+
+`presentMnemonicAndWaitForExplicitConfirmation` is an Application-implemented UI / handoff operation, not a Wallet Core function. Do not make it always return `true` merely to run the sample, and do not pass `confirmed` without acknowledgement. Do not write the Mnemonic to logs, analytics, or diagnostics.
+
+### 3. Restore an existing Wallet
+
+If you already have a Mnemonic, use `restore_profile`. Generated-Mnemonic handoff does not apply to this path.
 
 ```ts
 import {
@@ -67,7 +164,6 @@ const mnemonic_utf8 = encoder.encode(mnemonicText);
 const password_utf8 = encoder.encode(passwordText);
 
 let store = create_empty_store();
-
 const restored = restore_profile(store, mnemonic_utf8, password_utf8, 1);
 store = restored.store;
 
@@ -91,9 +187,11 @@ const account = get_public_account(
 console.log(account.value.address);
 ```
 
-`1` is the top-level `Network` value for mainnet and the `Chain` value for Symbol. Output DTOs use the string values `"mainnet"` and `"symbol"` for `network` and `chain`.
+Top-level `Network` / `Chain` inputs use `0 = testnet / nem` and `1 = mainnet / symbol`. Output DTOs use `"testnet" | "mainnet"` and `"nem" | "symbol"`.
 
-The input `store` is not mutated in place. After every successful mutation, use `result.store` as the complete replacement Store for the next operation. The Application keeps the previous committed Store if persistence of the replacement fails. A failed result does not provide a successful replacement Store.
+### Always replace the Store after a mutation
+
+The input `store` is never mutated in place. After each successful mutation, `result.store` is the complete replacement Store. Use it for the next operation and persistence; if persistence fails, retain the previous committed Store.
 
 ## Public functions (16)
 
@@ -366,6 +464,59 @@ Every binary type in the public declaration is `Uint8Array`.
 At runtime on Node.js, `Buffer` may be accepted as a `Uint8Array`-compatible input, but the canonical public type in the declaration and DTOs is `Uint8Array`. WASM does not assume Buffer. A private key cannot be supplied as a hex string.
 
 Input binary ownership remains with the caller; the facade does not retain it. Returned binary is a new copy owned by the caller. Do not copy Mnemonics, passwords, private keys, decrypted secret material, or signatures into logs, analytics, diagnostics, caches, long-lived state, or unnecessary storage. After handoff, export, or signing is complete, the caller should overwrite sensitive buffers and discard references.
+
+## React Native integration
+
+React Native Android and iOS use the same package root. The `react-native` conditional export selects a private native entry, which calls the same Rust Core / C ABI through a New Architecture TurboModule / JSI adapter. React Native never falls back to the Node addon or WASM.
+
+The v1 specification covers stable React Native `0.86.x` / `0.87.x` (`0.87.x` is the primary validation line), New Architecture, Android API 24+ with `arm64-v8a` / `x86_64`, and iOS 15.1+ with an arm64 device or Apple Silicon simulator. The specified Expo subset is SDK 57 with React Native `0.86.x` in a Development Build / Prebuild custom-native-module workflow. Expo Go is unsupported.
+
+At present, only Bare RN `0.87.x` is backed by the repository's source-controlled consumer, lockfiles, and build workflow. RN `0.86.x` and the Expo SDK 57 + RN `0.86.x` pair remain in the v1 specification but still require formal release compatibility evidence. Do not treat them as validated environments yet.
+
+Missing or unverifiable native artifacts, providers, or registration fail with `WalletCoreBackendInitializationError`. There is no runtime download, postinstall compilation, separate RN package, RN-specific WASM binary, or Legacy Architecture / bridge fallback. RN native builds use the package `codegenConfig` and the bundled platform source / artifact manifest.
+
+The 16 RN functions are synchronous and use `Uint8Array` for public binary values. Store, Pending Profile, Mnemonic, password, private key, payload, signature, and replacement-Store handling follow the same contracts as Node and Browser.
+
+### Common prerequisites
+
+- Enable New Architecture and import only from the package root.
+- Confirm that the published npm package contains the `dist/react-native` artifact and manifest for the target platform.
+- A missing provider, artifact, or lifecycle registration is `WalletCoreBackendInitializationError`. Do not switch to the Node addon or WASM.
+- [`integration/react-native/consumer`](../../integration/react-native/consumer) is the repository's validated Bare RN `0.87.x` integration example.
+
+### Android
+
+The package does not use generic Android autolinking, so the Application must connect these pieces:
+
+1. Register `node_modules/@nemnesia/symbol-nem-wallet-core/android` as a Gradle project in `settings.gradle`.
+2. Add `implementation(project(":symbol-nem-wallet-core"))` to the app module.
+3. From the application-level `CMakeLists.txt`, add the package's `android/CMakeLists.txt` with `add_subdirectory` and link `symbol_nem_wallet_core_rn` into the `appmodules` target.
+4. Use the package's provider-aware `android/OnLoad.cpp` from the application-level `OnLoad.cpp`.
+5. Add `SymbolNemWalletCoreCxxReactPackage.create(context)` to `cxxReactPackageProviders` in `MainApplication`, then pass the resulting `ReactHost` to `SymbolNemWalletCoreRnLifecycle.attach(host)`.
+
+See the consumer's [`settings.gradle`](../../integration/react-native/consumer/android/settings.gradle), [`app/build.gradle`](../../integration/react-native/consumer/android/app/build.gradle), [`CMakeLists.txt`](../../integration/react-native/consumer/android/app/src/main/jni/CMakeLists.txt), [`OnLoad.cpp`](../../integration/react-native/consumer/android/app/src/main/jni/OnLoad.cpp), and [`MainApplication.kt`](../../integration/react-native/consumer/android/app/src/main/java/com/snwcrnbuild/MainApplication.kt) for the complete setup.
+
+### iOS
+
+1. Add the `SymbolNemWalletCoreRN` pod from `node_modules/@nemnesia/symbol-nem-wallet-core/ios` to the Podfile and run `pod install`.
+2. Use `SnwcRnReactNativeFactory` instead of the ordinary `RCTReactNativeFactory` in `AppDelegate`.
+3. Subclass `SnwcRnLifecycleDelegate` so runtime creation, reload, and destruction are connected to the package lifecycle.
+
+See the consumer's [`Podfile`](../../integration/react-native/consumer/ios/Podfile) and [`AppDelegate.swift`](../../integration/react-native/consumer/ios/SnwcRnBuild/AppDelegate.swift).
+
+### Expo
+
+Expo Go cannot load this native module. Use a Development Build / Prebuild workflow, apply the same Android or iOS provider, CMake / Pod, and lifecycle integration to the generated native project, and rebuild the development client. Compatibility evidence for SDK 57 + RN `0.86.x` is not complete, so do not treat that pair as validated until formal release verification succeeds.
+
+### First call
+
+After native integration, continue importing only from the package root. A synchronous `Uint8Array` result confirms that the conditional export, provider, and native artifact initialized successfully.
+
+```ts
+import { create_empty_store } from "@nemnesia/symbol-nem-wallet-core";
+
+const store = create_empty_store();
+```
 
 ## Node / Browser backend behavior
 

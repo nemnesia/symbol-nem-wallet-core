@@ -2,13 +2,13 @@
 
 [日本語](README.md) | [English](README.en.md)
 
-この日本語版が canonical / authoritative documentation です。
+この日本語版を正式な正本文書とします。
 
-`symbol-nem-wallet-core` は、Symbol / NEM の秘密情報を扱う Rust Wallet Core と、その Native C ABI、WASM、Node.js / Browser 向け npm facade を含む monorepo です。主要な distribution path は `@nemnesia/symbol-nem-wallet-core` です。
+`symbol-nem-wallet-core` は、Symbol / NEM の秘密情報を扱う Rust Wallet Core と、Native C ABI、WASM、Node.js / Browser / React Native 向け npm facade を含む monorepo です。主な配布経路は `@nemnesia/symbol-nem-wallet-core` です。
 
-## Project overview
+## プロジェクト概要
 
-Wallet Core は、Profile password による operation 単位の認証、Mnemonic と Software Key の保護・導出・署名、Wallet Store の検証と状態変更を担当します。保存先、UI、Transaction の構築・解釈、ネットワーク通信は担当しません。
+Wallet Core は、Profile password による操作単位の認証、Mnemonic と Software Key の保護・導出・署名、Wallet Store の検証と状態変更を担当します。保存先、UI、Transaction の構築・解釈、ネットワーク通信は担当しません。
 
 主な対象は次のとおりです。
 
@@ -23,69 +23,45 @@ Profile は1つの Mnemonic と Network を持ち、Network は作成時に固�
 
 ## npm を使う
 
-### Install
+### インストール
 
 ```bash
 npm install @nemnesia/symbol-nem-wallet-core
 ```
 
-### Quick Start
+### まず実行環境を選ぶ
 
-次は Node.js ESM で既存 Mnemonic から Profile を復元し、Symbol の Software Key を導出して public account を取得する最小例です。秘密情報を source code にハードコードせず、environment input を使用します。
+| 環境 | 最初にすること |
+| --- | --- |
+| Node.js 22+ | package root を import してそのまま利用 |
+| Browser | package root を import。package-local WASM を使用 |
+| React Native 0.87.x | npm install 後に native provider / lifecycle の接続が必要。[React Native 導入](packages/wallet-core/README.md#react-native-の導入)へ進む |
+
+React Native は `npm install` だけでは動作しません。現在リポジトリで実証済みなのは Bare React Native `0.87.x` です。
+
+### 30秒で動作確認
+
+Node.js ESM では、秘密情報なしで package の初期化を確認できます。
 
 ```ts
-import {
-  create_empty_store,
-  derive_software_key,
-  get_public_account,
-  restore_profile,
-} from "@nemnesia/symbol-nem-wallet-core";
+import { create_empty_store, list_profiles } from "@nemnesia/symbol-nem-wallet-core";
 
-const mnemonicText = process.env.WALLET_MNEMONIC;
-const passwordText = process.env.WALLET_PASSWORD;
-if (mnemonicText === undefined || passwordText === undefined) {
-  throw new Error("WALLET_MNEMONIC and WALLET_PASSWORD are required");
-}
-
-const encoder = new TextEncoder();
-const mnemonic_utf8 = encoder.encode(mnemonicText);
-const password_utf8 = encoder.encode(passwordText);
-
-let store = create_empty_store();
-const restored = restore_profile(store, mnemonic_utf8, password_utf8, 1);
-store = restored.store;
-
-const derived = derive_software_key(
-  store,
-  restored.value.profile_id,
-  password_utf8,
-  1,
-  0,
-);
-store = derived.store;
-
-const account = get_public_account(
-  store,
-  restored.value.profile_id,
-  derived.value.key_id,
-  { chain: "symbol", network: "mainnet" },
-  password_utf8,
-);
-
-console.log(account.value.address);
+const store = create_empty_store();
+console.log(list_profiles(store).value); // []
 ```
 
-`1` は top-level input の `Network` における mainnet 値、`Chain` における symbol 値です。出力 DTO では `network` / `chain` が `"mainnet"` / `"symbol"` になります。
+### 次にやること
 
-入力 Store は inplace mutation されません。mutation 成功後は必ず `result.store` を次の current Store として利用し、永続化に成功した replacement だけを atomic に適用してください。失敗時は従来の committed Store を維持します。
+- **新規 Wallet を作る**: `prepare_generated_profile` → Mnemonic handoff → `finalize_generated_profile` → Software Key → Address。安全な実装例は [新規 Wallet を作る](packages/wallet-core/README.md#新規-wallet-を作る)。
+- **既存 Wallet を復元する**: `restore_profile` → Software Key → Address。[既存 Wallet を復元する](packages/wallet-core/README.md#既存-wallet-を復元する)。
+- **署名する**: Application が transaction / payload を表示して approval を取得してから `sign`。[Signing](packages/wallet-core/README.md#signing)。
+- **React Native で使う**: Android / iOS の native setup が必要。[React Native の導入](packages/wallet-core/README.md#react-native-の導入)。
 
-Node.js は supported target に package-local native artifact があれば native を優先します。`node --no-addons` と native artifact のない unsupported target は package-local WASM を使用します。宣言済み native artifact の欠落、破損、読込失敗、初期化失敗は fail closed し、WASM へ silent fallback しません。Browser は package-local の canonical WASM を使い、remote download は行いません。
+状態変更が成功したら、必ず `result.store` を次の Store として使用してください。永続化に成功した replacement Store だけを原子的に適用し、失敗時は直前の確定済み Store を維持します。
 
-詳細な16関数、型、request、result、export / signing flow は [npm package README](packages/wallet-core/README.md) を参照してください。
+## npm 公開 API の概要
 
-## npm public API overview
-
-package root の runtime export は次の16関数だけです。default export、class、backend-selection API、raw native API、raw WASM API、internal manifest API は public API ではありません。
+package root が実行時に公開するのは、次の16関数だけです。default export、class、backend 選択 API、raw Native API、raw WASM API、内部 manifest API は公開 API ではありません。
 
 ```text
 create_empty_store                 prepare_generated_profile
@@ -98,9 +74,9 @@ sign                               change_profile_password
 delete_software_key                delete_profile
 ```
 
-公開 binary は `Uint8Array` です。Store / Pending / Mnemonic / password / private key / payload / signature を hex string として扱う契約はありません。Node では Buffer が compatible input として受理される場合がありますが、canonical public type は `Uint8Array` です。
+公開するバイナリ型は `Uint8Array` です。Store / Pending / Mnemonic / password / private key / payload / signature を16進文字列として扱う契約はありません。Node.js では `Buffer` を互換入力として受理する場合がありますが、正式な公開型は `Uint8Array` です。
 
-### 安全上重要な operation
+### 安全上重要な操作
 
 - Generated Mnemonic は `prepare_generated_profile` で準備し、Application が Mnemonic 全体を intended user に提示して明示的な受領確認を取得した後だけ、`finalize_generated_profile` で確定します。Application は確認 status を推測・補完・過去から再利用しません。
 - Mnemonic / private key export は、対象、利用者の明示的要求、Application confirmation、正しい Profile password authorization を同じ operation で満たす必要があります。password を知っているだけでは export できません。
@@ -227,7 +203,7 @@ Symbol と NEM は HD 導出、public key、address、署名 scheme を同一視
 
 ## Native C ABI
 
-Native C ABI は npm public API ではなく、native integration 用の `symbol-nem-wallet-core-native` package と [公開 header](crates/c-abi/include/symbol_nem_wallet_core.h) です。Node-API `.node` artifact と同一物ではありません。正式 release では、4 target の C ABI archive と evidence を npm package とは分離した GitHub Release asset として保存します。Android / iOS C ABI support is deferred to MosaicLynx integration.
+Native C ABI は npm 公開 API ではなく、native integration 向けの `symbol-nem-wallet-core-native` package と [公開 header](crates/c-abi/include/symbol_nem_wallet_core.h) です。Node-API の `.node` 成果物とは別物です。正式リリースでは、4 target の C ABI archive と検証証跡を npm package から分離し、GitHub Release asset として保存します。Android / iOS の standalone C ABI artifact 公開は MosaicLynx integration へ委譲し、React Native では npm package 内の private adapter から既存 C ABI contract を再利用します。
 
 ```bash
 cargo build --package symbol-nem-wallet-core-native --release --locked
@@ -272,7 +248,7 @@ cc -std=c11 -Wall -Wextra -Werror \
 
 WASM、Native C ABI、Node-API は Rust Core の cryptography、password authorization、Store semantics、confirmation / approval、Chain / Network policy を複製しません。
 
-## Security / sensitive data handling
+## セキュリティと秘密情報の扱い
 
 Mnemonic、private key、Profile password、seed、decrypted secret material、signature、Store の内部、payload の内容を log、analytics、例外、Debug、warning、diagnostics、不要な cache / storage に出力・コピーしないでください。
 
@@ -293,11 +269,11 @@ supported native target では、Node loader が load 前に package-local manif
 - Hardware Wallet、External Signer、OS Keychain / Secure Enclave / TPM
 - Wallet Store の保存先選択、同期、backup UI、version migration
 
-## Development documentation
+## 開発資料
 
 設計・仕様・レビュー資料は [`docs/`](docs/) にあります。主に実装者・コントリビューター・レビュアー向けの資料です。
 
-## Development / validation
+## 開発と検証
 
 README-only の変更では実装テストを自動的に意味しません。実装変更を含む場合は、対象に応じて次の入口を使用します。
 

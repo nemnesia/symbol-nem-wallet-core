@@ -257,7 +257,7 @@ pub fn finalize_generated_profile(
         &wallet.registry_key,
         pending.network,
         &entropy,
-    ));
+    )?);
     let mut duplicate_profile = 0u8;
     for profile in &wallet.profiles {
         duplicate_profile |= secret_bytes_equal(&profile.duplicate_tag, &duplicate_tag);
@@ -324,7 +324,7 @@ pub fn restore_profile(
         &wallet.registry_key,
         network,
         &entropy,
-    ));
+    )?);
     let mut duplicate_profile = 0u8;
     for profile in &wallet.profiles {
         duplicate_profile |= secret_bytes_equal(&profile.duplicate_tag, &duplicate_tag);
@@ -899,7 +899,7 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
     // forbidden extension types out of all subsequent secret-bearing paths.
     validate_unknown_fields(map, &[0, 1, 2, 3])?;
     // top-levelのmagic/versionを確認してから、v1の各fieldを解釈する。
-    let magic = fixed_bytes(map_value(map, 0), 4)
+    let magic = fixed_bytes::<4>(map_value(map, 0))
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     if magic != MAGIC {
         return Err(WalletError::new(ErrorCode::InvalidStore));
@@ -910,7 +910,7 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
         None | Some(_) => return Err(WalletError::new(ErrorCode::InvalidStore)),
     }
     let registry_key = zeroize::Zeroizing::new(
-        fixed_bytes(map_value(map, 2), 32)
+        fixed_bytes::<32>(map_value(map, 2))
             .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?,
     );
     let profiles_value =
@@ -940,7 +940,7 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
         WalletStore {
             registry_key: *registry_key,
             profiles,
-            unknown_fields: unknown_fields(map, &[0, 1, 2, 3])?,
+            unknown_fields: clone_unknown_fields_unchecked(map, &[0, 1, 2, 3]),
         },
         Vec::new(),
     ))
@@ -951,11 +951,11 @@ fn parse_profile(value: &Value) -> WalletResult<ProfileEnvelope> {
     let map = as_map(value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     validate_unknown_fields(map, &[0, 1, 2, 3, 4, 5, 6])?;
     // 既知fieldは型・長さ・enumを厳密に読み、未知fieldは意味解釈せず保持する。
-    let profile_id = fixed_bytes(map_value(map, 0), 16)
+    let profile_id = fixed_bytes::<16>(map_value(map, 0))
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let network = parse_network(map_value(map, 1))
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
-    let duplicate_tag = fixed_bytes(map_value(map, 2), 32)
+    let duplicate_tag = fixed_bytes::<32>(map_value(map, 2))
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     match map_value(map, 3) {
         Some(Value::UInt(PROFILE_SCHEMA_VERSION)) => {}
@@ -993,7 +993,7 @@ fn parse_profile(value: &Value) -> WalletResult<ProfileEnvelope> {
         cipher,
         software_key_index,
         aad_software_key_index,
-        unknown_fields: unknown_fields(map, &[0, 1, 2, 3, 4, 5, 6])?,
+        unknown_fields: clone_unknown_fields_unchecked(map, &[0, 1, 2, 3, 4, 5, 6]),
     })
 }
 
@@ -1012,9 +1012,9 @@ fn parse_kdf(value: Option<&Value>) -> WalletResult<KdfParams> {
         return Err(WalletError::new(ErrorCode::InvalidStore));
     }
     Ok(KdfParams {
-        salt: fixed_bytes(map_value(map, 5), 16)
+        salt: fixed_bytes::<16>(map_value(map, 5))
             .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?,
-        unknown_fields: unknown_fields(map, &[0, 1, 2, 3, 4, 5])?,
+        unknown_fields: clone_unknown_fields_unchecked(map, &[0, 1, 2, 3, 4, 5]),
     })
 }
 
@@ -1027,19 +1027,19 @@ fn parse_cipher(value: Option<&Value>) -> WalletResult<Ciphertext> {
     if uint(map_value(map, 0)) != Some(CIPHER_ALGORITHM) {
         return Err(WalletError::new(ErrorCode::InvalidStore));
     }
-    let nonce = fixed_bytes(map_value(map, 1), 12)
+    let nonce = fixed_bytes::<12>(map_value(map, 1))
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let ciphertext = match map_value(map, 2) {
         Some(Value::Bytes(value)) if value.len() <= MAX_PROFILE_CIPHERTEXT_BYTES => value.clone(),
         _ => return Err(WalletError::new(ErrorCode::InvalidStore)),
     };
-    let tag = fixed_bytes(map_value(map, 3), 16)
+    let tag = fixed_bytes::<16>(map_value(map, 3))
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     Ok(Ciphertext {
         nonce,
         ciphertext,
         tag,
-        unknown_fields: unknown_fields(map, &[0, 1, 2, 3])?,
+        unknown_fields: clone_unknown_fields_unchecked(map, &[0, 1, 2, 3]),
     })
 }
 
@@ -1047,7 +1047,7 @@ fn parse_cipher(value: Option<&Value>) -> WalletResult<Ciphertext> {
 fn parse_index_entry(value: &Value) -> WalletResult<IndexEntry> {
     let map = as_map(value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     validate_unknown_fields(map, &[0, 1])?;
-    let key_id = fixed_bytes(map_value(map, 0), 16)
+    let key_id = fixed_bytes::<16>(map_value(map, 0))
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let chain =
         parse_chain(map_value(map, 1)).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
@@ -1062,7 +1062,7 @@ fn parse_payload(bytes: &[u8]) -> WalletResult<ProfilePayload> {
     let map = as_map(&value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     validate_unknown_fields(map, &[0, 1])?;
     let mnemonic_entropy = zeroize::Zeroizing::new(
-        fixed_bytes(map_value(map, 0), 32)
+        fixed_bytes::<32>(map_value(map, 0))
             .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?,
     );
     let values = map_value(map, 1)
@@ -1085,7 +1085,7 @@ fn parse_payload(bytes: &[u8]) -> WalletResult<ProfilePayload> {
     Ok(ProfilePayload {
         mnemonic_entropy: *mnemonic_entropy,
         software_keys,
-        unknown_fields: unknown_fields(map, &[0, 1])?,
+        unknown_fields: clone_unknown_fields_unchecked(map, &[0, 1]),
     })
 }
 
@@ -1093,7 +1093,7 @@ fn parse_payload(bytes: &[u8]) -> WalletResult<ProfilePayload> {
 fn parse_key_record(value: &Value) -> WalletResult<KeyRecord> {
     let map = as_map(value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     validate_unknown_fields(map, &[0, 1, 2, 3])?;
-    let key_id = fixed_bytes(map_value(map, 0), 16)
+    let key_id = fixed_bytes::<16>(map_value(map, 0))
         .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
     let chain =
         parse_chain(map_value(map, 1)).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
@@ -1124,7 +1124,7 @@ fn parse_key_record(value: &Value) -> WalletResult<KeyRecord> {
     validate_unknown_fields(origin_map, origin_known_fields)?;
     // originの検証とunknown field検証が完了してから、秘密鍵をzeroize ownerへ取り込む。
     let private_key = zeroize::Zeroizing::new(
-        fixed_bytes(map_value(map, 2), 32)
+        fixed_bytes::<32>(map_value(map, 2))
             .ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?,
     );
     Ok(KeyRecord {
@@ -1132,8 +1132,8 @@ fn parse_key_record(value: &Value) -> WalletResult<KeyRecord> {
         chain,
         private_key: *private_key,
         origin,
-        unknown_fields: unknown_fields(map, &[0, 1, 2, 3])?,
-        origin_unknown_fields: unknown_fields(origin_map, origin_known_fields)?,
+        unknown_fields: clone_unknown_fields_unchecked(map, &[0, 1, 2, 3]),
+        origin_unknown_fields: clone_unknown_fields_unchecked(origin_map, origin_known_fields),
     })
 }
 
@@ -1175,7 +1175,7 @@ fn validate_authenticated_profile(
         &wallet.registry_key,
         profile.network,
         &payload.mnemonic_entropy,
-    );
+    )?;
     if secret_bytes_equal(&expected_tag, &profile.duplicate_tag) == 0 {
         return Err(WalletError::new(ErrorCode::InvalidStore));
     }
@@ -1210,10 +1210,11 @@ fn reencrypt_profile(
 ) -> WalletResult<()> {
     // payloadからindexを再構築し、既存indexのunknown fieldを対応するkey_idへ引き継ぐ。
     let registry_key = zeroize::Zeroizing::new(wallet.registry_key);
+    let software_key_index = index_from_payload(payload);
     let profile = &mut wallet.profiles[profile_index];
-    profile.software_key_index = index_from_payload(payload);
     profile.aad_software_key_index =
-        index_values_from_payload(payload, &profile.aad_software_key_index)?;
+        index_values_from_payload(&software_key_index, &profile.aad_software_key_index)?;
+    profile.software_key_index = software_key_index;
     if change_password {
         // password変更時だけKDF saltも更新する。通常のkey追加・削除ではsaltを維持する。
         profile.kdf.salt = crypto::random()?;
@@ -1241,6 +1242,8 @@ fn new_encrypted_profile(
     password_utf8: &[u8],
 ) -> WalletResult<ProfileEnvelope> {
     // 新規Profileでは未知fieldを持たないmanifestを組み立て、初回payloadを暗号化する。
+    let software_key_index = index_from_payload(payload);
+    let aad_software_key_index = index_to_values(&software_key_index);
     let mut profile = ProfileEnvelope {
         profile_id,
         network,
@@ -1255,8 +1258,8 @@ fn new_encrypted_profile(
             tag: [0u8; 16],
             unknown_fields: Vec::new(),
         },
-        software_key_index: index_from_payload(payload),
-        aad_software_key_index: index_to_values(&index_from_payload(payload)),
+        software_key_index,
+        aad_software_key_index,
         unknown_fields: Vec::new(),
     };
     let mut key = crypto::derive_encryption_key(password_utf8, &profile.kdf.salt)?;
@@ -1306,16 +1309,16 @@ fn encode_store(wallet: &WalletStore) -> WalletResult<Vec<u8>> {
     if wallet.profiles.len() > MAX_PROFILES {
         return Err(WalletError::new(ErrorCode::SerializationFailure));
     }
-    // cloneはwire値を再構築するためのものであり、秘密payloadを意味解釈するためではない。
-    let mut profiles = wallet.profiles.clone();
-    profiles.sort_by_key(|profile| profile.profile_id);
+    // ProfileEnvelope本体はcloneせず、参照の並べ替えだけでdeterministicな配列を作る。
+    let mut profiles = wallet.profiles.iter().collect::<Vec<_>>();
+    profiles.sort_unstable_by_key(|profile| profile.profile_id);
     let mut fields = vec![
         (0, Value::Bytes(MAGIC.to_vec())),
         (1, Value::UInt(STORE_VERSION)),
         (2, Value::Bytes(wallet.registry_key.to_vec())),
         (
             3,
-            Value::Array(profiles.iter().map(profile_to_value).collect()),
+            Value::Array(profiles.into_iter().map(profile_to_value).collect()),
         ),
     ];
     fields.extend(
@@ -1449,12 +1452,12 @@ fn index_to_values(entries: &[IndexEntry]) -> Vec<Value> {
 
 // 既存indexのunknown fieldをkey_idで引き継ぎ、既知fieldだけを更新する。
 fn index_values_from_payload(
-    payload: &ProfilePayload,
+    software_key_index: &[IndexEntry],
     existing: &[Value],
 ) -> WalletResult<Vec<Value>> {
     let mut existing = existing.iter().peekable();
     let mut entries = Vec::new();
-    for entry in index_from_payload(payload) {
+    for entry in software_key_index {
         // 既存wire indexと新indexはいずれもkey_id昇順。現在のentryより
         // 小さい既存要素を一度だけ消費し、全体をO(n)でmergeする。
         while let Some(value) = existing.peek() {
@@ -1462,7 +1465,7 @@ fn index_values_from_payload(
                 existing.next();
                 continue;
             };
-            let Some(key_id) = fixed_bytes(map_value(map, 0), 16) else {
+            let Some(key_id) = fixed_bytes::<16>(map_value(map, 0)) else {
                 existing.next();
                 continue;
             };
@@ -1476,10 +1479,9 @@ fn index_values_from_payload(
             .peek()
             .and_then(|value| as_map(value))
             .filter(|map| {
-                fixed_bytes(map_value(map, 0), 16).is_some_and(|key_id| key_id == entry.key_id)
+                fixed_bytes::<16>(map_value(map, 0)).is_some_and(|key_id| key_id == entry.key_id)
             })
-            .map(|map| unknown_fields(map, &[0, 1]))
-            .transpose()?
+            .map(|map| clone_unknown_fields_unchecked(map, &[0, 1]))
             .unwrap_or_default();
         let mut fields = vec![
             (0, Value::Bytes(entry.key_id.to_vec())),
@@ -1753,13 +1755,13 @@ fn as_array(value: &Value) -> Option<&[Value]> {
     }
 }
 
-fn unknown_fields(map: &[(u64, Value)], known: &[u64]) -> WalletResult<Vec<(u64, Value)>> {
-    let mut fields = Vec::new();
-    for (key, value) in map.iter().filter(|(key, _)| !known.contains(key)) {
-        validate_unknown_value(value)?;
-        fields.push((*key, value.clone()));
-    }
-    Ok(fields)
+fn clone_unknown_fields_unchecked(map: &[(u64, Value)], known: &[u64]) -> Vec<(u64, Value)> {
+    // Callers validate the complete map before reaching this helper. Keep the
+    // preservation step non-validating so the unknown tree is traversed once.
+    map.iter()
+        .filter(|(key, _)| !known.contains(key))
+        .map(|(key, value)| (*key, value.clone()))
+        .collect()
 }
 
 fn validate_unknown_fields(map: &[(u64, Value)], known: &[u64]) -> WalletResult<()> {
@@ -1806,7 +1808,7 @@ fn uint(value: Option<&Value>) -> Option<u64> {
     }
 }
 
-fn fixed_bytes<const N: usize>(value: Option<&Value>, _length: usize) -> Option<[u8; N]> {
+fn fixed_bytes<const N: usize>(value: Option<&Value>) -> Option<[u8; N]> {
     match value? {
         Value::Bytes(value) if value.len() == N => value.as_slice().try_into().ok(),
         _ => None,

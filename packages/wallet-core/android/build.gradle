@@ -1,0 +1,28 @@
+apply plugin: "com.android.library"
+apply plugin: "org.jetbrains.kotlin.android"
+
+android {
+    namespace "com.nemnesia.symbolnemwalletcore"
+    compileSdkVersion rootProject.ext.has("compileSdkVersion") ? rootProject.ext.compileSdkVersion : 35
+
+    defaultConfig {
+        minSdkVersion 24
+    }
+
+    // RN CLI links the package C++ target into the application's appmodules
+    // target. The published package supplies the corresponding prebuilt
+    // library for every formal ABI; no consumer repository path or Gradle
+    // property is required.
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ["../dist/react-native/android/jni"]
+        }
+    }
+}
+
+dependencies {
+    // The host application supplies the RN version through the React Native
+    // Gradle Plugin; this library only compiles against its public New
+    // Architecture CxxReactPackage APIs.
+    compileOnly("com.facebook.react:react-android")
+}

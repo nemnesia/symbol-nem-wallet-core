@@ -658,6 +658,30 @@ function spdxIdForComponent(component) {
   return `SPDXRef-Package-${slug}-${suffix}`;
 }
 
+function spdxIdForReactNativeFile(file) {
+  const slug = file.relative_path.replace(/[^A-Za-z0-9.-]/g, "-");
+  return `SPDXRef-File-${slug}`;
+}
+
+function normalizedReactNativeFiles(context) {
+  const files = [];
+  if (context.reactNativeArtifactManifest !== undefined && context.reactNativeArtifactManifest !== null) {
+    files.push({
+      relative_path: context.reactNativeArtifactManifest.relative_path,
+      sha256: context.reactNativeArtifactManifest.sha256,
+      size: context.reactNativeArtifactManifest.size,
+    });
+  }
+  for (const artifact of context.reactNativeArtifacts ?? []) {
+    files.push({
+      relative_path: artifact.relative_path,
+      sha256: artifact.sha256,
+      size: artifact.size,
+    });
+  }
+  return files;
+}
+
 function commentForComponent(component) {
   return `source=${component.source}; source_commit=${component.source_commit}; cargo_lock_sha256=${component.cargo_lock_sha256}; artifact_roles=${component.artifact_roles.join(",")}; declared_license_metadata=${component.declared_license_metadata ?? "MISSING"}`;
 }
@@ -696,6 +720,8 @@ function createLicenseInventory(context) {
     rust_component_count: components.filter((component) => component.ecosystem === "cargo").length,
     rust_dependency_package_count: components.filter((component) => component.ecosystem === "cargo" && component.source.startsWith("registry+")).length,
     excluded_cargo_packages: context.excludedCargoPackages,
+    react_native_artifact_manifest: context.reactNativeArtifactManifest ?? null,
+    react_native_artifacts: (context.reactNativeArtifacts ?? []).map((artifact) => ({ ...artifact })),
     components: components.sort((left, right) => `${left.ecosystem}|${left.name}|${left.version}|${left.source}`.localeCompare(`${right.ecosystem}|${right.name}|${right.version}|${right.source}`)),
   };
   return inventory;
@@ -730,6 +756,11 @@ function createSpdxDocument(context) {
   });
   const relationships = [
     { spdxElementId: "SPDXRef-DOCUMENT", relationshipType: "DESCRIBES", relatedSpdxElement: packageIds.get(root.identity) },
+    ...normalizedReactNativeFiles(context).map((file) => ({
+      spdxElementId: "SPDXRef-DOCUMENT",
+      relationshipType: "DESCRIBES",
+      relatedSpdxElement: spdxIdForReactNativeFile(file),
+    })),
     ...context.edges.map((edge) => ({
       spdxElementId: packageIds.get(edge.source),
       relationshipType: "DEPENDS_ON",
@@ -752,7 +783,14 @@ function createSpdxDocument(context) {
     },
     dataLicense: "CC0-1.0",
     documentNamespace: `https://spdx.org/spdxdocs/symbol-nem-wallet-core-${context.packageVersion}-${context.sourceCommit}`,
-    documentDescribes: [packageIds.get(root.identity)],
+    documentDescribes: [packageIds.get(root.identity), ...normalizedReactNativeFiles(context).map(spdxIdForReactNativeFile)],
+    files: normalizedReactNativeFiles(context).map((file) => ({
+      SPDXID: spdxIdForReactNativeFile(file),
+      fileName: file.relative_path,
+      checksums: [{ algorithm: "SHA256", checksumValue: file.sha256 }],
+      licenseConcluded: "NOASSERTION",
+      copyrightText: "NOASSERTION",
+    })),
     name: `symbol-nem-wallet-core-${context.packageVersion}`,
     packages,
     relationships,
@@ -767,7 +805,7 @@ function componentFromSpdxPackage(packageData, context) {
 }
 
 function validateSpdxDocument(document, context) {
-  exactKeys(document, ["SPDXID", "creationInfo", "dataLicense", "documentNamespace", "documentDescribes", "name", "packages", "relationships", "spdxVersion"], "SPDX document");
+  exactKeys(document, ["SPDXID", "creationInfo", "dataLicense", "documentNamespace", "documentDescribes", "files", "name", "packages", "relationships", "spdxVersion"], "SPDX document");
   if (document.SPDXID !== "SPDXRef-DOCUMENT" || document.spdxVersion !== SPDX_VERSION || document.dataLicense !== "CC0-1.0") fail("SPDX document identity is invalid");
   const expectedDocument = createSpdxDocument(context);
   if (document.documentNamespace !== expectedDocument.documentNamespace || document.name !== expectedDocument.name) fail("SPDX document identity is not source-derived");
@@ -776,6 +814,16 @@ function validateSpdxDocument(document, context) {
   if (!Array.isArray(document.creationInfo.creators) || JSON.stringify(document.creationInfo.creators) !== JSON.stringify([`Tool: cargo-sbom-v${CARGO_SBOM_VERSION}`, "Tool: symbol-nem-wallet-core-release-sbom-v1"])) fail("SPDX generator identity is invalid");
   if (!Array.isArray(document.packages) || document.packages.length !== context.components.length) fail("SPDX package count differs from the actual runtime closure");
   const ids = new Set([document.SPDXID]);
+  const expectedFiles = new Map(expectedDocument.files.map((file) => [file.SPDXID, file]));
+  if (!Array.isArray(document.files) || document.files.length !== expectedFiles.size) fail("SPDX React Native file count differs from the release manifest");
+  for (const file of document.files) {
+    exactKeys(file, ["SPDXID", "fileName", "checksums", "licenseConcluded", "copyrightText"], `SPDX file ${file.fileName ?? "unknown"}`);
+    const expectedFile = expectedFiles.get(file.SPDXID);
+    if (expectedFile === undefined || JSON.stringify(file) !== JSON.stringify(expectedFile) || ids.has(file.SPDXID)) fail("SPDX React Native file identity differs from the release manifest");
+    safeRelativePath(file.fileName, "SPDX React Native file path");
+    if (file.licenseConcluded !== "NOASSERTION" || file.copyrightText !== "NOASSERTION") fail("SPDX React Native file legal fields are unexpected");
+    ids.add(file.SPDXID);
+  }
   const packageById = new Map();
   const packageIdentities = new Set();
   const expectedPackages = new Map(expectedDocument.packages.map((packageData) => [packageData.SPDXID, packageData]));
@@ -811,9 +859,11 @@ function validateSpdxDocument(document, context) {
   }
   const rootComponent = context.components.find((component) => component.ecosystem === "npm");
   if (rootComponent === undefined) fail("SPDX npm root component is missing");
-  if (!Array.isArray(document.documentDescribes) || document.documentDescribes.length !== 1 || document.documentDescribes[0] !== packageById.get(spdxIdForComponent(rootComponent))?.SPDXID) fail("SPDX document root package is invalid");
+  const expectedDescribes = expectedDocument.documentDescribes;
+  if (!Array.isArray(document.documentDescribes) || JSON.stringify(document.documentDescribes) !== JSON.stringify(expectedDescribes)) fail("SPDX document described elements are invalid");
   const expectedRelationships = new Set([
     `SPDXRef-DOCUMENT|DESCRIBES|${spdxIdForComponent(rootComponent)}`,
+    ...[...expectedFiles.keys()].map((id) => `SPDXRef-DOCUMENT|DESCRIBES|${id}`),
     ...context.edges.map((edge) => `${spdxIdForComponent(context.components.find((component) => component.identity === edge.source))}|DEPENDS_ON|${spdxIdForComponent(context.components.find((component) => component.identity === edge.target))}`),
   ]);
   const node = context.components.find((component) => component.ecosystem === "cargo" && component.name === "symbol-nem-wallet-core-node");
@@ -834,12 +884,14 @@ function validateSpdxDocument(document, context) {
 }
 
 function validateLicenseInventory(inventory, context) {
-  exactKeys(inventory, ["schema_version", "inventory_kind", "package_name", "package_version", "source_commit", "cargo_lock_sha256", "pnpm_lock_sha256", "sbom_file", "npm_runtime_dependency_count", "rust_component_count", "rust_dependency_package_count", "excluded_cargo_packages", "components"], "license inventory");
+  exactKeys(inventory, ["schema_version", "inventory_kind", "package_name", "package_version", "source_commit", "cargo_lock_sha256", "pnpm_lock_sha256", "sbom_file", "npm_runtime_dependency_count", "rust_component_count", "rust_dependency_package_count", "excluded_cargo_packages", "react_native_artifact_manifest", "react_native_artifacts", "components"], "license inventory");
   if (inventory.schema_version !== INVENTORY_SCHEMA_VERSION || inventory.inventory_kind !== "license") fail("license inventory schema is unsupported");
   if (inventory.package_name !== context.packageName || inventory.package_version !== context.packageVersion || inventory.source_commit !== context.sourceCommit) fail("license inventory package/source identity differs");
   if (inventory.cargo_lock_sha256 !== context.cargoLockSha256 || inventory.pnpm_lock_sha256 !== context.pnpmLockSha256 || inventory.sbom_file !== SBOM_FILENAME) fail("license inventory lockfile/SBOM identity differs");
   if (inventory.npm_runtime_dependency_count !== context.npmRuntimeDependencyCount || inventory.rust_component_count !== context.components.filter((component) => component.ecosystem === "cargo").length || inventory.rust_dependency_package_count !== context.components.filter((component) => component.ecosystem === "cargo" && component.source.startsWith("registry+")).length) fail("license inventory dependency counts differ");
   if (JSON.stringify(inventory.excluded_cargo_packages) !== JSON.stringify(context.excludedCargoPackages)) fail("license inventory excluded dependency evidence differs");
+  if (JSON.stringify(inventory.react_native_artifact_manifest) !== JSON.stringify(context.reactNativeArtifactManifest ?? null)) fail("license inventory React Native manifest evidence differs");
+  if (JSON.stringify(inventory.react_native_artifacts) !== JSON.stringify(context.reactNativeArtifacts ?? [])) fail("license inventory React Native artifact evidence differs");
   if (!Array.isArray(inventory.components) || inventory.components.length !== context.components.length) fail("license inventory component count differs");
   const expected = new Map(context.components.map((component) => [component.identity, component]));
   const actual = new Set();
@@ -962,6 +1014,8 @@ function createContext({ phase3, packageMetadata, packageRootPath, graph, genera
     components,
     edges: [...edgeSet.values()],
     excludedCargoPackages,
+    reactNativeArtifactManifest: phase3.react_native.artifact_manifest,
+    reactNativeArtifacts: phase3.react_native.artifacts,
     creationTimestamp: creationTimestamp(phase3.source_commit),
     tarballPath,
   };
@@ -974,6 +1028,9 @@ function phase3Input(paths) {
     sourceEvidencePath: paths.sourceEvidencePath,
     nativeSummaryPath: paths.nativeSummaryPath,
     nativeEvidenceRoot: paths.nativeEvidenceRoot,
+    reactNativeSummaryPath: paths.reactNativeSummaryPath,
+    reactNativeEvidenceRoot: paths.reactNativeEvidenceRoot,
+    reactNativeArtifactRoot: paths.reactNativeArtifactRoot,
     wasmSummaryPath: paths.wasmSummaryPath,
     wasmEvidencePath: paths.wasmEvidencePath,
     wasmBindgenEvidencePath: paths.wasmBindgenEvidencePath,
@@ -1044,6 +1101,9 @@ function pathsFromArguments(argv) {
     sourceEvidencePath: path("--source-evidence"),
     nativeSummaryPath: path("--native-summary"),
     nativeEvidenceRoot: path("--native-evidence-root"),
+    reactNativeSummaryPath: path("--react-native-summary"),
+    reactNativeEvidenceRoot: path("--react-native-evidence-root"),
+    reactNativeArtifactRoot: path("--react-native-artifact-root"),
     wasmSummaryPath: path("--wasm-summary"),
     wasmEvidencePath: path("--wasm-evidence"),
     wasmBindgenEvidencePath: path("--wasm-bindgen-evidence"),

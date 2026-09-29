@@ -381,10 +381,10 @@ pub(crate) fn address(chain: Chain, network: Network, public_key: &[u8; 32]) -> 
     // 公開鍵hash、RIPEMD160、Network byte、Chain固有checksum、Base32の順で組み立てる。
     // Network byteはProfileのNetworkから決まり、Chainと混同しない。
     let digest = match chain {
-        Chain::Symbol => Sha3_256::digest(public_key).to_vec(),
-        Chain::Nem => Keccak256::digest(public_key).to_vec(),
+        Chain::Symbol => Sha3_256::digest(public_key),
+        Chain::Nem => Keccak256::digest(public_key),
     };
-    let ripemd = Ripemd160::digest(&digest);
+    let ripemd = Ripemd160::digest(digest);
     let mut address = Vec::with_capacity(if matches!(chain, Chain::Symbol) {
         24
     } else {
@@ -467,7 +467,7 @@ pub(crate) fn duplicate_tag(
     registry_key: &[u8; 32],
     network: Network,
     entropy: &[u8; 32],
-) -> [u8; 32] {
+) -> WalletResult<[u8; 32]> {
     // registry keyはStore blobにも保存されるdomain-separation / integrity-context値であり、
     // Store blobから秘匿される秘密ではない。tagは暗号化payloadの代替ではなく、認証後の
     // Mnemonic+Networkの意味的一致検証に使う。
@@ -475,12 +475,17 @@ pub(crate) fn duplicate_tag(
     input.extend_from_slice(DUPLICATE_DOMAIN);
     input.push(network.wire() as u8);
     input.extend_from_slice(entropy);
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(registry_key)
-        .expect("HMAC-SHA256 key size is unrestricted");
+    let mut mac = match <HmacSha256 as Mac>::new_from_slice(registry_key) {
+        Ok(mac) => mac,
+        Err(_) => {
+            input.zeroize();
+            return Err(WalletError::new(ErrorCode::CryptoFailure));
+        }
+    };
     mac.update(&input);
     let tag = mac.finalize().into_bytes().into();
     input.zeroize();
-    tag
+    Ok(tag)
 }
 
 pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {

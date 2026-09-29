@@ -1166,7 +1166,7 @@ fn unknown_wire_fields_survive_non_target_and_target_mutations() {
     let target = profiles
         .iter()
         .find(|value| {
-            as_map(value).and_then(|map| fixed_bytes(map_value(map, 0), 16))
+            as_map(value).and_then(|map| fixed_bytes::<16>(map_value(map, 0)))
                 == Some(profile_id.into_bytes())
         })
         .unwrap();
@@ -1634,7 +1634,7 @@ fn fixed_aad_and_duplicate_tag_fixture_values() {
         unknown_fields: Vec::new(),
     };
     let aad = profile_aad_from_parts(&registry_key, &profile).unwrap();
-    let duplicate = crypto::duplicate_tag(&registry_key, Network::Mainnet, &[9; 32]);
+    let duplicate = crypto::duplicate_tag(&registry_key, Network::Mainnet, &[9; 32]).unwrap();
     assert_eq!(
             hex::encode(aad.as_slice()),
             "8a44534e574301582000000000000000000000000000000000000000000000000000000000000000005001010101010101010101010101010101015820020202020202020202020202020202020202020202020202020202020202020201000080"

@@ -20,6 +20,17 @@ export const NPM_PACKAGE_METADATA = Object.freeze({
     "napi",
   ]),
   publishConfig: Object.freeze({ access: "public" }),
+  codegenConfig: Object.freeze({
+    name: "SymbolNemWalletCoreSpec",
+    type: "modules",
+    jsSrcsDir: "src/react-native",
+    android: Object.freeze({ javaPackageName: "com.nemnesia.symbolnemwalletcore" }),
+    ios: Object.freeze({
+      modulesProvider: Object.freeze({
+        NativeSymbolNemWalletCore: "NativeSymbolNemWalletCoreProvider",
+      }),
+    }),
+  }),
 });
 
 const EXPECTED_NPM_PACKAGE_KEYS = Object.freeze([
@@ -37,6 +48,7 @@ const EXPECTED_NPM_PACKAGE_KEYS = Object.freeze([
   "types",
   "main",
   "module",
+  "codegenConfig",
   "exports",
   "engines",
   "files",
