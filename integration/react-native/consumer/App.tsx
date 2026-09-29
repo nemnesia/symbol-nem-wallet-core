@@ -239,8 +239,14 @@ export default function App() {
       const module = nativeModule();
       const identity = providerIdentity(module);
       const lifecycle = lifecycleProbe(module);
-      if (lifecycle.integration_test && lifecycle.provider_generation > 1) {
+      if (lifecycle.integration_test) {
+        // Record the runtime identity before the API smoke. The stale-output
+        // probe can synchronously request an iOS RCTHost reload, so markers
+        // emitted immediately before that call are not guaranteed to flush
+        // through the simulator log stream before the old runtime is retired.
         setStatus(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
+      }
+      if (lifecycle.integration_test && lifecycle.provider_generation > 1) {
         setStatus('SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED');
         const cleanup = cleanupEvidence(module);
         if (
@@ -436,11 +442,9 @@ export default function App() {
       if (lifecycle.integration_test && lifecycle.provider_generation === 1) {
         // The Android stale-output invocation intentionally blocks this JS
         // thread until the external lifecycle harness retires the provider.
-        // Emit the actual runtime identity after the smoke but before arming
-        // that gate, so the harness can request reload without relying on a
-        // marker emitted by a blocked completion. The smoke also gives the
-        // iOS pre-launch log stream time to attach before this marker.
-        setStatus(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
+        // This marker is diagnostic only. On iOS the native stale-output call
+        // below can synchronously request RCTHost reload, so CI must not use
+        // this last pre-reload JS console write as a synchronization barrier.
         setStatus('SNWC_RN_NATIVE_STALE_GATE_ARMED');
         try {
           module.invoke('__snwc_test_stale_output', { args: [] });
