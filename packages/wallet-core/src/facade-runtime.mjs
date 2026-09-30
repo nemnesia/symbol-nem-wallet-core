@@ -22,6 +22,8 @@ const CORE_ERROR_CODES = new Set([
 const UUID_PATTERN =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+const fillBytes = Function.prototype.call.bind(Uint8Array.prototype.fill);
+
 const OPERATION_NAMES = [
   "create_empty_store",
   "prepare_generated_profile",
@@ -230,22 +232,43 @@ function outputPublicAccount(value) {
   };
 }
 
-function outputPreparedProfile(value) {
-  requiredObject(value);
-  return {
-    mnemonic_utf8: outputBytes(property(value, "mnemonic_utf8")),
-    pending_profile: outputBytes(property(value, "pending_profile")),
-  };
+function clearSecretBytes(value) {
+  if (value instanceof Uint8Array) {
+    // backendの一時出力だけを消去する。caller-ownedの入力は変更しない。
+    // own-propertyでfillが置き換えられていてもintrinsicを呼ぶ。
+    try {
+      fillBytes(value, 0);
+    } catch {
+      // detached buffer等のcleanup errorで安定した元のerrorを上書きしない。
+    }
+  }
 }
 
-function outputMnemonicExport(value) {
-  requiredObject(value);
-  return { mnemonic_utf8: outputBytes(property(value, "mnemonic_utf8")) };
-}
-
-function outputPrivateKeyExport(value) {
-  requiredObject(value);
-  return { private_key: outputBytes(property(value, "private_key"), 32) };
+function outputSecretReadResult(value, fields) {
+  const sources = [];
+  const copies = [];
+  try {
+    requiredObject(value);
+    const secret = requiredObject(property(value, "value"));
+    // 後続fieldやwarningsの変換が失敗しても、取得済みsecretをfinallyで消去する。
+    for (const [name] of fields) {
+      sources.push(property(secret, name));
+    }
+    const warnings = outputWarnings(property(value, "warnings"));
+    const normalized = {};
+    for (const [index, [name, length]] of fields.entries()) {
+      const copy = outputBytes(sources[index], length);
+      copies.push(copy);
+      normalized[name] = copy;
+    }
+    return { value: normalized, warnings };
+  } catch (error) {
+    // 一部のfieldだけコピーした後の失敗では、公開されないコピーも消去する。
+    for (const copy of copies) clearSecretBytes(copy);
+    throw error;
+  } finally {
+    for (const source of sources) clearSecretBytes(source);
+  }
 }
 
 function outputSignature(value) {
@@ -457,7 +480,7 @@ export function createFacade(backend) {
         backend,
         "prepare_generated_profile",
         [store, passwordUtf8, network],
-        (value) => outputReadResult(value, outputPreparedProfile),
+        (value) => outputSecretReadResult(value, [["mnemonic_utf8"], ["pending_profile"]]),
       );
     },
 
@@ -490,7 +513,7 @@ export function createFacade(backend) {
         backend,
         "export_mnemonic",
         [store, request, passwordUtf8],
-        (value) => outputReadResult(value, outputMnemonicExport),
+        (value) => outputSecretReadResult(value, [["mnemonic_utf8"]]),
       );
     },
 
@@ -500,7 +523,7 @@ export function createFacade(backend) {
         backend,
         "export_private_key",
         [store, request, passwordUtf8],
-        (value) => outputReadResult(value, outputPrivateKeyExport),
+        (value) => outputSecretReadResult(value, [["private_key", 32]]),
       );
     },
 

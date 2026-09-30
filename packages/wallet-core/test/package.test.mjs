@@ -106,7 +106,9 @@ test("published declaration is byte-for-byte equal to the Stage 7A declaration",
     resolve(packageRoot, "../../docs/specifications/npm-typescript-facade.md"),
     "utf8",
   );
-  const section = specification.slice(specification.indexOf("## 5. Exact TypeScript declarations"));
+  const sectionStart = specification.indexOf("## 5. TypeScript 宣言");
+  assert.ok(sectionStart >= 0, "TypeScript declaration section must exist");
+  const section = specification.slice(sectionStart);
   const match = section.match(/```ts\n([\s\S]*?)\n```/);
   assert.ok(match);
   assert.equal(readFileSync(resolve(packageRoot, "src/index.d.ts"), "utf8"), `${match[1]}\n`);
