@@ -275,6 +275,28 @@ Design, specification, and review materials are available under [`docs/`](docs/)
 
 ## Development / validation
 
+### Running CI locally
+
+On Ubuntu 24.04, run the same verification scripts used by GitHub Actions through these entry points. Node.js and Android Java versions are recorded in [`.node-version`](.node-version) and [`.java-version`](.java-version); the root `package.json` `packageManager` field pins pnpm.
+
+```bash
+./scripts/ci/local-ci.sh quick
+./scripts/ci/local-ci.sh full
+```
+
+`quick` runs Rust formatting / Clippy / tests, deterministic Node checks, package assembly from WASM, and the React Native consumer's `npm ci`, ESLint, TypeScript, Jest test discovery, and dependency resolution checks. `full` adds WASM, Native C ABI, sanitizers, the glibc 2.28 Docker builds, workspace installation, npm package build → `npm pack` → clean tarball consumer, and `cargo audit`. `quick` needs Node.js 24, npm, the Rust `wasm32-unknown-unknown` target, and the `wasm-bindgen` CLI matching Cargo.lock. `full` additionally needs Docker, `wasm-pack`, a C compiler, and `cargo-audit`.
+
+Coverage, browser bundlers, Wallet Store fuzzing, and the Android Gradle build have separate commands:
+
+```bash
+./scripts/ci/local-ci.sh coverage
+./scripts/ci/local-ci.sh browser
+./scripts/ci/local-ci.sh fuzz
+./scripts/ci/local-ci.sh android
+```
+
+The browser check needs Chrome / Chromium; fuzzing needs nightly Rust and `cargo-fuzz`; Android needs Java 17 and a configured Android SDK / NDK. Quick checks Jest configuration and test discovery. The only Jest App test requires the native TurboModule provider, so the app itself runs in the Android emulator / iOS simulator. iOS, macOS, and Windows native builds / simulators, GitHub Dependency Review, artifact handoff, CodeQL upload, release, and npm publishing require GitHub or their platform runner. See [`docs/development/local-ci.md`](docs/development/local-ci.md) for the workflow inventory and remaining parity gaps.
+
 README-only changes do not automatically require implementation tests. For implementation changes, use the relevant entry points:
 
 On Ubuntu 24.04, run the shared local / CI checks with Python 3, a C/C++ compiler
@@ -307,8 +329,7 @@ the additional tools. The wasm-bindgen CLI version comes from the root Cargo.loc
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version "$(node scripts/wasm-bindgen-version.mjs)" --locked
-cargo install wasm-pack --version 0.15.0 --locked
+bash scripts/ci/install-wasm-tools.sh all
 bash scripts/check-local.sh all
 ```
 

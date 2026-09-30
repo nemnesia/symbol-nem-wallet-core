@@ -275,6 +275,29 @@ supported native target では、Node loader が load 前に package-local manif
 
 ## 開発と検証
 
+### CI をローカルで実行
+
+Ubuntu 24.04 では、GitHub Actions と同じ検証 script を次の入口から実行できます。Node.js と Android 用 Java の version は [`.node-version`](.node-version) と [`.java-version`](.java-version)、pnpm はルート `package.json` の `packageManager` で管理します。
+
+```bash
+./scripts/ci/local-ci.sh quick
+./scripts/ci/local-ci.sh full
+```
+
+`quick` は Rust format / clippy / tests、Node の deterministic checks、WASM からの package assembly、React Native consumer の `npm ci`・ESLint・TypeScript・Jest test discovery・dependency resolution を実行します。`full` はそれらに WASM、Native C ABI、sanitizer、glibc 2.28 Docker build、workspace install、npm package build → `npm pack` → clean tarball consumer、`cargo audit` を加えます。`quick` は Node.js 24、npm、Rust の `wasm32-unknown-unknown` target、Cargo.lock と一致する `wasm-bindgen` が必要です。`full` はさらに Docker、`wasm-pack`、C compiler、`cargo-audit` が必要です。
+
+Coverage、Browser bundler、Wallet Store fuzz、Android Gradle build は個別に実行できます。
+
+```bash
+./scripts/ci/local-ci.sh coverage
+./scripts/ci/local-ci.sh browser
+./scripts/ci/local-ci.sh fuzz
+./scripts/ci/local-ci.sh android
+./scripts/ci/local-ci.sh linux-glibc
+```
+
+Browser check は Chrome / Chromium、fuzz は nightly Rust と `cargo-fuzz`、Android は Java 17 と設定済み Android SDK / NDK が必要です。React Native consumer の Jest 設定と test discovery は quick で検証します。唯一の Jest App test は TurboModule provider を必要とする native runtime smoke のため、アプリは Android emulator / iOS simulator で実行します。iOS、macOS、Windows の native build / simulator、GitHub Dependency Review、artifact handoff、CodeQL upload、release / npm publish は GitHub または各 platform runner でのみ実行します。workflow ごとの分類と parity gap は [`docs/development/local-ci.md`](docs/development/local-ci.md) を参照してください。
+
 README-only の変更では実装テストを自動的に意味しません。実装変更を含む場合は、対象に応じて次の入口を使用します。
 
 Ubuntu 24.04 では、CI と共通のスクリプトで Rust の基本検証を実行できます。
@@ -306,8 +329,7 @@ wasm-bindgen CLI のバージョンはルート `Cargo.lock` から取得しま�
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version "$(node scripts/wasm-bindgen-version.mjs)" --locked
-cargo install wasm-pack --version 0.15.0 --locked
+bash scripts/ci/install-wasm-tools.sh all
 bash scripts/check-local.sh all
 ```
 

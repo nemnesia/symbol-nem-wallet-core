@@ -45,8 +45,8 @@ check_native_sanitizers() {
 }
 
 check_dependencies() {
-    run corepack pnpm install --frozen-lockfile --ignore-scripts
-    run npm ci --prefix integration/react-native/consumer --ignore-scripts
+    run bash scripts/ci/install-workspace.sh
+    run bash scripts/ci/install-react-native-consumer.sh
 }
 
 if (( $# > 1 )); then

@@ -101,7 +101,7 @@ jobs:
       - name: Install Node.js 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "24.x"
+          node-version-file: .node-version
 
       - name: Set up MSVC developer environment
         if: runner.os == 'Windows'
@@ -121,22 +121,7 @@ jobs:
       - name: Build Linux C ABI release library in glibc 2.28 environment
         if: matrix.target_id == 'linux-x64-gnu'
         shell: bash
-        run: |
-          set -euo pipefail
-          toolchain="$(rustc -Vv | sed -n 's/^release: //p')"
-          test -n "$toolchain"
-          docker run --rm \
-            --env RUST_TOOLCHAIN="$toolchain" \
-            --volume "$GITHUB_WORKSPACE:/workspace" \
-            --workdir /workspace \
-            quay.io/pypa/manylinux_2_28_x86_64:latest \
-            bash -lc '
-              set -euo pipefail
-              curl --fail --silent --show-error --location https://sh.rustup.rs | sh -s -- -y --profile minimal
-              source "$HOME/.cargo/env"
-              rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target x86_64-unknown-linux-gnu
-              cargo +"$RUST_TOOLCHAIN" build --package symbol-nem-wallet-core-native --target x86_64-unknown-linux-gnu --release --locked
-            '
+        run: bash scripts/ci/build-manylinux.sh symbol-nem-wallet-core-native
 
       - name: Prepare deterministic C ABI archive and target evidence
         shell: bash
@@ -236,7 +221,7 @@ jobs:
       - name: Install Node.js 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "24.x"
+          node-version-file: .node-version
 
       - name: Download target archives and evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
