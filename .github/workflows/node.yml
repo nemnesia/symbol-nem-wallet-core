@@ -1511,7 +1511,7 @@ jobs:
           path: release-output
 
       - name: Run ESM, CJS, WASM fallback, and fail-closed consumer smoke
-        run: bash scripts/ci/npm-consumer.sh "$(find release-output -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+        run: bash scripts/ci/npm-consumer.sh release-output
 
   browser-integration:
     name: Browser bundler and MV3 integration
