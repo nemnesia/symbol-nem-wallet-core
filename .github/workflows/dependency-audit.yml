@@ -46,4 +46,4 @@ jobs:
           tool: cargo-audit@0.22.2
 
       - name: Audit Rust dependencies
-        run: cargo audit
+        run: bash scripts/ci/audit.sh

@@ -32,7 +32,7 @@ jobs:
           tool: cargo-fuzz@0.13.2
 
       - name: Fuzz Wallet Store decoder
-        run: cargo fuzz run wallet_store_decode -- -max_total_time=60 -timeout=5
+        run: bash scripts/ci/fuzz-wallet-store.sh
 
       - name: Upload fuzz artifacts
         if: always()
