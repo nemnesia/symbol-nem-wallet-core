@@ -10,7 +10,8 @@ fi
 output_directory=$1
 mkdir -p "$output_directory"
 npm pack --json --ignore-scripts --pack-destination "$output_directory" ./packages/wallet-core > "$output_directory/pack.json"
-mapfile -t tarballs < <(find "$output_directory" -maxdepth 1 -type f -name '*.tgz' -print)
+shopt -s nullglob
+tarballs=("$output_directory"/*.tgz)
 if ((${#tarballs[@]} != 1)); then
     echo 'ERROR: npm pack must produce exactly one tarball' >&2
     exit 1

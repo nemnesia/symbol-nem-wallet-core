@@ -114,7 +114,8 @@ case "${1:-quick}" in
         temporary_directory=$(mktemp -d)
         trap 'rm -rf "$temporary_directory"' EXIT
         bash scripts/ci/pack-npm-package.sh "$temporary_directory"
-        mapfile -t tarballs < <(find "$temporary_directory" -maxdepth 1 -type f -name '*.tgz' -print)
+        shopt -s nullglob
+        tarballs=("$temporary_directory"/*.tgz)
         ((${#tarballs[@]} == 1)) || { echo 'ERROR: npm pack must produce exactly one tarball' >&2; exit 1; }
         SNWC_BROWSER=google-chrome SNWC_MV3_BROWSER=chromium node scripts/test-npm-bundlers.mjs --tarball "${tarballs[0]}"
         ;;
