@@ -13,7 +13,7 @@ use aes_gcm::{
     aead::{AeadInPlace, KeyInit},
     Aes256Gcm, Nonce, Tag,
 };
-use argon2::{Algorithm, Argon2, Params, Version};
+use argon2::{Algorithm, Argon2, Block, Params, Version};
 use bip39::{Language, Mnemonic};
 use curve25519_dalek::{edwards::EdwardsPoint, scalar::Scalar};
 use hmac::{Hmac, Mac};
@@ -408,10 +408,13 @@ pub(crate) fn derive_encryption_key(
     validate_password(password)?;
     let params = Params::new(KDF_MEMORY_KIB, KDF_ITERATIONS, KDF_PARALLELISM, Some(32))
         .map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
+    // argon2/zeroizeは内部temporaryを消去するが、作業Vecの解放時消去は行わない。
+    // Core側で全blockを所有し、成功・失敗・unwindのいずれでも消去する。
+    let mut memory = Zeroizing::new(vec![Block::default(); params.block_count()]);
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut output = Zeroizing::new([0u8; 32]);
     argon2
-        .hash_password_into(password, salt, &mut *output)
+        .hash_password_into_with_memory(password, salt, &mut *output, &mut memory[..])
         .map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
     Ok(output)
 }

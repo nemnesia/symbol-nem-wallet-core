@@ -479,3 +479,11 @@ fn fixed_encryption_fixture_values() {
         plaintext
     );
 }
+
+#[test]
+fn aes_key_schedule_has_drop_zeroization() {
+    // aes-gcm/zeroizeだけではAES primitiveのfeatureが有効にならないため、
+    // 実際に利用するAES-256の型でDrop消去のfeature退行を検出する。
+    fn require_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+    require_zeroize_on_drop::<aes::Aes256>();
+}
