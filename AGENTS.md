@@ -559,11 +559,20 @@ Rust、WASM、Native、Node の具体的な formatter、lint、test、build、fi
 上記の変更分類に従って対象を選ぶ。Coverage を対象とする作業では CI の coverage 設定を
 確認する。標準コマンドが適用対象になる場合は、次を基準にする。
 
-- Rust Core: `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets --all-features -- -D warnings`、
-  `cargo test --workspace --all-features`
-- WASM: `cargo check --target wasm32-unknown-unknown --features wasm` と、対象の WASM build /
-  test script
-- Native C ABI: `bindings/native/tests/run_c_abi_runtime.sh`、header compile、必要な sanitizer
+- Rust Core / 共有依存: `bash scripts/check-local.sh rust`。不可視文字、format、locked Clippy、
+  独立した fuzz workspace の locked check、locked workspace tests を含む。
+- WASM: `bash scripts/check-local.sh wasm`。事前に Node.js、対応する wasm-bindgen CLI、
+  wasm-pack、wasm32-unknown-unknown target を準備する。
+- Native C ABI: `bash scripts/check-local.sh native`、必要な sanitizer は
+  `bash scripts/check-local.sh native-sanitizers`。
+- npm / React Native の依存・lockfile: `bash scripts/check-local.sh dependencies`。
+  Node.js 24、Corepack、npm が必要で、install scripts は無効にする。
+
+これらは CI と共通の入口である。変更分類に該当するグループを選ぶ。
+`all` は上記の Linux 検証をまとめた入口であり、coverage、npm 成果物検証、他 OS / mobile
+matrix、release gate の代替ではない。準備方法は README の「開発と検証」を参照する。
+共有依存を変更した場合は、root `Cargo.lock` だけでなく `fuzz/Cargo.lock` の整合も確認し、
+ロックファイルの自動更新を許可して検証成功と扱わない。
 
 対象の実際の script、target、fixture、CI 設定に追加の検証が定められている場合はそれも適用する。
 

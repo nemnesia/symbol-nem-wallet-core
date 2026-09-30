@@ -277,11 +277,43 @@ supported native target では、Node loader が load 前に package-local manif
 
 README-only の変更では実装テストを自動的に意味しません。実装変更を含む場合は、対象に応じて次の入口を使用します。
 
+Ubuntu 24.04 では、CI と共通のスクリプトで Rust の基本検証を実行できます。
+Python 3、C/C++ compiler（`build-essential`）、Rust stable の `rustfmt` / `clippy` が必要です。
+CI はその時点の stable を使うため、ローカルも `rustup update stable` で揃えてください。
+
 ```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
+rustup update stable
+rustup default stable
+rustup component add rustfmt clippy
+bash scripts/check-local.sh rust
 ```
+
+不可視文字、format、Clippy、独立した `fuzz/Cargo.lock` の整合性、workspace tests を確認します。
+Cargo の依存解決を行うコマンドは `--locked` を指定し、不整合を自動修正せず失敗させます。
+最初の失敗で停止し、失敗したコマンドを表示します。
+
+| コマンドの引数 | 確認範囲 |
+| --- | --- |
+| `rust`（省略時） | Rust の基本検証と fuzz target のビルド確認 |
+| `wasm` | wasm-bindgen CLI のバージョン照合、Node 上の WASM tests、WASM target check |
+| `native` | C ABI release build、公開 header compile、runtime test |
+| `native-sanitizers` | C ABI runtime test の ASan / UBSan 実行 |
+| `dependencies` | pnpm workspace と React Native consumer のロック済み依存インストール（install scripts 無効） |
+| `all` | 上記すべて |
+
+WASM / 依存関係まで確認する場合は、Node.js 24、Corepack、npm を用意し、追加ツールを準備します。
+wasm-bindgen CLI のバージョンはルート `Cargo.lock` から取得します。
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version "$(node scripts/wasm-bindgen-version.mjs)" --locked
+cargo install wasm-pack --version 0.15.0 --locked
+bash scripts/check-local.sh all
+```
+
+`all` は Linux 上の検証です。coverage gate、npm 成果物の組立・consumer tests、
+Windows / macOS、Android / iOS の matrix、release evidence は個別の CI 検証が必要です。
+変更対象に応じて必要なグループだけ実行してください。初回は依存ダウンロードのためネットワーク接続が必要です。
 
 npm package assembly と package-local validation の入口は次のとおりです。
 

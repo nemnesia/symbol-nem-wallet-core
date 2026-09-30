@@ -277,11 +277,45 @@ Design, specification, and review materials are available under [`docs/`](docs/)
 
 README-only changes do not automatically require implementation tests. For implementation changes, use the relevant entry points:
 
+On Ubuntu 24.04, run the shared local / CI checks with Python 3, a C/C++ compiler
+(`build-essential`), and Rust stable with rustfmt and Clippy. CI uses the current
+stable toolchain; update your local stable toolchain to match it.
+
 ```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
+rustup update stable
+rustup default stable
+rustup component add rustfmt clippy
+bash scripts/check-local.sh rust
 ```
+
+The default `rust` group checks invisible characters, formatting, Clippy, the
+independent fuzz lockfile and target, and workspace tests. Cargo dependency
+resolution uses `--locked`: inconsistencies fail instead of being repaired.
+The script prints each command and stops on the first failure.
+
+| Argument | Checks |
+| --- | --- |
+| `rust` (default) | Rust checks, including the locked fuzz target build |
+| `wasm` | wasm-bindgen version agreement, WASM tests on Node, WASM target check |
+| `native` | C ABI release build, public header compilation, runtime test |
+| `native-sanitizers` | C ABI runtime test with ASan / UBSan |
+| `dependencies` | Locked pnpm workspace and React Native consumer installs, without install scripts |
+| `all` | All groups above |
+
+For WASM and dependency checks, provide Node.js 24, Corepack and npm, then install
+the additional tools. The wasm-bindgen CLI version comes from the root Cargo.lock.
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version "$(node scripts/wasm-bindgen-version.mjs)" --locked
+cargo install wasm-pack --version 0.15.0 --locked
+bash scripts/check-local.sh all
+```
+
+`all` covers these Linux checks. Coverage gates, npm artifact assembly and consumer
+tests, Windows/macOS and Android/iOS matrices, and release evidence remain separate
+CI checks. Select groups relevant to your changes. Initial dependency downloads
+require network access.
 
 The npm package assembly and package-local validation entry points are:
 

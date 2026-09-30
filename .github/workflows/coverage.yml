@@ -35,8 +35,10 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
 
-      - name: Check invisible characters in source
-        run: python3 scripts/check-invisible-characters.py
+      - name: Install Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.x"
 
       - name: Install wasm-bindgen CLI
         uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
@@ -48,37 +50,17 @@ jobs:
         with:
           tool: wasm-pack@0.15.0
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+      - name: Run shared Rust checks (including locked fuzz targets)
+        run: bash scripts/check-local.sh rust
 
-      - name: Run Clippy
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Run shared WASM checks
+        run: bash scripts/check-local.sh wasm
 
-      - name: Check fuzz targets
-        run: cargo check --manifest-path fuzz/Cargo.toml --locked --bin wallet_store_decode
+      - name: Run shared Native C ABI checks
+        run: bash scripts/check-local.sh native
 
-      - name: Run tests
-        run: cargo test --workspace --all-features --locked
-
-      - name: Run WASM tests with wasm-pack and Node.js
-        run: wasm-pack test --node --mode no-install crates/wasm --locked
-
-      - name: Check WASM target
-        run: cargo check --package symbol-nem-wallet-core-wasm --target wasm32-unknown-unknown --locked
-
-      - name: Build Native C ABI
-        run: cargo build --package symbol-nem-wallet-core-native --release --locked
-
-      - name: Compile public C ABI header
-        run: cc -std=c11 -Wall -Wextra -Werror -I crates/c-abi/include -fsyntax-only crates/c-abi/tests/header_compile.c
-
-      - name: Run Native C ABI runtime test
-        run: ./crates/c-abi/tests/run_c_abi_runtime.sh
-
-      - name: Run Native C ABI runtime test with sanitizers
-        env:
-          SNWC_C_ABI_SANITIZERS: "1"
-        run: ./crates/c-abi/tests/run_c_abi_runtime.sh
+      - name: Run shared Native C ABI sanitizer checks
+        run: bash scripts/check-local.sh native-sanitizers
 
   core-coverage:
     name: Core coverage
