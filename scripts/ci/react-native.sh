@@ -4,13 +4,13 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 consumer="$repo_root/integration/react-native/consumer"
 
-for tool in node npm cargo rustup wasm-bindgen rg; do
+for tool in node npm cargo rustup wasm-bindgen grep; do
     command -v "$tool" >/dev/null 2>&1 || { printf 'ERROR: %s is required\n' "$tool" >&2; exit 1; }
 done
 
 wasm_file=${SNWC_WASM_FILE:-$repo_root/target/wasm32-unknown-unknown/release/symbol_nem_wallet_core_wasm.wasm}
 if [[ -z "${SNWC_WASM_FILE:-}" ]]; then
-    rustup target list --installed | rg -qx 'wasm32-unknown-unknown' || {
+    rustup target list --installed | grep -Fxq 'wasm32-unknown-unknown' || {
         echo 'ERROR: Rust target wasm32-unknown-unknown is required' >&2
         exit 1
     }
