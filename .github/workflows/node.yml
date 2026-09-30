@@ -813,7 +813,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          simulator_udid="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /Booted|Shutdown/ { print $2; exit }')"
+          runtime_id="$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(runtime["identifier"] for runtime in data["runtimes"] if runtime.get("isAvailable") and runtime["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS-")))')"
+          device_type_id="$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; data=json.load(sys.stdin); devices=[device for device in data["devicetypes"] if device["name"] == "iPhone 16 Pro"]; devices = devices or [device for device in data["devicetypes"] if device["name"].startswith("iPhone")]; print(devices[0]["identifier"])')"
+          test -n "$runtime_id"
+          test -n "$device_type_id"
+          simulator_name="SNWC-RN-CI-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          simulator_udid="$(xcrun simctl create "$simulator_name" "$device_type_id" "$runtime_id")"
           test -n "$simulator_udid"
           app_path=release-ios-output/SnwcRnBuild.app
           bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Info.plist")"
@@ -971,12 +976,17 @@ jobs:
             pgrep -x SnwcRnBuild >/dev/null 2>&1
           }
 
+          cleanup_simulator() {
+            xcrun simctl shutdown "$simulator_udid" >/dev/null 2>&1 || true
+            xcrun simctl delete "$simulator_udid" >/dev/null 2>&1 || true
+          }
+
+          trap cleanup_simulator EXIT
+
           boot_request_log="$RUNNER_TEMP/snwc-ios-boot-request.log"
           if ! xcrun simctl boot "$simulator_udid" >"$boot_request_log" 2>&1; then
-            if ! xcrun simctl list devices available | grep -F "($simulator_udid)" | grep -Fq "Booted"; then
-              cat "$boot_request_log"
-              fail_lifecycle "simulator boot request failed"
-            fi
+            cat "$boot_request_log"
+            fail_lifecycle "dedicated simulator boot request failed"
           fi
           if ! run_with_deadline 180 "$boot_log" xcrun simctl bootstatus "$simulator_udid" -b; then
             fail_lifecycle "simulator boot did not complete within 180 seconds"
