@@ -20,6 +20,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "crates/**"
+      - "fuzz/**"
       - "packages/wallet-core/**"
       - "scripts/**"
       - "package.json"
@@ -33,6 +34,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "crates/**"
+      - "fuzz/**"
       - "packages/wallet-core/**"
       - "scripts/**"
       - "package.json"
@@ -122,23 +124,11 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+      - name: Run shared Rust checks (including locked fuzz targets)
+        run: bash scripts/check-local.sh rust
 
-      - name: Run Clippy
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-
-      - name: Run Core and binding tests
-        run: cargo test --workspace --all-features --locked
-
-      - name: Build C ABI release artifact
-        run: cargo build --package symbol-nem-wallet-core-native --release --locked
-
-      - name: Compile public C ABI header
-        run: cc -std=c11 -Wall -Wextra -Werror -I crates/c-abi/include -fsyntax-only crates/c-abi/tests/header_compile.c
-
-      - name: Run C ABI runtime test
-        run: ./crates/c-abi/tests/run_c_abi_runtime.sh
+      - name: Run shared Native C ABI checks
+        run: bash scripts/check-local.sh native
 
   wasm:
     name: WASM release artifact
