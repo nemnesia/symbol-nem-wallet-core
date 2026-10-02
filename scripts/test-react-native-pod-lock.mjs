@@ -70,7 +70,7 @@ expectFailure("CocoaPods metadata modification", iosRoot => {
 });
 expectSuccess("comment-only Podfile modification", iosRoot => {
   const path = resolve(iosRoot, "Podfile");
-  writeFileSync(path, `${readFileSync(path, "utf8")}\n# modified\n`);
+  writeFileSync(path, `# additional comment\n\n${readFileSync(path, "utf8")}\n# modified\n`);
 });
 expectFailure("Podfile executable input modification", iosRoot => {
   const path = resolve(iosRoot, "Podfile");

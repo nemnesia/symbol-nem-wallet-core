@@ -3,7 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 export const EXPECTED_COCOAPODS_VERSION = "1.16.2";
-export const EXPECTED_PODFILE_EXECUTABLE_SHA256 = "cbc2307bcba8fb7f5d0beb0a080400f5a38e0bbb7b30e6c9251ce6111c8ee072";
+export const EXPECTED_PODFILE_EXECUTABLE_SHA256 = "e540172fa71cb544c2745d90ecae710fb2a9a88464fac03424826dab20eec2eb";
 export const EXPECTED_PODFILE_LOCK_SHA256 = "cb98167edd20972f96802c97f84efba311ee5f65eb40cfb4edf36ccfd9962973";
 
 function fail(message) {
@@ -24,7 +24,10 @@ function digest(path, label) {
 function podfileExecutableDigest(path) {
   try {
     const source = readFileSync(path, "utf8");
-    const executableInput = source.replace(/^[\t ]*#.*(?:\r?\n|$)/gm, "");
+    const executableInput = source
+      .split(/\r?\n/)
+      .filter(line => !/^[\t ]*(?:#.*)?$/.test(line))
+      .join("\n");
     return createHash("sha256").update(executableInput, "utf8").digest("hex");
   } catch {
     fail("Podfile is missing or unreadable");
