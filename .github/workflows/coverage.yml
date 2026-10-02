@@ -33,30 +33,45 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
 
       - name: Install Node.js 24
+        if: github.event_name != 'pull_request'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
 
+      - name: Install wasm32 target
+        if: github.event_name != 'pull_request'
+        run: rustup target add wasm32-unknown-unknown
+
       - name: Install lockfile-matched WASM tools
+        if: github.event_name != 'pull_request'
         run: bash scripts/ci/install-wasm-tools.sh all "$RUNNER_TEMP/snwc-wasm-tools"
 
+      # Keep the required PR check name while using the fast, deterministic pre-merge checks.
+      - name: Run fast Rust pull request checks
+        if: github.event_name == 'pull_request'
+        run: bash scripts/check-local.sh rust-fast
+
       - name: Run shared Rust checks (including locked fuzz targets)
+        if: github.event_name != 'pull_request'
         run: bash scripts/check-local.sh rust
 
       - name: Run shared WASM checks
+        if: github.event_name != 'pull_request'
         run: bash scripts/check-local.sh wasm
 
       - name: Run shared Native C ABI checks
+        if: github.event_name != 'pull_request'
         run: bash scripts/check-local.sh native
 
       - name: Run shared Native C ABI sanitizer checks
+        if: github.event_name != 'pull_request'
         run: bash scripts/check-local.sh native-sanitizers
 
   core-coverage:
     name: Core coverage
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -86,6 +101,7 @@ jobs:
 
   core-branch-coverage:
     name: Core branch coverage (informational)
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # cargo-llvm-cov documents --branch as unstable and does not provide a

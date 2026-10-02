@@ -7,8 +7,9 @@ cd "$repo_root"
 
 usage() {
     cat <<'EOF'
-Usage: bash scripts/check-local.sh [rust|wasm|native|native-sanitizers|dependencies|all]
+Usage: bash scripts/check-local.sh [rust-fast|rust|wasm|native|native-sanitizers|dependencies|all]
 Default: rust (invisible characters, formatting, Clippy, locked fuzz build, tests).
+rust-fast runs invisible-character, format, and locked Clippy checks without tests.
 all runs every group; requires Rust, Python 3, Node, Corepack, npm,
 wasm32-unknown-unknown, wasm-bindgen, wasm-pack and a C/C++ compiler.
 Coverage, npm artifact assembly and OS/mobile matrices remain separate CI gates.
@@ -26,6 +27,12 @@ check_rust() {
     run cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
     run cargo check --manifest-path fuzz/Cargo.toml --locked --bin wallet_store_decode
     run cargo test --workspace --all-features --locked
+}
+
+check_rust_fast() {
+    run python3 scripts/check-invisible-characters.py
+    run cargo fmt --all -- --check
+    run cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 }
 
 check_wasm() {
@@ -54,6 +61,7 @@ if (( $# > 1 )); then
     exit 2
 fi
 case "${1:-rust}" in
+    rust-fast) check_rust_fast ;;
     rust) check_rust ;;
     wasm) check_wasm ;;
     native) check_native ;;

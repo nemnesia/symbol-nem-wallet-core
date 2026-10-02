@@ -631,7 +631,7 @@ macro_rules! ffi_call {
 
 /// 空のWallet Storeを作成する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `out`は、結果を書き込める有効なポインターでなければならない。
 #[no_mangle]
@@ -647,7 +647,7 @@ pub unsafe extern "C" fn snwc_create_empty_store(out: *mut SnwcOwnedBytes) -> *c
 
 /// Mnemonic生成の初回段階を実行する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 /// 入力bufferは呼び出し中だけ読み取られ、出力bufferは対応するfree関数で解放する。
@@ -703,7 +703,7 @@ pub unsafe extern "C" fn snwc_prepare_generated_profile(
 
 /// Pending Profileを認証してProfileを確定する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `store`、`pending_profile`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -742,7 +742,7 @@ pub unsafe extern "C" fn snwc_finalize_generated_profile(
 
 /// UTF-8 BIP39 MnemonicからProfileを復元する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// 入力の各bufferと各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -779,7 +779,7 @@ pub unsafe extern "C" fn snwc_restore_profile(
 
 /// ProfileのMnemonicを明示的にexportする。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -811,7 +811,7 @@ pub unsafe extern "C" fn snwc_export_mnemonic(
 
 /// Software Keyのprivate keyを明示的にexportする。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -841,7 +841,7 @@ pub unsafe extern "C" fn snwc_export_private_key(
 
 /// passwordなしでProfile一覧を取得する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `store`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -879,7 +879,7 @@ pub unsafe extern "C" fn snwc_list_profiles(
 
 /// Profile内のSoftware Key一覧を取得する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `store`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1032,7 +1032,7 @@ fn parse_signing_request(value: SnwcSigningRequest) -> Result<SigningRequest, Wa
 
 /// MnemonicからSoftware Keyを導出して保存する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1070,7 +1070,7 @@ pub unsafe extern "C" fn snwc_derive_software_key(
 
 /// raw private keyを検証してSoftware Keyとして保存する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// 入力の各bufferと各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1108,7 +1108,7 @@ pub unsafe extern "C" fn snwc_import_software_key(
 
 /// CSPRNGでSoftware Keyを生成して保存する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1144,7 +1144,7 @@ pub unsafe extern "C" fn snwc_generate_software_key(
 
 /// Software Keyのpublic account情報を取得する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1178,7 +1178,7 @@ pub unsafe extern "C" fn snwc_get_public_account(
 
 /// Software Keyでpayload byte列に署名する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// 入力の各bufferと各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1208,7 +1208,7 @@ pub unsafe extern "C" fn snwc_sign(
 
 /// Profile passwordを変更してreplacement Storeを返す。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// 入力の各bufferと各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1240,7 +1240,7 @@ pub unsafe extern "C" fn snwc_change_profile_password(
 
 /// Software Keyを削除してreplacement Storeを返す。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1272,7 +1272,7 @@ pub unsafe extern "C" fn snwc_delete_software_key(
 
 /// Profileを削除してreplacement Storeを返す。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1302,7 +1302,7 @@ pub unsafe extern "C" fn snwc_delete_profile(
 
 /// `SnwcOwnedBytes`を解放し、内容を可能な範囲でzeroizeしてhandleを空にする。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `value`はこのBindingが返した未解放のbufferへのmutable pointerでなければならない。
 #[no_mangle]
@@ -1315,7 +1315,7 @@ pub unsafe extern "C" fn snwc_free_bytes(value: *mut SnwcOwnedBytes) {
 
 /// warning配列を解放する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `value`はこのBindingが返した未解放のwarning配列へのmutable pointerでなければならない。
 #[no_mangle]
@@ -1330,7 +1330,7 @@ pub unsafe extern "C" fn snwc_free_warnings(value: *mut SnwcWarnings) {
 
 /// Profile一覧配列を解放する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `values_ptr`と`len`は、このBindingが返した未解放のProfile一覧配列のhandleへのmutable
 /// pointerでなければならない。正常解放後、両方をNULL / 0へ更新する。
@@ -1349,7 +1349,7 @@ pub unsafe extern "C" fn snwc_free_profiles(
 
 /// Software Key一覧配列を解放する。
 ///
-/// # 安全性
+/// # Safety
 ///
 /// `values_ptr`と`len`は、このBindingが返した未解放のSoftware Key一覧配列のhandleへの
 /// mutable pointerでなければならない。正常解放後、両方をNULL / 0へ更新する。
