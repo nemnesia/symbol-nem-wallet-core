@@ -6,6 +6,7 @@ This document maps the workflows present under `.github/workflows/` to the local
 
 | Command | Checks |
 | --- | --- |
+| `./scripts/ci/local-ci.sh pr` | Fast Rust pull request checks (invisible characters, formatting, Clippy) and deterministic Node/release tooling checks. |
 | `./scripts/ci/local-ci.sh quick` | Rust format, Clippy, locked fuzz target check, workspace tests; deterministic Node/release tooling checks; WASM-backed package assembly; React Native consumer lockfile install, ESLint, TypeScript, Jest test discovery, and `react-native config` resolution. |
 | `./scripts/ci/local-ci.sh full` | `quick`, WASM tests/check, Native C ABI build/header/runtime and sanitizers, both manylinux Docker builds, frozen pnpm workspace install, npm package build and package tests, `npm pack`, clean tarball consumer smoke including `node --no-addons`, and Cargo advisory audit. |
 | `./scripts/ci/local-ci.sh linux-glibc` | Builds the Node addon and C ABI in the same manylinux glibc 2.28 Docker image used by release workflows. |
@@ -20,15 +21,15 @@ The package consumer path builds the package, writes a tarball into a `mktemp` d
 
 | Workflow / job | Classification | Local path or limit |
 | --- | --- | --- |
-| `coverage.yml` / `checks` | Ubuntu reproducible | `scripts/check-local.sh` groups shared with the workflow. Rust formatting, Clippy, locked tests, WASM fallback, C ABI runtime and sanitizers use the same entry. |
-| `coverage.yml` / `core-coverage` | Ubuntu reproducible | `scripts/ci/coverage.sh` is called by CI and the `coverage` local mode. Artifact upload is GitHub-only. |
-| `coverage.yml` / `core-branch-coverage` | Partly reproducible | Uses nightly Rust and unstable branch coverage; report upload and the workflow's informational `continue-on-error` behavior are GitHub-specific. |
+| `coverage.yml` / `checks` | Ubuntu reproducible | Pull requests run `rust-fast` (invisible characters, formatting, locked Clippy); pushes to main run full Rust, WASM, Native C ABI, and sanitizer checks through `scripts/check-local.sh`. |
+| `coverage.yml` / `core-coverage` | Ubuntu reproducible | Runs on main pushes through `scripts/ci/coverage.sh` and the `coverage` local mode. Artifact upload is GitHub-only. |
+| `coverage.yml` / `core-branch-coverage` | Partly reproducible | Runs on main pushes, uses nightly Rust and unstable branch coverage; report upload and informational `continue-on-error` behavior are GitHub-specific. |
 | `dependency-audit.yml` / `cargo-audit` | Ubuntu reproducible, network-backed advisory data | `scripts/ci/audit.sh` is called by CI and `audit` / `full`. The vulnerability database may change independently of the source revision. |
 | `dependency-review.yml` / `dependency-review` | GitHub-specific | The action compares the pull request dependency graph and applies the repository's advisory allowlist. It has no equivalent local PR context. |
 | `fuzz.yml` / `wallet-store-decode` | Locally reproducible with nightly tools | `scripts/ci/fuzz-wallet-store.sh` is shared. Artifact upload and schedule/dispatch are GitHub-specific. |
-| `node.yml` / `source` | Ubuntu reproducible plus evidence handoff | `scripts/ci/node-source.sh` runs deterministic release, facade, React Native lifecycle / Pod graph, and evidence checks. Source evidence upload and GitHub SHA binding stay in the workflow. |
-| `node.yml` / `core-c-abi` | Ubuntu reproducible | Calls shared Rust and Native C ABI groups. |
-| `node.yml` / `wasm` | Mostly reproducible | WASM test/build and version verification are available locally. Artifact evidence is produced by release evidence scripts; artifact transfer is GitHub-only. |
+| `node.yml` / `source` | Ubuntu reproducible plus evidence handoff | Runs on pull requests, main pushes, and releases. `scripts/ci/node-source.sh` runs deterministic release, facade, React Native lifecycle / Pod graph, and evidence checks. Source evidence upload and GitHub SHA binding stay in the workflow. |
+| `node.yml` / `core-c-abi` | Ubuntu reproducible | Runs on main pushes, manual dispatch, and releases; calls shared Rust and Native C ABI groups. |
+| `node.yml` / `wasm` | Mostly reproducible | Runs on main pushes, manual dispatch, and releases. WASM test/build and version verification are available locally. Artifact evidence is produced by release evidence scripts; artifact transfer is GitHub-only. |
 | `node.yml` / `native` | Partly reproducible | Ubuntu native addon build is local. `scripts/ci/build-manylinux.sh` shares the Linux glibc 2.28 Docker build with local `linux-glibc` mode; macOS x64/arm64 and Windows MSVC builds require their runners. Cross-target artifact evidence validation is OS-independent. |
 | `node.yml` / `wasm` React Native consumer checks | Ubuntu reproducible | `scripts/ci/react-native.sh` is shared with local `quick`; install uses the committed npm lockfile and static consumer checks run without an emulator. Jest discovery runs locally; the app's native API Jest smoke needs a TurboModule provider and is exercised through platform runtime testing. |
 | `node.yml` / `react-native` | Partly reproducible | Android and iOS archive production uses separate platform toolchains; Android emulator lifecycle smoke needs the configured SDK, emulator, and KVM. iOS requires Xcode / simulator. The static consumer checks are separated into the shared job above. |
@@ -37,8 +38,8 @@ The package consumer path builds the package, writes a tarball into a `mktemp` d
 | `node.yml` / `package` | Partly reproducible | Linux can assemble and test a local package tarball through `package` / `full`. CI's exact four-target package additionally requires Windows, macOS, Android, iOS, and XCFramework artifacts plus cross-job evidence. SPDX/license evidence validation is script-based; final artifact upload is GitHub-only. |
 | `node.yml` / `npm-consumer` | Partly reproducible | Ubuntu Node 24 tarball consumer and WASM fallback run locally through the shared consumer script. Windows/macOS and Node 22 matrix entries require those runners / runtime. |
 | `node.yml` / `browser-integration` | Ubuntu reproducible with browser tools | `browser` uses the locked workspace install, shared pack helper, and the same bundler smoke test. Hosted browser installation and uploaded test inputs remain runner setup. |
-| `c-abi-release.yml` / `target` | Partly reproducible | Ubuntu C ABI build and Unix archive consumer can be run locally; `scripts/ci/build-manylinux.sh` shares the manylinux glibc 2.28 Docker build with local `linux-glibc` mode. macOS / Windows artifacts require native runners. |
-| `c-abi-release.yml` / `aggregate` | Partly reproducible | Metadata closure, SBOM, license inventory/policy, archive aggregation, and manifest checks are local Node/Rust tools when all inputs exist. Downloaded target artifacts, release identity inputs, and artifact upload are GitHub handoffs. |
+| `c-abi-release.yml` / `target` | Partly reproducible | Runs on main pushes, manual dispatch, and releases, not pull requests. Ubuntu C ABI build and Unix archive consumer can be run locally; `scripts/ci/build-manylinux.sh` shares the manylinux glibc 2.28 Docker build with local `linux-glibc` mode. macOS / Windows artifacts require native runners. |
+| `c-abi-release.yml` / `aggregate` | Partly reproducible | Runs on main pushes, manual dispatch, and releases. Metadata closure, SBOM, license inventory/policy, archive aggregation, and manifest checks are local Node/Rust tools when all inputs exist. Downloaded target artifacts, release identity inputs, and artifact upload are GitHub handoffs. |
 | `release.yml` / `identity`, `candidate`, `c-abi`, `release-record` | Partly reproducible | Deterministic fixtures and candidate evidence validators run from repository scripts. Version availability, immutable artifact handoffs, source/tag binding, and release-mode evidence depend on GitHub or the npm registry. |
 | `release.yml` / `publish`, `publication` | External environment / GitHub-specific | OIDC provenance, npm publish, GitHub token, release creation/resume, durable asset upload, and registry recovery cannot be reproduced as an ordinary local check. |
 | `release-recovery.yml` / `verify`, `publication` | GitHub / external service-specific | Requires original workflow runs and artifacts, published npm registry contents, GitHub release state, and write permissions. Deterministic validators themselves are covered in `node-source.sh`. |
@@ -46,6 +47,7 @@ The package consumer path builds the package, writes a tarball into a `mktemp` d
 ## Specific CI subjects
 
 - Rust fmt, Clippy, tests, and the independent fuzz lockfile check are in the shared `rust` group.
+- Pull requests run the fast Rust checks and deterministic Node checks; full Rust, WASM, Native C ABI, coverage, and artifact matrices run on main, manual dispatch, and formal release workflows.
 - Cargo dependency audit uses the same `scripts/ci/audit.sh` command locally and in CI. GitHub Dependency Review remains separate because it evaluates a pull request graph.
 - Node deterministic tests use `scripts/ci/node-source.sh`; package, tarball consumer, and React Native checks each have shared scripts.
 - React Native lockfile validation is `npm ci --install-links --ignore-scripts`; workspace installs use `corepack pnpm install --frozen-lockfile --ignore-scripts`. Node 24 comes from `.node-version`, and pnpm from `package.json` `packageManager`.

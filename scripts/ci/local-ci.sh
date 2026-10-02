@@ -6,9 +6,10 @@ cd "$repo_root"
 
 usage() {
     cat <<'EOF'
-Usage: ./scripts/ci/local-ci.sh [quick|full|rust|node|react-native|package|wasm|native|linux-glibc|audit|coverage|fuzz|browser|android]
+Usage: ./scripts/ci/local-ci.sh [pr|quick|full|rust|node|react-native|package|wasm|native|linux-glibc|audit|coverage|fuzz|browser|android]
 Default: quick
 
+pr: the fast Rust checks and deterministic Node checks run for pull requests.
 quick: Rust quality checks, deterministic Node/release tooling checks, and React Native consumer static checks.
 full: quick plus WASM, Native C ABI, sanitizers, dependencies, packed npm consumer, and cargo audit.
 linux-glibc/android/browser/coverage are explicit platform or tool dependent checks.
@@ -38,6 +39,12 @@ run_rust() {
     bash scripts/check-local.sh rust
 }
 
+run_rust_fast() {
+    require_tools cargo rustc rustfmt python3 rg
+    rustup component list --installed | rg -q '^clippy-' || { echo 'ERROR: Rust clippy component is required' >&2; exit 1; }
+    bash scripts/check-local.sh rust-fast
+}
+
 run_node() {
     require_tools node
     check_node_version
@@ -51,6 +58,10 @@ run_react_native() {
 }
 
 case "${1:-quick}" in
+    pr)
+        run_rust_fast
+        run_node
+        ;;
     quick)
         run_rust
         run_node

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   EXPECTED_PODFILE_LOCK_SHA256,
-  EXPECTED_PODFILE_SHA256,
+  EXPECTED_PODFILE_EXECUTABLE_SHA256,
   assertPodfileLockUnchanged,
   validatePodfileLock,
 } from "./react-native-pod-lock.mjs";
@@ -34,8 +34,24 @@ function expectFailure(label, mutate) {
   }
 }
 
+function expectSuccess(label, mutate) {
+  const root = mkdtempSync(resolve(tmpdir(), "snwc-rn-pod-lock-test-"));
+  try {
+    const iosRoot = resolve(root, "ios");
+    mkdirSync(iosRoot, { recursive: true });
+    cpSync(sourcePodfile, resolve(iosRoot, "Podfile"));
+    cpSync(sourceLockfile, resolve(iosRoot, "Podfile.lock"));
+    mutate(iosRoot);
+    validatePodfileLock(root);
+  } catch (error) {
+    throw new Error(`${label} was rejected`, { cause: error });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 validatePodfileLock(sourceRoot, {
-  expectedPodfileSha256: EXPECTED_PODFILE_SHA256,
+  expectedPodfileExecutableSha256: EXPECTED_PODFILE_EXECUTABLE_SHA256,
   expectedLockSha256: EXPECTED_PODFILE_LOCK_SHA256,
 });
 
@@ -52,9 +68,13 @@ expectFailure("CocoaPods metadata modification", iosRoot => {
   const path = resolve(iosRoot, "Podfile.lock");
   writeFileSync(path, readFileSync(path, "utf8").replace("COCOAPODS: 1.16.2", "COCOAPODS: 1.15.2"));
 });
-expectFailure("Podfile and Podfile.lock mismatch", iosRoot => {
+expectSuccess("comment-only Podfile modification", iosRoot => {
   const path = resolve(iosRoot, "Podfile");
   writeFileSync(path, `${readFileSync(path, "utf8")}\n# modified\n`);
+});
+expectFailure("Podfile executable input modification", iosRoot => {
+  const path = resolve(iosRoot, "Podfile");
+  writeFileSync(path, readFileSync(path, "utf8").replace("platform :ios, min_ios_version_supported", "platform :ios, '15.1'"));
 });
 expectFailure("source-controlled graph mismatch", iosRoot => {
   const path = resolve(iosRoot, "Podfile.lock");

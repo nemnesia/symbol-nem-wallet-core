@@ -3,7 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 export const EXPECTED_COCOAPODS_VERSION = "1.16.2";
-export const EXPECTED_PODFILE_SHA256 = "49a8c3ad8c3317d1838bbb3752ab0f0ce6dde6ee19bb1524086785fda25a3506";
+export const EXPECTED_PODFILE_EXECUTABLE_SHA256 = "cbc2307bcba8fb7f5d0beb0a080400f5a38e0bbb7b30e6c9251ce6111c8ee072";
 export const EXPECTED_PODFILE_LOCK_SHA256 = "cb98167edd20972f96802c97f84efba311ee5f65eb40cfb4edf36ccfd9962973";
 
 function fail(message) {
@@ -21,6 +21,16 @@ function digest(path, label) {
   }
 }
 
+function podfileExecutableDigest(path) {
+  try {
+    const source = readFileSync(path, "utf8");
+    const executableInput = source.replace(/^[\t ]*#.*(?:\r?\n|$)/gm, "");
+    return createHash("sha256").update(executableInput, "utf8").digest("hex");
+  } catch {
+    fail("Podfile is missing or unreadable");
+  }
+}
+
 export function assertPodfileLockUnchanged(before, after) {
   if (!Buffer.isBuffer(before) || !Buffer.isBuffer(after) || !before.equals(after)) {
     fail("CocoaPods attempted to mutate the source-controlled Podfile.lock");
@@ -30,13 +40,13 @@ export function assertPodfileLockUnchanged(before, after) {
 export function validatePodfileLock(root, options = {}) {
   const podfilePath = resolve(root, "ios/Podfile");
   const lockPath = resolve(root, "ios/Podfile.lock");
-  const expectedPodfileSha256 = options.expectedPodfileSha256 ?? EXPECTED_PODFILE_SHA256;
+  const expectedPodfileExecutableSha256 = options.expectedPodfileExecutableSha256 ?? EXPECTED_PODFILE_EXECUTABLE_SHA256;
   const expectedLockSha256 = options.expectedLockSha256 ?? EXPECTED_PODFILE_LOCK_SHA256;
-  const podfileSha256 = digest(podfilePath, "Podfile");
+  const podfileExecutableSha256 = podfileExecutableDigest(podfilePath);
   const lockfileSha256 = digest(lockPath, "Podfile.lock");
   const podfile = readFileSync(podfilePath, "utf8");
   const lockfile = readFileSync(lockPath, "utf8");
-  if (podfileSha256 !== expectedPodfileSha256) fail("Podfile does not match the canonical source-controlled input");
+  if (podfileExecutableSha256 !== expectedPodfileExecutableSha256) fail("Podfile does not match the canonical source-controlled input");
   if (lockfileSha256 !== expectedLockSha256) fail("Podfile.lock does not match the canonical source-controlled resolved graph");
   const escapedCocoaPodsVersion = EXPECTED_COCOAPODS_VERSION.replaceAll(".", "\\.");
   if (
@@ -57,5 +67,5 @@ export function validatePodfileLock(root, options = {}) {
   ) {
     fail("Podfile.lock is incomplete or is not the actual RN 0.87.0 consumer graph");
   }
-  return { podfileSha256, lockfileSha256, lockfile };
+  return { podfileExecutableSha256, lockfileSha256, lockfile };
 }

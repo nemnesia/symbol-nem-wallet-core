@@ -56,6 +56,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Pull requests retain deterministic source checks; full target and package matrices run on main, manual dispatch, and release.
   source:
     name: Release source snapshot
     runs-on: ubuntu-24.04
@@ -89,6 +90,7 @@ jobs:
 
   core-c-abi:
     name: Core and C ABI maintained CI
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     needs: source
@@ -112,6 +114,7 @@ jobs:
 
   wasm:
     name: WASM release artifact
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: source
@@ -174,6 +177,7 @@ jobs:
 
   native:
     name: ${{ matrix.target_id }} native release artifact
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 35
     needs: source
@@ -246,6 +250,7 @@ jobs:
 
   react-native:
     name: ${{ matrix.target_id }} React Native New Architecture artifact
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     needs: [source, wasm]
@@ -711,6 +716,7 @@ jobs:
 
   react-native-ios-xcframework:
     name: Assemble and inspect the React Native iOS XCFramework
+    if: github.event_name != 'pull_request'
     runs-on: macos-15
     timeout-minutes: 45
     needs: react-native
@@ -1019,6 +1025,7 @@ jobs:
 
   parity-regression:
     name: Native / WASM / npm parity regression
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     needs: source
@@ -1056,6 +1063,7 @@ jobs:
 
   package:
     name: Final npm release candidate assembly
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     needs: [source, core-c-abi, wasm, native, react-native, react-native-ios-xcframework, parity-regression]
@@ -1462,6 +1470,7 @@ jobs:
 
   npm-consumer:
     name: ${{ matrix.platform }} / Node ${{ matrix.node }} clean tarball consumer
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     needs: package
@@ -1515,6 +1524,7 @@ jobs:
 
   browser-integration:
     name: Browser bundler and MV3 integration
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: package

@@ -62,8 +62,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # C ABI artifacts remain a main, manual-dispatch, and release gate; PRs use the fast checks in coverage.yml.
   target:
     name: ${{ matrix.target_id }} C ABI release asset
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -203,6 +205,7 @@ jobs:
 
   aggregate:
     name: Aggregate C ABI release asset set
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     needs: target
