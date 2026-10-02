@@ -1,3 +1,5 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -14,6 +16,10 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sourceRoot = resolve(repositoryRoot, "integration/react-native/consumer");
 const sourcePodfile = resolve(sourceRoot, "ios/Podfile");
 const sourceLockfile = resolve(sourceRoot, "ios/Podfile.lock");
+
+// CocoaPods hashes the complete canonical Podfile, including comments.
+const podfileChecksum = createHash("sha1").update(readFileSync(sourcePodfile)).digest("hex");
+assert.match(readFileSync(sourceLockfile, "utf8"), new RegExp(`^PODFILE CHECKSUM: ${podfileChecksum}$`, "m"));
 
 function expectFailure(label, mutate) {
   const root = mkdtempSync(resolve(tmpdir(), "snwc-rn-pod-lock-test-"));
@@ -78,7 +84,7 @@ expectFailure("Podfile executable input modification", iosRoot => {
 });
 expectFailure("source-controlled graph mismatch", iosRoot => {
   const path = resolve(iosRoot, "Podfile.lock");
-  writeFileSync(path, readFileSync(path, "utf8").replace("SymbolNemWalletCoreRN: 246efb4239eee83198f327bb3ca7dc44af02a872", "SymbolNemWalletCoreRN: 0000000000000000000000000000000000000000"));
+  writeFileSync(path, readFileSync(path, "utf8").replace(/SymbolNemWalletCoreRN: [0-9a-f]{40}/, "SymbolNemWalletCoreRN: 0000000000000000000000000000000000000000"));
 });
 
 const canonicalBytes = readFileSync(sourceLockfile);

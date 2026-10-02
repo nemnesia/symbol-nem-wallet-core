@@ -62,7 +62,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # C ABI artifacts remain a main, manual-dispatch, and release gate; PRs use the fast checks in coverage.yml.
+  # C ABI release artifacts run on main, manual dispatch, and release; affected PRs run native checks in coverage.yml.
   target:
     name: ${{ matrix.target_id }} C ABI release asset
     if: github.event_name != 'pull_request'
