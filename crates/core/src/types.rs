@@ -176,7 +176,7 @@ pub struct ExportRequest {
     pub target: ExportTarget,
     /// 利用者要求。
     pub user_request: ExportUserRequest,
-    /// Application confirmation。
+    /// Applicationによる確認。
     pub application_confirmation: ExportApplicationConfirmation,
 }
 
@@ -223,7 +223,7 @@ pub struct SigningRequest {
     pub target: SigningTarget,
     /// Coreが書き換えずに署名するraw payload。
     pub payload: Vec<u8>,
-    /// Application assertion。
+    /// Applicationからの表明。
     pub approval: SigningApproval,
 }
 

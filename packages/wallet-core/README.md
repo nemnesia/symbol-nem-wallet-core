@@ -100,8 +100,8 @@ let store = create_empty_store();
 
 const prepared = prepare_generated_profile(store, password_utf8, 1);
 
-// Application responsibility:
-// 1. prepared.value.mnemonic_utf8 全体を intended user に安全に提示する。
+// Application側の責任:
+// 1. prepared.value.mnemonic_utf8全体を意図した利用者に安全に提示する。
 // 2. 現在の操作について明示的な受領確認を取得する。
 // 3. 確認できなければ、ここで中止する。
 const handoffConfirmed = await presentMnemonicAndWaitForExplicitConfirmation(
@@ -197,7 +197,7 @@ console.log(account.value.address);
 
 package root の runtime export は次の16関数だけです。TypeScript の `interface`、`type` alias、error declaration は runtime named export ではありません。関数はすべて同期呼び出しで、`Promise` を返しません。
 
-| Function | Arguments | Return type | Mutation / Read | Purpose |
+| 関数 | 引数 | 戻り値の型 | 状態変更 / 読み取り | 目的 |
 | --- | --- | --- | --- | --- |
 | `create_empty_store` | なし | `Uint8Array` | Factory | 空の Wallet Store を作る |
 | `prepare_generated_profile` | `store`, `password_utf8`, `network` | `PreparedProfileResult` (`ReadResult<PreparedProfile>`) | Read / pending | 新しい Mnemonic と Pending Profile を準備する。Profile はまだ確定しない |
@@ -222,7 +222,7 @@ package root の runtime export は次の16関数だけです。TypeScript の `
 
 ### Scalar
 
-| Type | TypeScript 表現と意味 |
+| 型 | TypeScript表現と意味 |
 | --- | --- |
 | `Network` | `0 \| 1`。top-level input では `0 = testnet`, `1 = mainnet` |
 | `Chain` | `0 \| 1`。top-level input では `0 = nem`, `1 = symbol` |
@@ -234,7 +234,7 @@ package root の runtime export は次の16関数だけです。TypeScript の `
 
 `Network` / `Chain` の number 表現は operation の top-level 引数だけで使用します。`AccountContext`、`ProfileInfo`、`SoftwareKeyInfo`、`SoftwareKeyListItem`、`PublicAccountInfo` では文字列表現を使用します。
 
-### Confirmation、request、context
+### 確認、request、context
 
 ```ts
 HandoffConfirmationStatus = "unconfirmed" | "confirmed";
@@ -360,7 +360,7 @@ Application / persistence layer は、保存に成功した replacement Store �
 
 ## 重要な操作フロー
 
-### Generated Mnemonic handoff
+### Mnemonic生成時の受け渡し
 
 新しい Profile は `prepare_generated_profile` と `finalize_generated_profile` の2段階です。
 
@@ -374,8 +374,8 @@ Application / persistence layer は、保存に成功した replacement Store �
 ```ts
 const prepared = prepare_generated_profile(store, password_utf8, 1);
 
-// Application-side placeholder:
-// mnemonic_utf8 全体を intended user に提示し、現在の user から明示的な確認を取得する。
+// Application側で実装するplaceholder:
+// mnemonic_utf8全体を意図した利用者に提示し、現在の利用者から明示確認を取得する。
 presentMnemonicToIntendedUser(prepared.value.mnemonic_utf8);
 const userConfirmed = await waitForExplicitUserHandoffConfirmation();
 if (!userConfirmed) {
@@ -393,7 +393,7 @@ store = finalized.store;
 
 上の `presentMnemonicToIntendedUser` と `waitForExplicitUserHandoffConfirmation` は Application が実装する placeholder です。確認 UI を実装しないまま `confirmed` を固定して呼び出してはいけません。`restore_profile` で既存 Mnemonic を復元する処理は、生成時 handoff の対象ではありません。
 
-### Mnemonic / private key export
+### Mnemonic / private keyのexport
 
 export は通常処理と分離された明示操作です。次の3者を別々に満たしてください。
 
@@ -404,7 +404,7 @@ export は通常処理と分離された明示操作です。次の3者を別々
 password を知っているだけでは export authorization になりません。`ExportRequest` の `target`、`user_request.target`、`application_confirmation.target` は同じ target で、status はそれぞれ `"requested"` と `"confirmed"` でなければなりません。
 
 ```ts
-// これらの status は、現在の user request / Application confirmation を取得した後だけ構築する。
+// これらのstatusは、現在の利用者要求とApplication確認を取得した後だけ構築する。
 const target = { kind: "mnemonic", profile_id } as const;
 const request = {
   target,
@@ -413,12 +413,12 @@ const request = {
 };
 
 const exported = export_mnemonic(store, request, password_utf8);
-// exported.value.mnemonic_utf8 は明示 export の一時的な結果。利用後は保持しない。
+// exported.value.mnemonic_utf8は明示exportの一時的な結果である。利用後は保持しない。
 ```
 
 Software Key private key の場合は `target` を `{ kind: "software_key", profile_id, key_id }` にし、同じ条件で `export_private_key` を呼びます。返された secret copy の表示・保管・利用・破棄は Application / user の責任です。
 
-### Signing
+### 署名
 
 `sign` は Transaction parser ではありません。Core は payload を解釈、再構成、prefix 追加せず、渡された raw bytes を署名します。
 
@@ -426,7 +426,7 @@ Application は署名前に Transaction / payload を上位の Transaction layer
 
 ```ts
 const context = { chain: "symbol", network: "mainnet" } as const;
-// Application-side placeholder: 解釈・表示した同じ raw bytes について現在の user approval を取得する。
+// Application側で実装するplaceholder: 解釈・表示したraw bytesと同一の内容について利用者の明示承認を取得する。
 const payload = getPayloadPresentedAndApprovedByUser();
 
 const signed = sign(
@@ -556,7 +556,7 @@ facade は型・binary・error の representation を橋渡しするだけです
 
 native artifact の runtime SHA-256 verification は package / loader boundary の control です。provenance、SBOM、Trusted Publishing など release / supply-chain の後続項目を、この package の Core runtime security feature として保証するものではありません。
 
-## Errors
+## エラー
 
 Core operation の失敗は `WalletCoreError` として正規化され、`name` は `"WalletCoreError"`、`code` と `message` は同じ `ErrorCode` です。主な code は次のとおりです。
 
@@ -571,6 +571,6 @@ SerializationFailure, PendingProfileInvalid, BindingFailure
 
 backend の読み込み・WASM 初期化に失敗した場合は、Core operation error とは別の `WalletCoreBackendInitializationError` です。error、warning、diagnostics に secret や内部 payload を含めません。
 
-## License
+## ライセンス
 
 MIT License. [Repository](https://github.com/nemnesia/symbol-nem-wallet-core) と [LICENSE](https://github.com/nemnesia/symbol-nem-wallet-core/blob/main/LICENSE) を参照してください。

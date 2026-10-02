@@ -36,12 +36,12 @@ function nodeParityResults() {
   return nodeParity;
 }
 
-test("Node native and Node --no-addons WASM have identical Stage 8 contract results", () => {
+test("Node nativeとNode --no-addons WASMのStage 8契約結果が一致する", () => {
   const { native, wasm } = nodeParityResults();
   assert.deepEqual(wasm, native);
 });
 
-test("Browser WASM package entry has identical Stage 8 contract results", async (t) => {
+test("Browser WASM package entryのStage 8契約結果が一致する", async (t) => {
   const browser = await runBrowserParity();
   if (browser.status === "blocked") {
     t.skip(browser.reason);

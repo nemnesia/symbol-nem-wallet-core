@@ -14,14 +14,13 @@ class MainActivity : ReactActivity() {
   private var lifecycleReloadScheduled = false
 
   /**
-   * Returns the name of the main component registered from JavaScript. This is used to schedule
-   * rendering of the component.
+   * JavaScriptから登録されたmain componentの名前を返す。componentのrendering開始時に使われる。
    */
   override fun getMainComponentName(): String = "SnwcRnBuild"
 
   /**
-   * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]
-   * which allows you to enable New Architecture with a single boolean flags [fabricEnabled]
+   * [ReactActivityDelegate]のinstanceを返す。[DefaultReactActivityDelegate]を使うと、
+   * boolean flag [fabricEnabled]ひとつでNew Architectureを有効にできる。
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)

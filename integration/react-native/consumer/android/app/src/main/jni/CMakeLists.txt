@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.13)
 
-# RN 0.87's application-level New Architecture entry point. The package CMake
-# target is supplied by the published npm package and is linked once per ABI.
+# RN 0.87のアプリ用New Architecture entry point。package CMake targetは公開npm packageが提供し、
+# ABIごとに一度だけlinkする。
 project(appmodules)
 
-# React Native 0.87 Codegen itself requires C++20. Set this before the
-# application CMake entry point creates the generated targets.
+# React Native 0.87 Codegen自体がC++20を必要とする。アプリ用CMake entry pointが生成targetを
+# 作成する前に設定する。
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -26,10 +26,9 @@ if(NOT SNWC_RN_CODEGEN_TARGET_COUNT EQUAL 1)
 endif()
 list(GET SNWC_RN_CODEGEN_TARGETS 0 SNWC_RN_CODEGEN_TARGET)
 
-# RN CLI's C++ autolinking metadata is not part of the application source
-# contract.  The clean consumer therefore registers the package target from
-# the installed, lockfile-selected npm package explicitly.  This keeps the
-# target and its C ABI input in the same CMake graph that owns appmodules.
+# RN CLIのC++ autolinking metadataはアプリsourceの契約に含まれない。
+# そのためclean consumerでは、lockfileで選択されたinstall済みnpm packageからtargetを明示登録する。
+# これによりtargetとC ABI入力が、appmodulesを所有する同じCMake graphに入る。
 set(SNWC_RN_PACKAGE_ROOT
     "${PROJECT_ROOT_DIR}/../node_modules/@nemnesia/symbol-nem-wallet-core")
 if(NOT EXISTS "${SNWC_RN_PACKAGE_ROOT}/android/CMakeLists.txt")
@@ -47,17 +46,16 @@ if(NOT TARGET symbol_nem_wallet_core_rn)
 endif()
 target_link_libraries(${CMAKE_PROJECT_NAME} symbol_nem_wallet_core_rn)
 
-# CMake's default shared-library rule adds an appmodules SONAME after the
-# target options. Suppress that default so the final load unit has exactly the
-# published manifest filename, while the explicit linker option below remains
-# the only SONAME supplied to lld.
+# CMakeの標準shared-library規則はtarget optionの後にappmodules SONAMEを追加する。
+# その標準設定を無効にして、最終load unitの名前を公開manifestのfile名と一致させる。
+# 下記の明示的linker optionだけをlldへ渡すSONAMEとする。
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
     NO_SONAME TRUE
 )
 
-# The appmodules shared object is the Android RN load unit.  RN/AGP may link
-# package static archives with hidden visibility, so make the provider and
-# exact embedded identity part of this load unit's dynamic symbol contract.
+# appmodules shared objectはAndroid RNのload unitである。RN / AGPがpackage static archiveを
+# hidden visibilityでlinkする場合に備え、providerと正確な埋め込みidentityをこのload unitの
+# dynamic symbol契約に含める。
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
     "-Wl,-soname,libsymbol_nem_wallet_core_rn.so"
     "-Wl,--export-dynamic"

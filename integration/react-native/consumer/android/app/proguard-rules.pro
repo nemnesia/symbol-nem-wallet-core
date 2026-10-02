@@ -1,10 +1,9 @@
-# Add project specific ProGuard rules here.
-# By default, the flags in this file are appended to flags specified
-# in /usr/local/Cellar/android-sdk/24.3.3/tools/proguard/proguard-android.txt
-# You can edit the include path and order by changing the proguardFiles
-# directive in build.gradle.
+# project固有のProGuard ruleをここに追加する。
+# 標準では、このfileのflagは次のfileに指定されたflagへ追加される。
+# /usr/local/Cellar/android-sdk/24.3.3/tools/proguard/proguard-android.txt
+# build.gradleのproguardFiles directiveを変更すると、include先と順序を変更できる。
 #
-# For more details, see
+# 詳細は次を参照。
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# Add any project specific keep options here:
+# project固有のkeep optionをここに追加する。

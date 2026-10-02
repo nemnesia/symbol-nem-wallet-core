@@ -17,9 +17,9 @@ static void snwcRequestIntegrationReload() {
   dispatch_async(dispatch_get_main_queue(), ^{
     if (snwcIntegrationHost == nil) return;
     NSLog(@"SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED");
-    // Use React Native's reload-command path as the single reload authority.
-    // It coordinates the host replacement and existing surface restart;
-    // calling RCTHost.reload() first would make this a second host reload.
+    // reload処理の唯一の起点としてReact Nativeのreload-command経路を使う。
+    // この経路がhostの置換と既存surfaceの再起動を調整する。
+    // 先にRCTHost.reload()を呼ぶと、hostを二度reloadすることになる。
     RCTTriggerReloadCommandListeners(@"SNWC integration lifecycle reload");
   });
 }

@@ -44,7 +44,7 @@ function writeReactNativeRuntime(packageCopy, manifestOverrides = {}) {
   );
 }
 
-test("React Native native integration registers appmodules and gates JSI delivery on lifecycle validity", () => {
+test("React Native native integrationがappmodulesを登録し、lifecycleの有効性に応じてJSI配送を制御する", () => {
   const cmake = readFileSync(resolve(packageRoot, "android/CMakeLists.txt"), "utf8");
   const gradle = readFileSync(resolve(packageRoot, "android/build.gradle"), "utf8");
   const onLoad = readFileSync(resolve(packageRoot, "android/OnLoad.cpp"), "utf8");
@@ -229,7 +229,7 @@ test("React Native native integration registers appmodules and gates JSI deliver
   assert.doesNotMatch(nativeSource, /valid_\s*=|processGeneration_\s*=\s*1/);
 });
 
-test("React Native entry uses the private synchronous TurboModule and preserves facade outputs", async () => {
+test("React Native entryが非公開の同期TurboModuleを使い、facadeの出力を維持する", async () => {
   const directory = mkdtempSync(resolve(tmpdir(), "snwc-react-native-entry-"));
   try {
     const packageCopy = resolve(directory, "wallet-core");
@@ -273,7 +273,7 @@ test("React Native entry uses the private synchronous TurboModule and preserves 
   }
 });
 
-test("React Native entry fails closed when the native provider is unavailable", async () => {
+test("native providerが利用できない場合、React Native entryがfail-closedで終了する", async () => {
   const directory = mkdtempSync(resolve(tmpdir(), "snwc-react-native-missing-provider-"));
   try {
     const packageCopy = resolve(directory, "wallet-core");
@@ -298,7 +298,7 @@ test("React Native entry fails closed when the native provider is unavailable", 
   }
 });
 
-test("React Native entry fails closed when the package artifact manifest is incomplete", async () => {
+test("package artifact manifestが不完全な場合、React Native entryがfail-closedで終了する", async () => {
   const directory = mkdtempSync(resolve(tmpdir(), "snwc-react-native-manifest-failure-"));
   try {
     const packageCopy = resolve(directory, "wallet-core");
@@ -320,7 +320,7 @@ test("React Native entry fails closed when the package artifact manifest is inco
   }
 });
 
-test("React Native entry rejects a provider whose native artifact identity is not admitted", async () => {
+test("native artifact identityが許可されていないproviderをReact Native entryが拒否する", async () => {
   const directory = mkdtempSync(resolve(tmpdir(), "snwc-react-native-wrong-artifact-"));
   try {
     const packageCopy = resolve(directory, "wallet-core");
@@ -339,7 +339,7 @@ test("React Native entry rejects a provider whose native artifact identity is no
   }
 });
 
-test("React Native condition resolves the package root to the private entry", () => {
+test("React Native conditionがpackage rootを非公開entryへ解決する", () => {
   const directory = mkdtempSync(resolve(tmpdir(), "snwc-react-native-condition-"));
   try {
     const packageCopy = resolve(directory, "node_modules/@nemnesia/symbol-nem-wallet-core");

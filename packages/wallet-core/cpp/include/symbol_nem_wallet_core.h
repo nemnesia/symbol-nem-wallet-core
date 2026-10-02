@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Private copy of the checked-in C ABI declarations used by the RN adapter. */
+/* RN adapterが使う、repository管理下C ABI宣言の非公開copy。 */
 typedef struct { const uint8_t *ptr; size_t len; } SnwcBytes;
 typedef struct { uint8_t bytes[16]; } SnwcUuid;
 typedef struct { uint8_t *ptr; size_t len; } SnwcOwnedBytes;

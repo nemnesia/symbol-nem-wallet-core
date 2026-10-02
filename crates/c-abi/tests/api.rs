@@ -79,6 +79,7 @@ fn signing_request(
     }
 }
 
+// C ABIのbyte境界とCoreの結果が一致することを確認する。
 #[test]
 fn c_abi_keeps_byte_boundaries_and_core_results() {
     // 不正入力とNULL outputの境界を確認した後、Profile・Key・署名・公開情報の
@@ -565,6 +566,7 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
     }
 }
 
+// C ABIのNEM結果が外部fixtureのpublic key・address・signatureと一致することを確認する。
 #[test]
 fn c_abi_nem_external_fixture_matches_public_key_address_and_signature() {
     // NEMのBinding結果をCoreとの再比較だけでなく、独立した固定fixtureへ照合する。

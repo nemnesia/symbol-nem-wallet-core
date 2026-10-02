@@ -1,10 +1,9 @@
 /*
- * Stage 8 contract parity scenarios.
+ * Stage 8の契約互換シナリオ。
  *
- * This module deliberately has no Node or browser imports so the exact same
- * operation sequence is executed by all consumer-facing runtime paths.
- * Secret fixtures are used only for private assertions and never enter the
- * returned canonical result.
+ * NodeやBrowserのimportを持たせず、すべての利用者向けruntime経路で
+ * 同一のoperation sequenceを実行する。
+ * 秘密fixtureは内部assertionだけに使用し、返却するcanonical resultには含めない。
  */
 
 export const OPERATION_NAMES = [

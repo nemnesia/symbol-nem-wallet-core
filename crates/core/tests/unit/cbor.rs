@@ -2,6 +2,7 @@
 
 use super::*;
 
+// parserが過大入力をallocationや深い再帰の前に拒否することを確認する。
 #[test]
 fn parser_rejects_resource_exhaustion_inputs_before_allocation_or_deep_recursion() {
     // 巨大なcollection長と深いnestingを、allocationや再帰の前に拒否する。
@@ -16,6 +17,7 @@ fn parser_rejects_resource_exhaustion_inputs_before_allocation_or_deep_recursion
     assert!(decode(&deeply_nested).is_err());
 }
 
+// 入力byte列とBytes / Textの長さ上限を検証する。
 #[test]
 fn parser_enforces_input_bytes_and_byte_text_boundaries() {
     let too_large_input = vec![0u8; MAX_WALLET_STORE_INPUT + 1];
@@ -39,6 +41,7 @@ fn parser_enforces_input_bytes_and_byte_text_boundaries() {
     assert!(decode(&text).is_ok());
 }
 
+// parserが配列・mapの要素数上限をcapacity確保前に拒否することを確認する。
 #[test]
 fn parser_rejects_collection_limit_before_capacity_allocation() {
     let mut array = vec![0x9b];
@@ -50,6 +53,7 @@ fn parser_rejects_collection_limit_before_capacity_allocation() {
     assert!(decode(&nested).is_err());
 }
 
+// 非canonicalなmap順序とtrailing bytesを拒否することを確認する。
 #[test]
 fn parser_rejects_noncanonical_map_order_and_trailing_bytes() {
     // {1: 0, 0: 0} はmap key順序がdeterministic CBORに反する。
@@ -57,6 +61,7 @@ fn parser_rejects_noncanonical_map_order_and_trailing_bytes() {
     assert!(decode(&[0x01, 0x00]).is_err());
 }
 
+// 負の整数とCBOR tagをdecode後に再encodeできることを確認する。
 #[test]
 fn parser_round_trips_negative_integers_and_tags() {
     // Store v1で意味解釈しない負数・tagも、wire値を保持して再出力できる。
@@ -72,6 +77,7 @@ fn parser_round_trips_negative_integers_and_tags() {
     }
 }
 
+// simple valueとundefinedをdecode後に再encodeできることを確認する。
 #[test]
 fn parser_round_trips_simple_values_and_undefined() {
     // Bool/Nullと衝突しないsimple value、およびundefined相当の値を検証する。
@@ -86,6 +92,7 @@ fn parser_round_trips_simple_values_and_undefined() {
     }
 }
 
+// 非canonicalなsimple valueと浮動小数点値を拒否することを確認する。
 #[test]
 fn parser_rejects_noncanonical_simple_values_and_floats() {
     // 0..23をadditional information 24で表す形式は非canonical。
@@ -115,6 +122,7 @@ fn parser_rejects_noncanonical_simple_values_and_floats() {
     assert!(decode(&[0xfb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]).is_err());
 }
 
+// CBORエラーの表示文字列が安定していることを確認する。
 #[test]
 fn cbor_error_display_is_stable() {
     assert_eq!(CborError.to_string(), "invalid deterministic CBOR");

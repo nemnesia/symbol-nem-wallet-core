@@ -34,7 +34,7 @@ const packageMeta = {
 };
 const sourceCommit = "ca270941a53f3517255d37ae51501c8c13cfcd16";
 
-test("native target lookup follows the fixed platform and glibc contract", () => {
+test("native targetの検索が固定されたplatformとglibcの契約に従う", () => {
   assert.equal(targetForRuntime("win32", "x64", undefined), "win32-x64-msvc");
   assert.equal(targetForRuntime("darwin", "x64", undefined), "darwin-x64");
   assert.equal(targetForRuntime("darwin", "arm64", undefined), "darwin-arm64");
@@ -47,7 +47,7 @@ test("native target lookup follows the fixed platform and glibc contract", () =>
   assert.equal(targetForRuntime("freebsd", "x64", "2.39"), null);
 });
 
-test("manifest validator accepts the empty local manifest and rejects schema drift", () => {
+test("manifest validatorが空のlocal manifestを受理し、schemaの不一致を拒否する", () => {
   const manifest = {
     schema_version: 1,
     package_name: packageMeta.name,
@@ -63,7 +63,7 @@ test("manifest validator accepts the empty local manifest and rejects schema dri
   assert.throws(() => validateNativeManifest({ ...manifest, artifacts: [{ target_id: "linux-x64-gnu" }] }, packageMeta));
 });
 
-test("assembler records only supplied artifacts, hashes bytes, and canonicalizes order", () => {
+test("assemblerが指定artifactだけを記録し、byte列をhash化して順序をcanonical化する", () => {
   const directory = mkdtempSync(resolve(tmpdir(), "snwc-manifest-"));
   try {
     const linuxPath = resolve(directory, "linux.node");
@@ -104,7 +104,7 @@ test("assembler records only supplied artifacts, hashes bytes, and canonicalizes
   }
 });
 
-test("native artifact preflight rejects unsafe or non-canonical inputs before assembly", () => {
+test("native artifactの事前検証が危険または非canonicalな入力をassembly前に拒否する", () => {
   const directory = mkdtempSync(resolve(tmpdir(), "snwc-native-preflight-"));
   try {
     const validPath = resolve(directory, "native.node");
@@ -141,7 +141,7 @@ test("native artifact preflight rejects unsafe or non-canonical inputs before as
   }
 });
 
-test("React Native manifest keeps the four approved target identities and rejects extras", () => {
+test("React Native manifestが承認済み4 target identityを保持し、追加項目を拒否する", () => {
   const manifest = {
     schema_version: 1,
     package_name: packageMeta.name,
@@ -164,7 +164,7 @@ test("React Native manifest keeps the four approved target identities and reject
   assert.throws(() => validateReactNativeManifest({ ...manifest, artifacts: [{ target_id: "android-x86" }] }, packageMeta));
 });
 
-test("React Native assembly hashes only supplied canonical artifacts and rejects partial release input", () => {
+test("React Native assemblyが指定されたcanonical artifactだけをhash化し、不完全なrelease入力を拒否する", () => {
   const directory = mkdtempSync(resolve(tmpdir(), "snwc-react-native-manifest-"));
   try {
     const paths = Object.fromEntries(

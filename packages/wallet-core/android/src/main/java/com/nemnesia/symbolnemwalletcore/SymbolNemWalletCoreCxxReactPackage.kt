@@ -7,9 +7,9 @@ import com.facebook.react.common.annotations.FrameworkAPI
 import com.facebook.react.runtime.cxxreactpackage.CxxReactPackage
 
 /**
- * RN 0.87 New Architecture registration for one actual ReactApplicationContext.
- * The context is never used as a secret lifetime anchor; it identifies the RN
- * registration that owns the CxxReactPackage instance.
+ * 実際のReactApplicationContextひとつに対するRN 0.87 New Architectureの登録。
+ * contextを秘密情報の保持期間の基準として使わず、CxxReactPackage instanceを所有する
+ * RN登録の識別にのみ使用する。
  */
 @OptIn(FrameworkAPI::class)
 @DoNotStrip

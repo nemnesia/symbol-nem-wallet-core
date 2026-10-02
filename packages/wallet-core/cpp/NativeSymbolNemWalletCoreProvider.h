@@ -15,8 +15,8 @@ std::shared_ptr<TurboModule> symbolNemWalletCoreCxxModuleProvider(
     const std::string &name,
     const std::shared_ptr<CallInvoker> &jsInvoker);
 
-// C-compatible loader marker. The actual C++ provider remains type-safe while
-// the native artifact can expose one exact, unmangled provider identity.
+// C互換のloader marker。実際のC++ providerは型安全性を保ちつつ、
+// native artifactから完全一致するmangleなしのprovider identityを公開できる。
 extern "C" const char *symbolNemWalletCoreCxxModuleProvider();
 
 } // namespace facebook::react

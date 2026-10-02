@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
 
-# This is a package CMakeLists consumed by the RN CLI from the application's
-# appmodules CMakeLists. Provider registration and OnLoad.cpp are attached to
-# that application target by the checked-in consumer integration.
+# RN CLIがアプリのappmodules CMakeListsから読み込むpackage用CMakeListsである。
+# provider登録とOnLoad.cppは、管理対象のconsumer integrationがアプリtargetへ追加する。
 set(SNWC_RN_PACKAGE_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 set(SNWC_RN_C_ABI_LIBRARY "${SNWC_C_ABI_LIBRARY}")
 set(SNWC_RN_PREBUILT "${SNWC_RN_PACKAGE_ROOT}/dist/react-native/android/jni/${ANDROID_ABI}/libsymbol_nem_wallet_core_rn.so")
@@ -24,9 +23,8 @@ if(SNWC_RN_C_ABI_LIBRARY)
         ../cpp/NativeSymbolNemWalletCoreProvider.cpp
         ../cpp/RnLifecycleCoordinator.cpp
     )
-    # RN 0.87's generated C++ bridge uses C++20 concepts and std::span. Keep
-    # the package target self-contained instead of inheriting the consumer's
-    # default (which is commonly still C++17).
+    # RN 0.87の生成C++ bridgeはC++20 conceptsとstd::spanを使う。
+    # consumer側の標準設定（多くの場合C++17）を継承せず、package target内で完結させる。
     set_target_properties(symbol_nem_wallet_core_rn PROPERTIES
         CXX_STANDARD 20
         CXX_STANDARD_REQUIRED YES
@@ -44,8 +42,8 @@ if(SNWC_RN_C_ABI_LIBRARY)
         message(FATAL_ERROR "RN Codegen target for SymbolNemWalletCoreSpec is missing")
     endif()
     target_link_libraries(symbol_nem_wallet_core_rn PUBLIC "${SNWC_RN_C_ABI_LIBRARY}" log)
-    # The package target compiles these sources itself. INTERFACE-only include
-    # paths are not visible while NativeSymbolNemWalletCore.cpp is compiled.
+    # package target自身がこれらのsourceをcompileする。
+    # NativeSymbolNemWalletCore.cppのcompile時にINTERFACE専用include pathは参照できない。
     target_include_directories(symbol_nem_wallet_core_rn PRIVATE
         "${SNWC_RN_PACKAGE_ROOT}/cpp"
         "${SNWC_RN_PACKAGE_ROOT}/cpp/include"

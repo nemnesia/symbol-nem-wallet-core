@@ -36,6 +36,7 @@ fn assert_scalar_mul_matches_dalek(left: Scalar, right: Scalar, case: &str) {
     );
 }
 
+// scalar加算が位数境界でdalekの結果と一致することを確認する。
 #[test]
 fn scalar_add_mod_order_matches_dalek_at_order_boundaries() {
     let zero = Scalar::ZERO;
@@ -70,6 +71,7 @@ fn scalar_add_mod_order_matches_dalek_at_order_boundaries() {
     }
 }
 
+// scalar乗算が位数境界でdalekの結果と一致することを確認する。
 #[test]
 fn scalar_mul_mod_order_matches_dalek_at_order_boundaries() {
     let zero = Scalar::ZERO;
@@ -114,7 +116,7 @@ impl DeterministicScalarGenerator {
     }
 
     fn next_scalar(&mut self) -> Scalar {
-        // This generator is test-data-only and must not be used for cryptographic randomness.
+        // このgeneratorはテストデータ専用であり、暗号学的乱数には使用してはならない。
         let mut bytes = [0u8; 32];
         for offset in (0..bytes.len()).step_by(8) {
             self.state = self
@@ -127,6 +129,7 @@ impl DeterministicScalarGenerator {
     }
 }
 
+// 決定的な入力に対するscalar演算がdalekの結果と一致することを確認する。
 #[test]
 fn scalar_arithmetic_matches_dalek_for_deterministic_inputs() {
     const CASES: usize = 4_096;
@@ -153,6 +156,7 @@ fn scalar_arithmetic_matches_dalek_for_deterministic_inputs() {
     }
 }
 
+// Symbolの鍵・address・signatureがSDK由来の固定vectorと一致することを確認する。
 #[test]
 fn symbol_key_address_and_signature_match_sdk_vectors() {
     // Symbolの公開鍵、Mainnet/Testnet address、raw signatureをfixtureと照合する。
@@ -181,6 +185,7 @@ fn symbol_key_address_and_signature_match_sdk_vectors() {
         );
 }
 
+// NEMの鍵・address・signatureがSDK由来の固定vectorと一致することを確認する。
 #[test]
 fn nem_key_address_and_signature_match_sdk_vectors() {
     // NEMのhash系統、address checksum、raw signatureがSymbolと混同されないことを確認する。
@@ -209,6 +214,7 @@ fn nem_key_address_and_signature_match_sdk_vectors() {
         );
 }
 
+// 秘密scalar応答の演算がdalekの結果と一致することを確認する。
 #[test]
 fn secret_scalar_response_arithmetic_matches_dalek() {
     // 署名応答用の固定長byte演算がcurve25519-dalekの参照演算と一致することを確認する。
@@ -233,6 +239,7 @@ fn secret_scalar_response_arithmetic_matches_dalek() {
     );
 }
 
+// 24語MnemonicからのHD導出がSDK vectorと一致することを確認する。
 #[test]
 fn hd_derivation_matches_24_word_sdk_vectors() {
     // BIP39 English 24 words、空passphrase、Symbol/NEMのHD導出結果を照合する。
@@ -256,6 +263,7 @@ fn hd_derivation_matches_24_word_sdk_vectors() {
     );
 }
 
+// v1の全Network・Chainとaccount境界でHD導出を確認する。
 #[test]
 fn hd_derivation_covers_all_v1_networks_chains_and_account_boundaries() {
     // 2 Chain × 2 Network × account indexの下限・中間・上限を検証する。
@@ -281,6 +289,7 @@ fn hd_derivation_covers_all_v1_networks_chains_and_account_boundaries() {
     }
 }
 
+// 不正なprivate key候補を再試行し、乱数源のfailureを伝播することを確認する。
 #[test]
 fn generated_private_key_retries_invalid_candidates_and_propagates_random_failure() {
     // Generated keyの候補妥当性確認と、乱数源失敗時の安全側終了を公開設定なしで検証する。
@@ -299,6 +308,7 @@ fn generated_private_key_retries_invalid_candidates_and_propagates_random_failur
     assert_eq!(error.code, ErrorCode::RandomSourceFailure);
 }
 
+// 乱数源failure時にzeroize対応の出力所有者を使うことを確認する。
 #[test]
 fn random_source_failure_uses_zeroizing_output_owner() {
     // 乱数源が部分書込み後に失敗しても、random_withの所有bufferがzeroize対象になる。
@@ -310,6 +320,7 @@ fn random_source_failure_uses_zeroizing_output_owner() {
     assert_eq!(error.code, ErrorCode::RandomSourceFailure);
 }
 
+// v1の全NetworkでHD導出がSDK由来の固定fixtureと一致することを確認する。
 #[test]
 fn hd_derivation_matches_fixed_sdk_fixture_for_all_v1_networks() {
     let mnemonic = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
@@ -357,6 +368,7 @@ fn hd_derivation_matches_fixed_sdk_fixture_for_all_v1_networks() {
     }
 }
 
+// BIP32のrootとchild nodeがSymbol SDK vectorと一致することを確認する。
 #[test]
 fn bip32_root_and_child_nodes_match_symbol_sdk_vectors() {
     // root HMACとhardened child pathの中間値を固定fixtureと照合する。
@@ -402,6 +414,7 @@ fn bip32_root_and_child_nodes_match_symbol_sdk_vectors() {
     nem_root.zeroize();
 }
 
+// BIP32の中間nodeがSymbol SDKの固定fixtureと一致することを確認する。
 #[test]
 fn bip32_intermediate_nodes_match_fixed_symbol_sdk_fixture() {
     // 最終private keyだけでなく、各hardened childのprivate key/chain codeも
@@ -453,6 +466,7 @@ fn bip32_intermediate_nodes_match_fixed_symbol_sdk_fixture() {
     }
 }
 
+// 暗号化処理の固定fixture値を確認する。
 #[test]
 fn fixed_encryption_fixture_values() {
     // Argon2id、AES-256-GCM、AAD、tagの固定値を照合し、暗号形式の変更を検知する。
@@ -480,6 +494,7 @@ fn fixed_encryption_fixture_values() {
     );
 }
 
+// AES key scheduleがDrop時にzeroizeされる型であることを確認する。
 #[test]
 fn aes_key_schedule_has_drop_zeroization() {
     // aes-gcm/zeroizeだけではAES primitiveのfeatureが有効にならないため、

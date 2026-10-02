@@ -1,10 +1,9 @@
 module.exports = {
   dependency: {
     platforms: {
-      // The package uses RN 0.87's CxxReactPackage provider API, which needs
-      // the actual ReactApplicationContext and must not be synthesized by the
-      // CLI's generic Cxx module provider or PackageList. The app registers
-      // the provider explicitly through getDefaultReactHost.
+      // このpackageは実際のReactApplicationContextを必要とするRN 0.87のCxxReactPackage provider APIを使う。
+      // CLIの汎用Cxx module providerやPackageListでcontextを生成してはならない。
+      // アプリはgetDefaultReactHost経由でproviderを明示的に登録する。
       android: null,
     },
   },

@@ -38,7 +38,7 @@ function allFiles(root, prefix = "") {
   });
 }
 
-test("package metadata keeps conditional export order and package-local allowlist", () => {
+test("package metadataがconditional exportの順序とpackage内許可一覧を維持する", () => {
   assert.equal(validateNpmPackageMetadata(packageJson), true);
   for (const [key, expected] of Object.entries(NPM_PACKAGE_METADATA)) {
     assert.deepEqual(packageJson[key], expected);
@@ -101,7 +101,7 @@ test("package metadata keeps conditional export order and package-local allowlis
   assert.equal(statSync(resolve(packageRoot, "dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm")).isFile(), true);
 });
 
-test("published declaration is byte-for-byte equal to the Stage 7A declaration", () => {
+test("公開declarationのbyte列がStage 7Aのdeclarationと一致する", () => {
   const specification = readFileSync(
     resolve(packageRoot, "../../docs/specifications/npm-typescript-facade.md"),
     "utf8",
@@ -118,7 +118,7 @@ test("published declaration is byte-for-byte equal to the Stage 7A declaration",
   );
 });
 
-test("npm READMEs document exactly the public 16-function facade", () => {
+test("npm READMEが公開16関数のfacadeを正確に記載する", () => {
   for (const filename of ["README.md", "README.en.md"]) {
     const readme = readFileSync(resolve(packageRoot, filename), "utf8");
     const table = readme.match(/## (?:公開関数 \(16\)|Public functions \(16\))[\s\S]*?(?=\n## |$)/)?.[0];
@@ -129,13 +129,13 @@ test("npm READMEs document exactly the public 16-function facade", () => {
   }
 });
 
-test("formal npm assembly consumes the independently produced iOS XCFramework", () => {
+test("正式なnpm assemblyが独立して作成されたiOS XCFrameworkを使用する", () => {
   const packageBuilder = readFileSync(resolve(packageRoot, "../../scripts/build-npm-package.mjs"), "utf8");
   assert.match(packageBuilder, /--react-native-xcframework/);
   assert.match(packageBuilder, /validateReactNativeXcframework/);
 });
 
-test("npm pack dry run contains only package metadata, README, license, and dist allowlist", () => {
+test("npm pack dry runにpackage metadata、README、license、dist許可一覧だけが含まれる", () => {
   const configuredNpmCli = process.env.npm_execpath;
   const npmCli =
     configuredNpmCli !== undefined && basename(configuredNpmCli).startsWith("npm")

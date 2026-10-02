@@ -4,7 +4,7 @@ import com.facebook.react.ReactHost
 import com.facebook.react.bridge.ReactContext
 import java.util.IdentityHashMap
 
-/** Binds invalidation to the RN 0.87 ReactHost and its actual ReactContext. */
+/** RN 0.87 ReactHostと実際のReactContextに無効化処理を結び付ける。 */
 public object SymbolNemWalletCoreRnLifecycle {
   private val lock = Any()
   private val packages = IdentityHashMap<ReactContext, SymbolNemWalletCoreCxxReactPackage>()
@@ -27,10 +27,9 @@ public object SymbolNemWalletCoreRnLifecycle {
         beforeDestroy?.let { oldListener -> oldHost.removeBeforeDestroyListener(oldListener) }
       }
       val listener: () -> Unit = {
-        // ReactHost invokes this callback before the old ReactContext is
-        // destroyed, but currentReactContext is nullable during the same
-        // transition. Invalidation is owned by the package instances we
-        // registered for this host, so a null context must never skip it.
+        // ReactHostは古いReactContextの破棄前にcallbackを呼ぶが、同じ遷移中でも
+        // currentReactContextがnullになる場合がある。無効化対象はこのhostへ登録したpackage instanceなので、
+        // contextがnullでも処理を省略してはならない。
         val packageInstances = synchronized(lock) {
           val values = packages.values.toList()
           packages.clear()

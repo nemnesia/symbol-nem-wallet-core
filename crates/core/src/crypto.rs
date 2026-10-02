@@ -196,8 +196,8 @@ where
     F: FnMut() -> WalletResult<[u8; 32]>,
 {
     // 乱数候補をChain固有の鍵処理で検証し、通過した値だけを返す。
-    // Production callers pass the CSPRNG above; the injectable private helper lets tests
-    // exercise invalid-candidate and random-source failure paths without changing the API.
+    // 本番の呼び出し側は上記のCSPRNGを渡す。注入可能なprivate helperにより、APIを変更せずに
+    // 不正候補と乱数源failureの経路をテストできる。
     loop {
         let candidate = Zeroizing::new(candidate()?);
         if let Ok(private_key) = validate_private_key(chain, &candidate[..]) {
@@ -272,14 +272,14 @@ pub(crate) fn sign(chain: Chain, private_key: &[u8; 32], message: &[u8]) -> Wall
     Ok(signature)
 }
 
-// Ed25519 scalar group order, encoded as a little-endian 32-byte integer.
+// Ed25519 scalar群の位数をlittle-endianの32-byte整数として表す。
 const ED25519_SCALAR_ORDER: [u8; 32] = [
     0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
 ];
 
-// Inputs and outputs of these helpers are canonical scalar values (< l). The fixed iteration
-// count and mask-based selection keep the secret multiplier independent of control flow.
+// helperの入力と出力はcanonical scalar値（< l）である。反復回数を固定し、maskで値を選択することで、
+// 秘密の乗数によって制御フローが変わらないようにする。
 fn scalar_add_mod_order(left: &[u8; 32], right: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     let mut sum = Zeroizing::new([0u8; 32]);
     let mut carry = 0u8;
@@ -290,7 +290,7 @@ fn scalar_add_mod_order(left: &[u8; 32], right: &[u8; 32]) -> Zeroizing<[u8; 32]
         carry = (first_borrow as u8) | (second_borrow as u8);
     }
 
-    // l is below 2^252, so adding two canonical values cannot overflow 2^256.
+    // lは2^252未満であるため、canonicalな値を2つ加算しても2^256を超えない。
     let mut difference = Zeroizing::new([0u8; 32]);
     let mut borrow = 0u8;
     for index in 0..32 {
@@ -300,7 +300,7 @@ fn scalar_add_mod_order(left: &[u8; 32], right: &[u8; 32]) -> Zeroizing<[u8; 32]
         borrow = (first_borrow as u8) | (second_borrow as u8);
     }
 
-    // Select sum when sum < l, otherwise select sum - l without branching on secret data.
+    // 秘密データに依存する分岐を使わず、sum < lならsumを、それ以外ならsum - lを選択する。
     let mut mask = 0u8.wrapping_sub(1u8 ^ borrow);
     for index in 0..32 {
         sum[index] = (difference[index] & mask) | (sum[index] & !mask);
@@ -315,8 +315,8 @@ fn scalar_mul_mod_order(left: &[u8; 32], right: &[u8; 32]) -> Zeroizing<[u8; 32]
     let mut result = Zeroizing::new([0u8; 32]);
     let mut addend = Zeroizing::new(*left);
 
-    // Fixed 256 iterations avoid a secret-dependent loop bound. The result remains canonical
-    // because scalar_add_mod_order reduces after every addition.
+    // 反復回数を256回に固定し、秘密値に依存するloop boundを避ける。scalar_add_mod_orderが
+    // 加算ごとに剰余化するため、結果はcanonicalなままである。
     for bit_index in 0..256 {
         let mut bit = (right[bit_index / 8] >> (bit_index % 8)) & 1;
         let sum = scalar_add_mod_order(&result, &addend);

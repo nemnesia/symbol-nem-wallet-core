@@ -29,13 +29,13 @@ std::shared_ptr<TurboModule> SymbolNemWalletCoreCxxReactPackage::getModule(
   if (name != NativeSymbolNemWalletCore::kModuleName) return nullptr;
 
   RnLifecycleCoordinator::RegistrationIdentity identity;
-  // RN's CxxReactPackage object is the actual registration object retained by
-  // DefaultTurboModuleManagerDelegate for this ReactApplicationContext.
+  // RNのCxxReactPackage objectが、このReactApplicationContextについて
+  // DefaultTurboModuleManagerDelegateに保持される実際の登録objectである。
   identity.moduleRegistry = this;
   identity.logicalContext = reactContext_.get();
   identity.provider = this;
-  // RN supplies the actual jsi::Runtime& to NativeSymbolNemWalletCore::invoke;
-  // no runtime is captured here and a reload is invalidated by the host hook.
+  // RNは実際のjsi::Runtime&をNativeSymbolNemWalletCore::invokeへ渡す。
+  // ここではruntimeを保持せず、reload時はhost hookが無効化する。
   return std::make_shared<NativeSymbolNemWalletCore>(std::move(jsInvoker), identity);
 }
 

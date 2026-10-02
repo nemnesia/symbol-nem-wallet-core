@@ -14,9 +14,9 @@ namespace facebook::react {
 class RnLifecycleCoordinator final {
  public:
   struct ProcessGeneration final {
-    // This is the OS process identity for the coordinator lifecycle. The
-    // object address distinguishes a later explicit lifecycle reset in the
-    // same process; it is never used in place of an RN object identity.
+// coordinator lifecycleのOS process identityである。
+// object addressは同一process内で後から明示されたlifecycle resetを区別するために使い、
+// RN object identityの代わりには使わない。
     uint64_t processId = 0;
   };
 
@@ -30,8 +30,8 @@ class RnLifecycleCoordinator final {
 
   struct RegistrationState final {
     struct Identity final {
-      // Identity pointers are owned by React Native. The coordinator never
-      // dereferences them; the owning RN lifecycle hook invalidates them.
+// identity pointerはReact Nativeが所有する。coordinatorは参照先をdereferenceせず、
+// 所有元のRN lifecycle hookがpointerを無効化する。
       const void *runtime = nullptr;
       const void *moduleRegistry = nullptr;
       const void *logicalContext = nullptr;
@@ -40,9 +40,8 @@ class RnLifecycleCoordinator final {
     } identity;
     std::shared_ptr<const ProcessGeneration> processGeneration;
     bool active = false;
-    // A null runtime is only the pre-admission state used by the Android
-    // CxxReactPackage. It may be bound exactly once by the actual JSI
-    // Runtime& at the invocation boundary; it is never a wildcard.
+// null runtimeはAndroid CxxReactPackageが使用するadmission前の状態に限る。
+// invocation境界で実際のJSI Runtime&を一度だけ結び付けられる。wildcardとしては使わない。
     bool runtimeBound = false;
     bool retired = false;
   };
@@ -82,8 +81,8 @@ class RnLifecycleCoordinator final {
   ProcessState processState() const;
 
 #if defined(SNWC_RN_LIFECYCLE_INTEGRATION_TEST)
-  // Test-only synchronization for the actual RN stale-completion harness.
-  // It is not present in production artifacts and does not alter admission.
+// 実際のRN stale-completion harness専用の同期処理である。
+// production artifactには含まれず、admission動作も変更しない。
   bool armIntegrationStaleGate();
   void waitForIntegrationInvalidation();
   using IntegrationReloadCallback = void (*)();

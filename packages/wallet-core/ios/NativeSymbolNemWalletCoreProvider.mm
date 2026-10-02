@@ -61,9 +61,8 @@ std::unordered_map<std::thread::id, IosRuntimeBinding> &iosRuntimeBindings() {
 void snwc_ios_host_did_start(const void *host, const void *moduleRegistry) noexcept {
   if (host == nullptr || moduleRegistry == nullptr) return;
   NSLog(@"SNWC_RN_NATIVE_HOST_DID_START:%p:%p", host, moduleRegistry);
-  // RCTHost calls hostDidStart after it has invalidated the previous
-  // RCTInstance during reload. Invalidate the old host registration before
-  // the replacement runtime can execute JavaScript.
+  // reload中、RCTHostは以前のRCTInstanceを無効化した後にhostDidStartを呼ぶ。
+  // replacement runtimeがJavaScriptを実行する前に、古いhost登録を無効化する。
   RnLifecycleCoordinator::shared().invalidateContext(host);
   std::lock_guard<std::mutex> lock(iosRuntimeMutex());
   for (auto iterator = iosRuntimeBindings().begin(); iterator != iosRuntimeBindings().end();) {

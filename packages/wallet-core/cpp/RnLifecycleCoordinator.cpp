@@ -22,9 +22,8 @@ RnLifecycleCoordinator &RnLifecycleCoordinator::shared() {
 
 void RnLifecycleCoordinator::ensureReadyLocked() {
   if (processState_ == ProcessState::uninitialized || processState_ == ProcessState::closed) {
-    // The OS process identity is the real process boundary. This owned
-    // object only anchors one coordinator lifecycle; it is not an RN
-    // runtime, module registry, provider, or logical context surrogate.
+  // OS process identityが実際のprocess境界である。この所有objectはひとつのcoordinator lifecycleを
+  // 保持するためだけに使い、RN runtime、module registry、provider、logical contextの代替にはしない。
     processGeneration_ = std::make_shared<const ProcessGeneration>(ProcessGeneration{
         static_cast<uint64_t>(::getpid()),
     });
@@ -45,11 +44,9 @@ RnLifecycleCoordinator::Registration RnLifecycleCoordinator::registerModule(
       identity.provider == nullptr) {
     failLifecycle();
   }
-  // A new RN registration for the same actual registry/context retires the
-  // previous provider registration, even when the platform did not expose a
-  // separate provider callback. Taking the delivery barrier here prevents an
-  // old completion from passing its final predicate while replacement is
-  // being admitted.
+  // 同じ実際のregistry / contextに対する新しいRN登録は、platformが別のprovider callbackを
+  // 公開しない場合も以前のprovider登録を終了させる。ここでdelivery barrierを取得し、
+  // replacementのadmission中に古い処理結果が最終predicateを通過しないようにする。
   std::unique_lock<std::shared_mutex> barrier(deliveryBarrier_);
   std::lock_guard<std::mutex> lock(stateMutex_);
   ensureReadyLocked();
@@ -92,9 +89,8 @@ RnLifecycleCoordinator::Request RnLifecycleCoordinator::begin(
   if (invalidBasic) {
     failLifecycle();
   }
-  // Android obtains the actual runtime at this JSI boundary. The pending
-  // registration is not active before this point and is bound exactly once;
-  // a later runtime can never be admitted through a null wildcard.
+  // AndroidはこのJSI境界で実際のruntimeを取得する。この時点より前はpending登録は有効化されず、
+  // runtimeは一度だけ結び付ける。後続runtimeがnull wildcardを通じてadmissionされることはない。
   if (!registration.state->runtimeBound) {
     registration.state->identity.runtime = runtime;
     registration.state->runtimeBound = true;
@@ -255,9 +251,8 @@ bool RnLifecycleCoordinator::armIntegrationStaleGate() {
     integrationGateReleased_ = false;
     callback = integrationReloadCallback_;
   }
-  // The iOS integration harness dispatches the actual RCTHost reload to the
-  // main queue from this callback. Android drives the same gate from adb
-  // after observing the armed marker.
+  // iOS integration harnessはこのcallbackから実際のRCTHost reloadをmain queueへdispatchする。
+  // Androidはarmed markerを検出した後、adbから同じgateを動かす。
   if (callback != nullptr) callback();
   return true;
 }

@@ -202,6 +202,7 @@ fn assert_error(bytes: &[u8], expected: ErrorCode) {
     assert_eq!(list_profiles(bytes).unwrap_err().code, expected);
 }
 
+// ProfileとSoftware Keyの作成から削除までが原子的に動作することを確認する。
 #[test]
 fn profile_and_software_key_lifecycle_is_atomic() {
     // Profile作成から鍵の導出・import・署名・password変更・削除までを通し、
@@ -453,6 +454,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     );
 }
 
+// 生成Profileの確定に、対応するPending handoffの確認が必要なことを確認する。
 #[test]
 fn generated_profile_requires_a_matching_pending_handoff() {
     // prepareだけではStoreを変更せず、passwordと対象Storeが一致するfinalizeだけが
@@ -536,6 +538,7 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     );
 }
 
+// Core境界で必要なassertionとAccount contextが検証されることを確認する。
 #[test]
 fn assertions_and_account_context_are_required_at_core_boundaries() {
     let store = create_empty_store().unwrap();
@@ -691,6 +694,7 @@ fn assertions_and_account_context_are_required_at_core_boundaries() {
     );
 }
 
+// 不正な公開Store envelopeを認証処理前に拒否することを確認する。
 #[test]
 fn malformed_public_store_envelopes_are_rejected_before_authentication() {
     // 公開APIから到達可能なStore envelopeの各構造エラーを、秘密処理の前に拒否する。
@@ -800,6 +804,7 @@ fn malformed_public_store_envelopes_are_rejected_before_authentication() {
     );
 }
 
+// 生成Software Keyとエラー文字列が公開契約どおりであることを確認する。
 #[test]
 fn generated_software_key_and_error_strings_are_public_contracts() {
     let store = create_empty_store().unwrap();
@@ -845,6 +850,7 @@ fn generated_software_key_and_error_strings_are_public_contracts() {
     }
 }
 
+// 不正な秘密入力を拒否し、Storeを変更しないことを確認する。
 #[test]
 fn invalid_secret_inputs_are_rejected_without_mutating_the_store() {
     // Mnemonic、private key、account indexの不正入力を拒否し、失敗したmutationが

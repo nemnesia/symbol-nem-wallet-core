@@ -1,7 +1,7 @@
 /*
- * React Native 0.87 New Architecture provider registration.
- * This file is compiled into the application's appmodules target by
- * android/CMakeLists.txt; it is not a legacy Bridge or a JS/WASM fallback.
+ * React Native 0.87 New Architectureのprovider登録。
+ * このfileはandroid/CMakeLists.txtによりアプリのappmodules targetへcompileされる。
+ * legacy BridgeやJS / WASM fallbackではない。
  */
 #include <DefaultComponentsRegistry.h>
 #include <DefaultTurboModuleManagerDelegate.h>
@@ -35,9 +35,8 @@ std::shared_ptr<TurboModule> cxxModuleProvider(
     const std::shared_ptr<CallInvoker> &jsInvoker) {
   (void)name;
   (void)jsInvoker;
-  // The package module is intentionally absent from this fallback. Only the
-  // RN 0.87 CxxReactPackage registered for the actual ReactApplicationContext
-  // is allowed to construct it.
+  // fallbackにはpackage moduleを意図的に含めない。
+  // 実際のReactApplicationContextへ登録されたRN 0.87 CxxReactPackageだけが生成できる。
   return autolinking_cxxModuleProvider(name, jsInvoker);
 }
 

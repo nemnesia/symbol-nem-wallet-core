@@ -1,5 +1,5 @@
-# RN 0.87.0 CocoaPods input. The package path is supplied only by the
-# producer/consumer checkout and is never resolved from an untracked path.
+# RN 0.87.0のCocoaPods入力。package pathはproducer / consumer checkoutからのみ指定し、
+# git管理外のpathから解決しない。
 require Pod::Executable.execute_command('node', ['-p',
   'require.resolve(
     "react-native/scripts/react_native_pods.rb",
