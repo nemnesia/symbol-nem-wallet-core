@@ -75,9 +75,8 @@ function requireRead(value: unknown, label: string): { value: any } {
 function errorCode(error: unknown): string {
   if (error !== null && typeof error === 'object') {
     const value = error as { name?: unknown; code?: unknown; message?: unknown };
-    // jsi::JSError preserves the native failure code as its message while
-    // exposing the generic JavaScript Error name. Keep the comparison exact;
-    // the message is never emitted into lifecycle evidence.
+    // jsi::JSErrorはnative failure codeをmessageに保持し、JavaScript Errorの一般名を公開する。
+    // 比較は完全一致とし、messageをlifecycle evidenceへ出力しない。
     if (value.message === 'BindingFailure') {
       return 'BindingFailure';
     }
@@ -240,10 +239,9 @@ export default function App() {
       const identity = providerIdentity(module);
       const lifecycle = lifecycleProbe(module);
       if (lifecycle.integration_test) {
-        // Record the runtime identity before the API smoke. The stale-output
-        // probe can synchronously request an iOS RCTHost reload, so markers
-        // emitted immediately before that call are not guaranteed to flush
-        // through the simulator log stream before the old runtime is retired.
+        // API smokeの前にruntime identityを記録する。stale-output probeはiOS RCTHost reloadを
+        // 同期的に要求する場合があるため、その直前に出したmarkerが古いruntimeの終了前に
+        // simulator log streamへflushされる保証はない。
         setStatus(`SNWC_RN_NATIVE_RUNTIME_READY:${JSON.stringify(lifecycle)}`);
       }
       if (lifecycle.integration_test && lifecycle.provider_generation > 1) {
@@ -440,11 +438,10 @@ export default function App() {
       );
       setStatus('SNWC_RN_NATIVE_SMOKE_PASS:16');
       if (lifecycle.integration_test && lifecycle.provider_generation === 1) {
-        // The Android stale-output invocation intentionally blocks this JS
-        // thread until the external lifecycle harness retires the provider.
-        // This marker is diagnostic only. On iOS the native stale-output call
-        // below can synchronously request RCTHost reload, so CI must not use
-        // this last pre-reload JS console write as a synchronization barrier.
+        // Androidのstale-output呼び出しは、外部lifecycle harnessがproviderを終了するまで
+        // このJS threadを意図的にblockする。このmarkerはdiagnostic専用である。iOSでは下のnative
+        // stale-output呼び出しが同期的にRCTHost reloadを要求する場合があるため、CIはreload前の
+        // 最後のJS console出力を同期barrierとして使ってはならない。
         setStatus('SNWC_RN_NATIVE_STALE_GATE_ARMED');
         try {
           module.invoke('__snwc_test_stale_output', { args: [] });

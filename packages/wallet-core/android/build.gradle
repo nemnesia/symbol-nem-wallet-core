@@ -9,10 +9,9 @@ android {
         minSdkVersion 24
     }
 
-    // RN CLI links the package C++ target into the application's appmodules
-    // target. The published package supplies the corresponding prebuilt
-    // library for every formal ABI; no consumer repository path or Gradle
-    // property is required.
+    // RN CLIはpackageのC++ targetをアプリのappmodules targetへlinkする。
+    // 公開packageは正式対応する各ABIのprebuilt libraryを提供するため、consumerのrepository pathや
+    // Gradle propertyを必要としない。
     sourceSets {
         main {
             jniLibs.srcDirs = ["../dist/react-native/android/jni"]
@@ -21,8 +20,7 @@ android {
 }
 
 dependencies {
-    // The host application supplies the RN version through the React Native
-    // Gradle Plugin; this library only compiles against its public New
-    // Architecture CxxReactPackage APIs.
+    // React Native Gradle Pluginを通じてhost applicationがRN versionを指定する。
+    // このlibraryは公開New Architecture CxxReactPackage APIに対してcompileする。
     compileOnly("com.facebook.react:react-android")
 }

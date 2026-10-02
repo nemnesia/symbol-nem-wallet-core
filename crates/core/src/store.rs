@@ -160,7 +160,7 @@ impl Drop for PendingDecoded {
 /// Store固有の`registry_key`をCSPRNGから生成し、Profileを持たない完全なStoreを
 /// 返す。返却されたbyte列は、以後のProfile作成・復元APIの入力として使用できる。
 ///
-/// # Errors
+/// # エラー
 ///
 /// 乱数源を利用できない場合は`RandomSourceFailure`を返す。失敗時に不完全なStoreは
 /// 返さない。
@@ -183,7 +183,7 @@ pub fn create_empty_store() -> WalletResult<WalletStoreBlob> {
 /// MnemonicとPending Profileは秘密情報を含むため、アプリケーションはログ、例外、
 /// 長期キャッシュへ含めず、受渡しまたは破棄が完了したら保持を終了する。
 ///
-/// # Errors
+/// # エラー
 ///
 /// Storeが不正な場合は`InvalidStore`、passwordが空またはUTF-8でない場合は
 /// `InvalidArgument`、乱数源や暗号処理に失敗した場合は対応するエラーを返す。
@@ -214,7 +214,7 @@ pub fn prepare_generated_profile(
 /// Storeへ渡された場合、または一度確定したPending Profileを再利用した場合は
 /// Profileを追加しない。
 ///
-/// # Errors
+/// # エラー
 ///
 /// password認証に失敗した場合は`AuthenticationFailed`、Pending Profileの形式・
 /// 対象Store・改ざん状態が不正な場合は`PendingProfileInvalid`、同じMnemonicと
@@ -270,9 +270,8 @@ pub fn finalize_generated_profile(
         .iter()
         .any(|profile| profile.profile_id == pending.profile_id)
     {
-        // The input Store was already structurally validated. A collision in the
-        // authenticated Pending blob is therefore a Pending inconsistency, not a
-        // malformed Store.
+        // 入力Storeの構造検証はすでに完了している。認証済みPending blob内の衝突はPendingの不整合であり、
+        // Storeの形式不正ではない。
         return Err(WalletError::new(ErrorCode::PendingProfileInvalid));
     }
 
@@ -305,7 +304,7 @@ pub fn finalize_generated_profile(
 /// Networkは作成時に固定され、後から変更できない。同じMnemonicとNetworkのProfileが
 /// すでに存在する場合は、入力Storeを変更せずに拒否する。
 ///
-/// # Errors
+/// # エラー
 ///
 /// Mnemonicが不正な場合は`InvalidMnemonic`、passwordが不正な場合は
 /// `InvalidArgument`、Storeまたは既存Profileが不正な場合は対応するエラーを返す。
@@ -376,7 +375,7 @@ pub fn list_profiles(store: &[u8]) -> WalletResult<ReadResult<Vec<ProfileInfo>>>
 /// `key_id`とChainだけを含む未認証manifest由来の情報であり、秘密情報処理の認証結果
 /// として扱ってはならない。
 ///
-/// # Errors
+/// # エラー
 ///
 /// Profileが存在しない場合は`ProfileNotFound`、Store構造が不正な場合は
 /// `InvalidStore`を返す。
@@ -405,7 +404,7 @@ pub fn list_software_keys(
 /// 返却されるMnemonicは正規化済みBIP39 English 24 wordsのUTF-8 byte列である。
 /// `ReadResult`をDebug出力へ渡しても、秘密DTOの値はredacted表記になる。
 ///
-/// # Errors
+/// # エラー
 ///
 /// passwordまたは暗号認証に失敗した場合は`AuthenticationFailed`、Profileが存在
 /// しない場合は`ProfileNotFound`を返し、Mnemonicは返さない。
@@ -440,7 +439,7 @@ pub fn export_mnemonic(
 /// 変換しない。返却された値は明示的なexport結果なので、アプリケーション側で保存・
 /// キャッシュ・ログ出力を継続してはならない。
 ///
-/// # Errors
+/// # エラー
 ///
 /// passwordまたは暗号認証に失敗した場合は`AuthenticationFailed`、Profileまたは
 /// Software Keyが存在しない場合は対応するエラーを返す。
@@ -484,7 +483,7 @@ pub fn export_private_key(
 ///
 /// `account_index`はv1で`0..=2_147_483_647`に限定される。
 ///
-/// # Errors
+/// # エラー
 ///
 /// password認証に失敗した場合は`AuthenticationFailed`、account indexが範囲外の場合は
 /// `InvalidAccountIndex`、同一Profile・同一Chain・同一private keyが存在する場合は
@@ -540,7 +539,7 @@ pub fn derive_software_key(
 /// textual表現はこのAPIでは受け付けない。検証に成功したprivate keyを暗号化payloadへ
 /// 登録し、完全なreplacement Storeを返す。
 ///
-/// # Errors
+/// # エラー
 ///
 /// 長さ、値または対象Chainでの鍵としての妥当性に失敗した場合は`InvalidPrivateKey`、
 /// 同一Chainの重複は`DuplicateSoftwareKey`を返す。
@@ -589,7 +588,7 @@ pub fn import_software_key(
 /// 予測可能なfallbackやMnemonic由来の値は使用しない。乱数から得た候補を対象Chainの
 /// 鍵処理で検証し、受理できる値だけを暗号化payloadへ登録する。
 ///
-/// # Errors
+/// # エラー
 ///
 /// 乱数源を利用できない場合は`RandomSourceFailure`、password認証に失敗した場合は
 /// `AuthenticationFailed`を返す。
@@ -705,7 +704,7 @@ where
 /// Profile passwordでpayloadを認証・復号し、Software Keyに固定されたChainとProfileの
 /// Networkを使って公開鍵とaddressを計算する。Storeは変更しない。
 ///
-/// # Errors
+/// # エラー
 ///
 /// password認証に失敗した場合は`AuthenticationFailed`、対象Software Keyが存在しない
 /// 場合は`SoftwareKeyNotFound`を返す。
@@ -745,7 +744,7 @@ pub fn get_public_account(
 /// 渡されたpayload byte列そのものを対象Chainの署名primitiveへ渡し、署名対象へ暗黙の
 /// prefixやTransaction構造を追加しない。Storeは変更しない。
 ///
-/// # Errors
+/// # エラー
 ///
 /// password認証に失敗した場合は`AuthenticationFailed`、対象Software Keyが存在しない
 /// 場合は`SoftwareKeyNotFound`を返す。
@@ -787,7 +786,7 @@ pub fn sign(
 /// nonceで再暗号化する。旧暗号payloadを部分的に再利用せず、成功時だけreplacement
 /// Storeを返す。
 ///
-/// # Errors
+/// # エラー
 ///
 /// new passwordが空またはUTF-8でない場合は`InvalidArgument`、current password認証に
 /// 失敗した場合は`AuthenticationFailed`を返す。
@@ -825,7 +824,7 @@ pub fn change_profile_password(
 /// Profile passwordで認証した後、指定した`key_id`だけを削除する。対象Profile内の
 /// 他のSoftware Keyや、Store内の他Profileは保持する。成功時だけreplacement Storeを返す。
 ///
-/// # Errors
+/// # エラー
 ///
 /// password認証に失敗した場合は`AuthenticationFailed`、Software Keyが存在しない場合は
 /// `SoftwareKeyNotFound`を返す。
@@ -864,7 +863,7 @@ pub fn delete_software_key(
 /// Profile全体と、そのProfileに属するMnemonicおよびSoftware KeyをStoreから除去する。
 /// Profile passwordによる認証に成功した場合だけreplacement Storeを返す。
 ///
-/// # Errors
+/// # エラー
 ///
 /// password認証に失敗した場合は`AuthenticationFailed`、Profileが存在しない場合は
 /// `ProfileNotFound`を返す。
@@ -895,8 +894,8 @@ fn decode_store(bytes: &[u8]) -> WalletResult<(WalletStore, Vec<DecodeWarning>)>
     let value = cbor::decode_with_limits(bytes, cbor::WALLET_STORE_LIMITS)
         .map_err(|_| WalletError::new(ErrorCode::InvalidStore))?;
     let map = as_map(&value).ok_or_else(|| WalletError::new(ErrorCode::InvalidStore))?;
-    // Unknown values are checked before any registry-key or profile processing. This keeps
-    // forbidden extension types out of all subsequent secret-bearing paths.
+    // 未知の値はregistry keyやProfileの処理前に検証する。これにより、許可されないextension typeが
+    // 後続の秘密情報を扱う経路へ進まないようにする。
     validate_unknown_fields(map, &[0, 1, 2, 3])?;
     // top-levelのmagic/versionを確認してから、v1の各fieldを解釈する。
     let magic = fixed_bytes::<4>(map_value(map, 0))
@@ -1756,8 +1755,8 @@ fn as_array(value: &Value) -> Option<&[Value]> {
 }
 
 fn clone_unknown_fields_unchecked(map: &[(u64, Value)], known: &[u64]) -> Vec<(u64, Value)> {
-    // Callers validate the complete map before reaching this helper. Keep the
-    // preservation step non-validating so the unknown tree is traversed once.
+    // 呼び出し側はこのhelperに到達する前にmap全体を検証する。未知のtreeの走査を一度に保つため、
+    // ここでの保持処理では再検証しない。
     map.iter()
         .filter(|(key, _)| !known.contains(key))
         .map(|(key, value)| (*key, value.clone()))

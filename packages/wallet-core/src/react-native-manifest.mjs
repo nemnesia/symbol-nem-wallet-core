@@ -454,10 +454,9 @@ function inspectStaticArchive(bytes, target) {
     }
     if (identity !== null) {
       identities.push(identity.identity);
-      // Bind the required RN exports to the object that carries the exact
-      // embedded target identity. Other members may be C ABI objects emitted
-      // without LC_BUILD_VERSION, but they cannot satisfy the RN identity
-      // contract on their own.
+      // 必須のRN exportを、完全一致する埋め込みtarget identityを持つobjectへ結び付ける。
+      // ほかのmemberはLC_BUILD_VERSIONなしで出力されたC ABI objectの場合があるため、
+      // それ単体ではRN identity契約を満たせない。
       if (identity.identity.artifact_identity !== undefined) {
         for (const symbol of identity.requiredSymbols) exportedSymbols.add(symbol);
       }

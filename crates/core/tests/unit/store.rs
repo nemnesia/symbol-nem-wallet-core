@@ -177,6 +177,7 @@ fn max_sized_store() -> Vec<u8> {
     candidate
 }
 
+// Wallet Storeが最大サイズを受理し、1 byte超過を拒否することを確認する。
 #[test]
 fn wallet_store_accepts_maximum_size_and_rejects_one_byte_over() {
     let store = max_sized_store();
@@ -191,6 +192,7 @@ fn wallet_store_accepts_maximum_size_and_rejects_one_byte_over() {
     );
 }
 
+// Wallet StoreのProfile数とSoftware Key数の上限を検証する。
 #[test]
 fn wallet_store_enforces_profile_and_software_key_limits() {
     let profiles = minimal_store(MAX_PROFILES, 0);
@@ -219,6 +221,7 @@ fn wallet_store_enforces_profile_and_software_key_limits() {
     );
 }
 
+// 上限超過ciphertextをpanicせず拒否することを確認する。
 #[test]
 fn wallet_store_rejects_oversized_ciphertext_without_panicking() {
     let mut store = minimal_store(1, 0);
@@ -598,6 +601,7 @@ fn assert_invalid_store<T>(result: WalletResult<T>) {
     }
 }
 
+// unit buildで公開Store APIの成功経路を実行する。
 #[test]
 fn public_store_paths_are_exercised_in_unit_build() {
     // Unit test側のCore buildでも、公開Store APIの成功経路を一通り通過させる。
@@ -757,6 +761,7 @@ fn public_store_paths_are_exercised_in_unit_build() {
     assert_eq!(generated.value.origin, SoftwareKeyOrigin::Generated);
 }
 
+// 生成Software Keyのfailure経路でStore更新が原子的であることを確認する。
 #[test]
 fn generated_software_key_failure_paths_are_atomic() {
     let (store, profile_id) = wallet_with_one_profile();
@@ -801,6 +806,7 @@ fn generated_software_key_failure_paths_are_atomic() {
     assert_ne!(retried.store, store);
 }
 
+// エラーcodeと表示文字列が安定していることを確認する。
 #[test]
 fn error_code_strings_and_display_are_stable() {
     let cases = [
@@ -835,6 +841,7 @@ fn error_code_strings_and_display_are_stable() {
     }
 }
 
+// 不正Profileと未知enumをStore全体のfatal errorとして扱うことを確認する。
 #[test]
 fn malformed_profiles_and_unknown_enums_are_fatal_store_errors() {
     // 不正な子要素や未知enumをskipせず、Store全体をInvalidStoreとして拒否する。
@@ -892,6 +899,7 @@ fn malformed_profiles_and_unknown_enums_are_fatal_store_errors() {
     assert_eq!(restored.store, before);
 }
 
+// 認証後の意味的不一致とAAD改ざんで更新が起きないことを確認する。
 #[test]
 fn authenticated_semantic_mismatch_and_aad_tamper_are_atomic() {
     let (restored_store, profile_id) = wallet_with_one_profile();
@@ -959,6 +967,7 @@ fn authenticated_semantic_mismatch_and_aad_tamper_are_atomic() {
     );
 }
 
+// 認証後の意味的不一致が秘密情報取得・状態変更の全経路で原子的に拒否されることを確認する。
 #[test]
 fn authenticated_semantic_mismatch_rejects_all_secret_and_mutation_paths_atomically() {
     // 認証済みの意味的不一致は、秘密情報処理と全mutationで同じfatal errorとなり、
@@ -1039,6 +1048,7 @@ fn authenticated_semantic_mismatch_rejects_all_secret_and_mutation_paths_atomica
     assert_eq!(mismatch, before);
 }
 
+// 認証後の不正originを秘密情報を返さず拒否することを確認する。
 #[test]
 fn authenticated_malformed_origin_is_rejected_without_secret_result() {
     // 認証済みpayloadでもoriginの未知値、欠落、型不正、範囲外はStore全体を拒否する。
@@ -1060,6 +1070,7 @@ fn authenticated_malformed_origin_is_rejected_without_secret_result() {
     }
 }
 
+// 生成Profile IDがStore内の衝突後に再試行することを確認する。
 #[test]
 fn generated_profile_id_retries_after_store_collision() {
     let (store, existing_id) = wallet_with_one_profile();
@@ -1074,6 +1085,7 @@ fn generated_profile_id_retries_after_store_collision() {
     assert_eq!(selected, [0xA5; 16]);
 }
 
+// 認証済みPending Profile IDの衝突をPending invalidとして扱うことを確認する。
 #[test]
 fn authenticated_pending_profile_id_collision_is_pending_invalid() {
     // 構造的に正常なStoreへ、別の生成内容を持つ認証済みPendingを
@@ -1096,6 +1108,7 @@ fn authenticated_pending_profile_id_collision_is_pending_invalid() {
     assert_eq!(store, before);
 }
 
+// decoderがAAD用indexのwire値を保持し、非canonical順序を拒否することを確認する。
 #[test]
 fn decoder_preserves_index_wire_value_for_aad_and_rejects_noncanonical_order() {
     // AAD用wire値の保持、Profile順序、index順序のcanonical制約を検証する。
@@ -1138,6 +1151,7 @@ fn decoder_preserves_index_wire_value_for_aad_and_rejects_noncanonical_order() {
     );
 }
 
+// 未知wire fieldが対象外・対象Profileのmutation後も保持されることを確認する。
 #[test]
 fn unknown_wire_fields_survive_non_target_and_target_mutations() {
     // 対象外Profileと対象Profileのmutationの両方で、unknown fieldが失われないことを確認する。
@@ -1234,6 +1248,7 @@ fn unknown_wire_fields_survive_non_target_and_target_mutations() {
     );
 }
 
+// 未知field値に再帰的なStore許可type一覧が適用されることを確認する。
 #[test]
 fn unknown_field_values_use_the_recursive_store_allow_list() {
     let forbidden_values = [
@@ -1258,6 +1273,7 @@ fn unknown_field_values_use_the_recursive_store_allow_list() {
     }
 }
 
+// 既存の平文tagが候補と一致しない場合に復元処理が継続することを確認する。
 #[test]
 fn restore_continues_when_existing_plaintext_tag_does_not_match_candidate() {
     // 既存manifestのtag不整合が、候補Mnemonicの復元処理を誤って中断させないことを検証する。
@@ -1268,6 +1284,7 @@ fn restore_continues_when_existing_plaintext_tag_does_not_match_candidate() {
     assert!(result.is_ok());
 }
 
+// payload順序と固定fieldの違反をStore全体のfatal errorとして扱うことを確認する。
 #[test]
 fn payload_order_and_fixed_fields_are_fatal_store_errors() {
     // payload/key recordの順序、型、長さ、必須field違反をfatal errorとして分類する。
@@ -1385,6 +1402,7 @@ fn payload_order_and_fixed_fields_are_fatal_store_errors() {
     );
 }
 
+// parserによる拒否経路が明示されたerror分類になることを確認する。
 #[test]
 fn parser_rejection_paths_are_explicitly_classified() {
     // 認証済みopaque payloadと内部envelope parserの不正構造を、すべてInvalidStoreへ分類する。
@@ -1515,6 +1533,7 @@ fn parser_rejection_paths_are_explicitly_classified() {
     }
 }
 
+// Store versionの欠落や型違いをInvalidStoreに分類することを確認する。
 #[test]
 fn store_version_missing_or_wrong_type_is_invalid_store() {
     // top-level versionの欠落と型違いをInvalidStoreとして拒否する。
@@ -1546,6 +1565,7 @@ fn store_version_missing_or_wrong_type_is_invalid_store() {
     );
 }
 
+// Wallet StoreのCBOR境界とversion errorが仕様どおり固定されていることを確認する。
 #[test]
 fn wallet_store_cbor_boundary_and_version_errors_are_fixed() {
     let valid = create_empty_store().unwrap();
@@ -1611,6 +1631,7 @@ fn wallet_store_cbor_boundary_and_version_errors_are_fixed() {
     );
 }
 
+// AADとduplicate tagの固定fixture値を確認する。
 #[test]
 fn fixed_aad_and_duplicate_tag_fixture_values() {
     // Wallet Store v1で固定されたAADとduplicate_tagの期待値を照合する。
@@ -1645,6 +1666,7 @@ fn fixed_aad_and_duplicate_tag_fixture_values() {
     );
 }
 
+// 複数keyを持つ決定的manifestのAAD bytesが固定値と一致することを確認する。
 #[test]
 fn deterministic_manifest_with_multiple_keys_has_fixed_aad_bytes() {
     // 空indexだけでなく、複数keyのmanifestもwire順序に依存せず固定化する。
@@ -1684,13 +1706,14 @@ fn deterministic_manifest_with_multiple_keys_has_fixed_aad_bytes() {
     );
 }
 
+// Store serialization failure時に部分byte列を返さないことを確認する。
 #[test]
 fn store_serialization_failure_does_not_produce_partial_bytes() {
     // 保存bytes生成失敗は明示的なSerializationFailureとして扱い、部分Storeを返さない。
     let wallet = WalletStore {
         registry_key: [0x11; 32],
         profiles: Vec::new(),
-        // Simple 20 is intentionally rejected by the deterministic encoder.
+        // Simple 20は決定的encoderで意図的に拒否される。
         unknown_fields: vec![(99, Value::Simple(20))],
     };
     let error = encode_store(&wallet).unwrap_err();

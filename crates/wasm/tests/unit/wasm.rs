@@ -55,8 +55,7 @@ impl PropertyRestore {
 
 impl Drop for PropertyRestore {
     fn drop(&mut self) {
-        // Test-only global/instance mutation is restored even when an assertion or runtime
-        // failure unwinds the test.
+        // テスト専用のglobal / instance変更は、assertionまたはruntime failureでtestがunwindする場合も復元する。
         let _ = Reflect::set(&self.object, &self.property, &self.original);
     }
 }
@@ -100,7 +99,7 @@ impl PropertyDeleteRestore {
 
 impl Drop for PropertyDeleteRestore {
     fn drop(&mut self) {
-        // Do not panic from Drop: an assertion may already be unwinding the test.
+        // Dropからpanicを起こしてはならない。assertionによってすでにtestがunwind中の場合がある。
         let _ = self.restore();
     }
 }
@@ -202,8 +201,8 @@ fn throwing_status_object() -> JsValue {
 }
 
 fn unreadable_uint8_array() -> Uint8Array {
-    // A Proxy can pass `instanceof Uint8Array` but is not an actual ArrayBuffer view. The
-    // binding must reject it before any proxy trap can fabricate metadata or bytes.
+    // Proxyは`instanceof Uint8Array`を通過し得るが、実際のArrayBuffer viewではない。
+    // proxy trapでmetadataやbyteを偽装される前にbindingが拒否する必要がある。
     let array = Uint8Array::from([0xA5].as_slice());
     let handler = Object::new();
     let getter = Closure::once_into_js(
@@ -312,6 +311,7 @@ fn max_sized_store() -> Vec<u8> {
     candidate
 }
 
+// WASMの秘密情報境界とCoreとの結果一致を確認する。
 #[wasm_bindgen_test]
 fn wasm_secret_boundaries_and_core_parity() {
     let password = Uint8Array::from(PASSWORD);
@@ -667,6 +667,7 @@ fn wasm_secret_boundaries_and_core_parity() {
     }
 }
 
+// WASMのassertion・context・BindingFailure契約を確認する。
 #[wasm_bindgen_test]
 fn wasm_assertion_context_and_binding_failure_contracts() {
     let password = Uint8Array::from(PASSWORD);
@@ -804,20 +805,21 @@ fn wasm_assertion_context_and_binding_failure_contracts() {
     );
 }
 
+// detachedまたは読取不能な入力をWASMがfail-closedで拒否することを確認する。
 #[wasm_bindgen_test]
 fn wasm_detached_and_unreadable_inputs_fail_closed() {
     let password = Uint8Array::from(PASSWORD);
     let empty_store = create_empty_store().unwrap();
 
-    // A transferred Store must not become an empty Store or produce a replacement.
+    // transferされたStoreを空のStoreとして扱ったり、replacementを生成したりしてはならない。
     let detached_store = detached_uint8_array(&empty_store.to_vec());
     assert_binding_failure(list_profiles(&detached_store));
     assert_binding_failure(prepare_generated_profile(&detached_store, &password, 1.0));
     let unreadable_store = unreadable_uint8_array();
     assert_binding_failure(list_profiles(&unreadable_store));
 
-    // Mnemonic, password, Pending Profile and imported private key all use the same
-    // binding-side copy path and must fail before Core receives a fabricated empty input.
+    // Mnemonic、password、Pending Profile、importしたprivate keyはすべて同じbinding側copy経路を使う。
+    // Coreへ偽の空入力が渡る前に失敗しなければならない。
     let detached_mnemonic = detached_uint8_array(MNEMONIC);
     assert_binding_failure(restore_profile(
         &empty_store,
@@ -847,7 +849,7 @@ fn wasm_detached_and_unreadable_inputs_fail_closed() {
         &detached_private_key,
     ));
 
-    // A detached signing payload must not reach Core and must not return a signature.
+    // detachedな署名payloadをCoreへ渡したり、signatureを返したりしてはならない。
     let detached_payload = detached_uint8_array(b"detached payload");
     let detached_signing_request = signing_request(
         &Uuid::nil().to_string(),
@@ -865,7 +867,7 @@ fn wasm_detached_and_unreadable_inputs_fail_closed() {
     .unwrap();
     assert_binding_failure(sign(&empty_store, &detached_signing_request, &password));
 
-    // A throwing DTO getter is an actual Reflect::get conversion failure.
+    // 例外を投げるDTO getterは、実際のReflect::get変換failureとして扱う。
     let empty_pending = Uint8Array::new_with_length(0);
     let empty_password = Uint8Array::new_with_length(0);
     assert_binding_failure(finalize_generated_profile(
@@ -875,8 +877,8 @@ fn wasm_detached_and_unreadable_inputs_fail_closed() {
         &throwing_status_object(),
     ));
 
-    // An attached zero-length payload remains a real empty byte sequence. With a valid target,
-    // it reaches Core and produces a signature rather than being classified as BindingFailure.
+    // attachされた長さ0のpayloadは、空のbyte列として扱う。有効な対象ならCoreへ渡してsignatureを生成し、
+    // BindingFailureに分類しない。
     let restored =
         restore_profile(&empty_store, &Uint8Array::from(MNEMONIC), &password, 1.0).unwrap();
     let restored_store = mutation_store(&restored);
@@ -902,14 +904,15 @@ fn wasm_detached_and_unreadable_inputs_fail_closed() {
     assert_eq!(bytes_field(&value(&signed), "signature").length(), 64);
 }
 
+// WASMのbinary入力に正確なUint8Array brandを要求することを確認する。
 #[wasm_bindgen_test]
 fn wasm_binary_inputs_require_exact_uint8_array_brand() {
     let empty_store = create_empty_store().unwrap();
     let empty_store_buffer = empty_store.buffer();
     let store_length = empty_store.length();
 
-    // The clamped view has the exact same valid Store bytes and backing buffer as the accepted
-    // Uint8Array, but its internal [[TypedArrayName]] is different.
+    // clamped viewは受理されるUint8Arrayと同じ有効なStore bytesおよびbacking bufferを持つが、
+    // 内部の[[TypedArrayName]]が異なる。
     let clamped_store = Uint8ClampedArray::new_with_byte_offset_and_length(
         empty_store_buffer.as_ref(),
         empty_store.byte_offset(),
@@ -917,9 +920,8 @@ fn wasm_binary_inputs_require_exact_uint8_array_brand() {
     );
     assert_binding_failure(list_profiles(&clamped_store.unchecked_into()));
 
-    // Keep these views non-empty where their element width permits it. Uint16Array is also
-    // checked with an empty view below so the rejection is attributable to its brand, not only
-    // to the byteLength/length invariant.
+    // element width上可能なviewは空にしない。Uint16Arrayは下で空のviewも検証し、拒否理由が
+    // byteLength / lengthの不変条件だけでなくbrandにもあることを確認する。
     let int8 = Int8Array::new_with_length(1);
     assert_binding_failure(list_profiles(&int8.unchecked_into()));
     let uint16 = Uint16Array::new_with_length(0);
@@ -928,12 +930,12 @@ fn wasm_binary_inputs_require_exact_uint8_array_brand() {
     let data_view = DataView::new(&empty_store_buffer, 0, 1);
     assert_binding_failure(list_profiles(&data_view.unchecked_into()));
 
-    // The exact brand check runs before any intrinsic view accessor, so the existing Proxy
-    // fail-closed behavior remains explicit in the same public-API test.
+    // 正確なbrand検証はintrinsic view accessorより前に行う。同じ公開API testで既存Proxyの
+    // fail-closed動作も明示的に保つ。
     assert_binding_failure(list_profiles(&unreadable_uint8_array()));
 
-    // Own constructor / Symbol.toStringTag values and a mutable prototype property do not
-    // participate in the captured internal-brand check.
+    // own constructor / Symbol.toStringTagの値や変更可能なprototype propertyは、取得済みの
+    // internal-brand検証には影響しない。
     let actual = Uint8Array::from(empty_store.to_vec().as_slice());
     Reflect::set(
         actual.as_ref(),
@@ -986,6 +988,7 @@ fn wasm_binary_inputs_require_exact_uint8_array_brand() {
     );
 }
 
+// WASMの出力allocation failureをBindingFailureとし、結果を返さないことを確認する。
 #[wasm_bindgen_test]
 fn wasm_output_allocation_failure_is_binding_failure_without_result() {
     let empty_store = create_empty_store().unwrap();
@@ -998,6 +1001,7 @@ fn wasm_output_allocation_failure_is_binding_failure_without_result() {
     assert_binding_failure(result);
 }
 
+// WASMのbinary copyが上書き可能なslice methodを参照しないことを確認する。
 #[wasm_bindgen_test]
 fn wasm_binary_copy_ignores_overridable_slice_methods() {
     const PAYLOAD_A: &[u8] = b"application payload A";
@@ -1036,8 +1040,8 @@ fn wasm_binary_copy_ignores_overridable_slice_methods() {
     .unwrap();
     let expected_signature = bytes_field(&value(&expected), "signature").to_vec();
 
-    // An instance override returns a same-length, different byte sequence. The request must
-    // still be signed with the actual backing bytes from PAYLOAD_A.
+    // instance overrideが同じ長さで異なるbyte列を返しても、要求にはPAYLOAD_Aの実際のbacking bytesを
+    // 使って署名しなければならない。
     let instance_payload = Uint8Array::from(PAYLOAD_A);
     let instance_original =
         Reflect::get(instance_payload.as_ref(), &JsValue::from_str("slice")).unwrap();
@@ -1075,8 +1079,8 @@ fn wasm_binary_copy_ignores_overridable_slice_methods() {
     let instance_signature = bytes_field(&value(&instance_result.unwrap()), "signature").to_vec();
     assert_eq!(instance_signature, expected_signature);
 
-    // Repeat through the mutable Uint8Array prototype. Restore the original property before
-    // asserting so a failed assertion cannot leave the global prototype modified.
+    // 変更可能なUint8Array prototype経由でも同じことを確認する。assertion前に元のpropertyを戻し、
+    // assertion失敗時にglobal prototypeが変更されたままにならないようにする。
     let prototype_payload = Uint8Array::from(PAYLOAD_A);
     let prototype = Object::get_prototype_of(prototype_payload.as_ref());
     let prototype_original = Reflect::get(&prototype, &JsValue::from_str("slice")).unwrap();
@@ -1105,7 +1109,7 @@ fn wasm_binary_copy_ignores_overridable_slice_methods() {
     let prototype_signature = bytes_field(&value(&prototype_result.unwrap()), "signature").to_vec();
     assert_eq!(prototype_signature, expected_signature);
 
-    // A signing payload with a different typed-array brand must not be accepted as raw bytes.
+    // 異なるtyped-array brandを持つ署名payloadをraw bytesとして受け入れてはならない。
     let wrong_payload = Int8Array::new_with_length(PAYLOAD_A.len() as u32);
     let wrong_payload_request = signing_request(
         &profile_id,
@@ -1133,6 +1137,7 @@ fn wasm_binary_copy_ignores_overridable_slice_methods() {
     );
 }
 
+// 公開APIを使ってWASMのStoreサイズ境界を確認する。
 #[wasm_bindgen_test]
 fn wasm_store_size_boundary_uses_public_api() {
     let at_limit = max_sized_store();

@@ -123,7 +123,7 @@ pub struct SigningRequestInput<'env> {
     /// Coreへそのまま渡すraw payload。
     #[napi(js_name = "payload", ts_type = "Uint8Array")]
     pub payload: Unknown<'env>,
-    /// Application assertion。
+    /// Applicationからの表明。
     pub approval: SigningApprovalInput,
 }
 
@@ -244,7 +244,7 @@ pub struct SignatureOutput {
 pub struct ProfileListResult {
     /// Profile情報一覧。
     pub value: Vec<ProfileInfoOutput>,
-    /// Store decode warning。
+    /// Storeデコード時の警告。
     pub warnings: Vec<WarningOutput>,
 }
 
@@ -253,52 +253,52 @@ pub struct ProfileListResult {
 pub struct SoftwareKeyListResult {
     /// Software Key一覧。
     pub value: Vec<SoftwareKeyListItemOutput>,
-    /// Store decode warning。
+    /// Storeデコード時の警告。
     pub warnings: Vec<WarningOutput>,
 }
 
 /// `{ value, warnings }`形式のPrepared Profile結果。
 #[napi(object)]
 pub struct PreparedProfileReadResult {
-    /// Prepared Profile。
+    /// 準備済みProfile。
     pub value: PreparedProfileOutput,
-    /// Store decode warning。
+    /// Storeデコード時の警告。
     pub warnings: Vec<WarningOutput>,
 }
 
 /// `{ value, warnings }`形式のMnemonic export結果。
 #[napi(object)]
 pub struct MnemonicReadResult {
-    /// Mnemonic export。
+    /// Mnemonicのexport結果。
     pub value: MnemonicExportOutput,
-    /// Store decode warning。
+    /// Storeデコード時の警告。
     pub warnings: Vec<WarningOutput>,
 }
 
 /// `{ value, warnings }`形式のPrivate Key export結果。
 #[napi(object)]
 pub struct PrivateKeyReadResult {
-    /// Private key export。
+    /// private keyのexport結果。
     pub value: PrivateKeyExportOutput,
-    /// Store decode warning。
+    /// Storeデコード時の警告。
     pub warnings: Vec<WarningOutput>,
 }
 
 /// `{ value, warnings }`形式のPublic account結果。
 #[napi(object)]
 pub struct PublicAccountReadResult {
-    /// Public account。
+    /// 公開アカウント情報。
     pub value: PublicAccountOutput,
-    /// Store decode warning。
+    /// Storeデコード時の警告。
     pub warnings: Vec<WarningOutput>,
 }
 
 /// `{ value, warnings }`形式のSignature結果。
 #[napi(object)]
 pub struct SignatureReadResult {
-    /// Signature。
+    /// 署名。
     pub value: SignatureOutput,
-    /// Store decode warning。
+    /// Storeデコード時の警告。
     pub warnings: Vec<WarningOutput>,
 }
 
@@ -310,7 +310,7 @@ pub struct ProfileMutationResult {
     pub store: JsObject,
     /// Profile情報。
     pub value: ProfileInfoOutput,
-    /// Store decode warning。
+    /// Storeデコード時の警告。
     pub warnings: Vec<WarningOutput>,
 }
 
@@ -322,7 +322,7 @@ pub struct SoftwareKeyMutationResult {
     pub store: JsObject,
     /// Software Key情報。
     pub value: SoftwareKeyInfoOutput,
-    /// Store decode warning。
+    /// Storeデコード時の警告。
     pub warnings: Vec<WarningOutput>,
 }
 
@@ -397,9 +397,8 @@ fn copy_bytes(value: &Unknown<'_>, max_length: Option<usize>) -> Result<Zeroizin
         return Err(binding_error());
     }
 
-    // `TypedArray::from_napi_value` creates a Rust slice before returning.  Use the
-    // compatibility wrapper instead: `into_value` only obtains N-API metadata, so the
-    // backing kind is checked before any Rust slice is created.
+    // `TypedArray::from_napi_value`は戻る前にRust sliceを作成する。代わりに互換wrapperを使う。
+    // `into_value`はN-API metadataだけを取得するため、Rust sliceを作る前にbacking kindを検証できる。
     let typed_array = JsTypedArray::try_from(*value)
         .map_err(|_| binding_error())?
         .into_value()
@@ -1139,6 +1138,7 @@ pub fn delete_profile(
 mod tests {
     use super::NODE_OPERATION_NAMES;
 
+    // 公開operation一覧に16項目が含まれることを確認する。
     #[test]
     fn operation_inventory_has_sixteen_entries() {
         assert_eq!(NODE_OPERATION_NAMES.len(), 16);

@@ -267,7 +267,7 @@ function malformedRepresentationCases(api) {
   ];
 }
 
-test("root ESM export is exactly the 16 synchronous operations", () => {
+test("root ESM exportが16個の同期operationだけで構成される", () => {
   assert.deepEqual(sorted(Object.keys(facade)), sorted(expectedExports));
   assert.equal("default" in facade, false);
   assert.equal("WalletCoreError" in facade, false);
@@ -276,7 +276,7 @@ test("root ESM export is exactly the 16 synchronous operations", () => {
   assert.equal(facade.list_profiles(facade.create_empty_store()).warnings.length, 0);
 });
 
-test("Node native and direct WASM operations normalize Core errors identically", () => {
+test("Node nativeとdirect WASMのoperationがCore errorを同じ形式へ正規化する", () => {
   for (const api of [facade, wasmFacade]) {
     assert.throws(
       () => api.list_profiles(Uint8Array.from([0])),
@@ -288,7 +288,7 @@ test("Node native and direct WASM operations normalize Core errors identically",
   }
 });
 
-test("Node CJS and --no-addons WASM entries expose the same root surface", () => {
+test("Node CJSと--no-addons WASM entryが同じroot APIを公開する", () => {
   const cjs = JSON.parse(
     runNode([
       "-e",
@@ -329,7 +329,7 @@ test("Node CJS and --no-addons WASM entries expose the same root surface", () =>
   }
 });
 
-test("facade normalizes representation, unit null, UUID errors, and Core errors", () => {
+test("facadeがrepresentation、unitのnull、UUID error、Core errorを正規化する", () => {
   let called = false;
   const backend = Object.fromEntries(
     expectedExports.map((name) => [
@@ -409,7 +409,7 @@ test("facade normalizes representation, unit null, UUID errors, and Core errors"
   );
 });
 
-test("native and direct WASM entries expose the same malformed DTO error shape", () => {
+test("nativeとdirect WASM entryが不正DTOに同じerror形式を返す", () => {
   const casesByBackend = [facade, wasmFacade].map((api) => malformedRepresentationCases(api));
   assert.equal(casesByBackend[0].length, casesByBackend[1].length);
   for (let index = 0; index < casesByBackend[0].length; index += 1) {
@@ -428,7 +428,7 @@ test("native and direct WASM entries expose the same malformed DTO error shape",
   }
 });
 
-test("facade forwards validated DTO objects without rewriting or defaulting fields", () => {
+test("facadeが検証済みDTO objectをfieldの書換えやdefault補完なしで転送する", () => {
   const profileId = "11111111-1111-4111-8111-111111111111";
   const keyId = "22222222-2222-4222-8222-222222222222";
   const target = { kind: "software_key", profile_id: profileId, key_id: keyId };
@@ -491,7 +491,7 @@ test("facade forwards validated DTO objects without rewriting or defaulting fiel
 });
 
 test(
-  "a valid manifest entry with an unreadable artifact fails closed",
+  "manifest entryが有効でもartifactを読めない場合はfail-closedで終了する",
   { skip: currentNativeArtifact === null || !existsSync(currentNativeArtifact) },
   () => {
   const { directory, copy } = makePackageCopy();
@@ -521,7 +521,7 @@ test(
 );
 
 test(
-  "a loadable native artifact with a mismatched manifest digest fails closed without WASM fallback",
+  "読み込み可能なnative artifactのmanifest digestが不一致なら、WASMへfallbackせずfail-closedで終了する",
   { skip: currentNativeArtifact === null || !existsSync(currentNativeArtifact) },
   () => {
     const { directory, copy } = makePackageCopy();
@@ -574,7 +574,7 @@ test(
   },
 );
 
-test("a valid manifest without the current target falls back to package-local WASM", () => {
+test("manifestが有効でも現在のtargetがない場合、package内WASMへfallbackする", () => {
   const { directory, copy } = makePackageCopy();
   try {
     writeFileSync(

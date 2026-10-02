@@ -103,7 +103,7 @@ impl Default for SnwcWarnings {
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct SnwcHandoffConfirmation {
-    /// `0`=Unconfirmed、`1`=Confirmed。
+    /// `0`は未確認、`1`は確認済み。
     pub status: u8,
 }
 
@@ -111,7 +111,7 @@ pub struct SnwcHandoffConfirmation {
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct SnwcExportTarget {
-    /// `0`=Mnemonic、`1`=Software Key。
+    /// `0`はMnemonic、`1`はSoftware Key。
     pub kind: u8,
     /// 対象Profileのraw UUID。
     pub profile_id: SnwcUuid,
@@ -125,7 +125,7 @@ pub struct SnwcExportTarget {
 pub struct SnwcExportUserRequest {
     /// 利用者が要求した対象。
     pub target: SnwcExportTarget,
-    /// `0`=NotRequested、`1`=Requested。
+    /// `0`は未要求、`1`は要求済み。
     pub status: u8,
 }
 
@@ -135,7 +135,7 @@ pub struct SnwcExportUserRequest {
 pub struct SnwcExportApplicationConfirmation {
     /// Applicationが確認した対象。
     pub target: SnwcExportTarget,
-    /// `0`=NotConfirmed、`1`=Confirmed。
+    /// `0`は未確認、`1`は確認済み。
     pub status: u8,
 }
 
@@ -147,7 +147,7 @@ pub struct SnwcExportRequest {
     pub target: SnwcExportTarget,
     /// 利用者要求。
     pub user_request: SnwcExportUserRequest,
-    /// Application confirmation。
+    /// Applicationによる確認。
     pub application_confirmation: SnwcExportApplicationConfirmation,
 }
 
@@ -177,7 +177,7 @@ pub struct SnwcSigningTarget {
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct SnwcSigningApproval {
-    /// `0`=NotApproved、`1`=Approved。
+    /// `0`は未承認、`1`は承認済み。
     pub status: u8,
 }
 
@@ -189,7 +189,7 @@ pub struct SnwcSigningRequest {
     pub target: SnwcSigningTarget,
     /// caller-ownedで借用する署名対象byte列。
     pub payload: SnwcBytes,
-    /// Application approval。
+    /// Applicationによる承認。
     pub approval: SnwcSigningApproval,
 }
 
@@ -347,7 +347,7 @@ mod allocation_failure_seam {
     use std::cell::Cell;
 
     thread_local! {
-        // Some successful output allocations may be skipped before the next one fails.
+        // 次のallocationが失敗する前に、成功した出力allocationの一部が飛ばされる場合がある。
         static FAIL_AFTER: Cell<Option<usize>> = const { Cell::new(None) };
     }
 
@@ -466,7 +466,7 @@ impl Drop for OwnedBytesGuard {
 fn owned_bytes_from_slice(value: &[u8]) -> Result<OwnedBytesGuard, WalletError> {
     let output = unsafe { allocate_output_slice::<u8>(value.len())? };
     if !value.is_empty() {
-        // The allocation has the exact byte layout used by the release helper.
+        // このallocationは解放helperが使用するものと完全に同じbyte layoutである。
         unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output.ptr, value.len()) };
     }
     let (ptr, len) = output.into_raw_parts();
@@ -474,8 +474,8 @@ fn owned_bytes_from_slice(value: &[u8]) -> Result<OwnedBytesGuard, WalletError> 
 }
 
 fn owned_bytes(value: Vec<u8>) -> Result<OwnedBytesGuard, WalletError> {
-    // The source may contain encrypted Store material or other sensitive bytes. It is
-    // zeroized even when the binding-owned allocation fails.
+    // sourceには暗号化Storeのデータやその他の機微なbyte列が含まれる場合がある。
+    // Binding所有のallocationが失敗した場合もzeroizeする。
     let value = Zeroizing::new(value);
     owned_bytes_from_slice(&value)
 }
@@ -631,7 +631,7 @@ macro_rules! ffi_call {
 
 /// 空のWallet Storeを作成する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `out`は、結果を書き込める有効なポインターでなければならない。
 #[no_mangle]
@@ -647,7 +647,7 @@ pub unsafe extern "C" fn snwc_create_empty_store(out: *mut SnwcOwnedBytes) -> *c
 
 /// Mnemonic生成の初回段階を実行する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 /// 入力bufferは呼び出し中だけ読み取られ、出力bufferは対応するfree関数で解放する。
@@ -703,7 +703,7 @@ pub unsafe extern "C" fn snwc_prepare_generated_profile(
 
 /// Pending Profileを認証してProfileを確定する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `store`、`pending_profile`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -742,7 +742,7 @@ pub unsafe extern "C" fn snwc_finalize_generated_profile(
 
 /// UTF-8 BIP39 MnemonicからProfileを復元する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// 入力の各bufferと各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -779,7 +779,7 @@ pub unsafe extern "C" fn snwc_restore_profile(
 
 /// ProfileのMnemonicを明示的にexportする。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -811,7 +811,7 @@ pub unsafe extern "C" fn snwc_export_mnemonic(
 
 /// Software Keyのprivate keyを明示的にexportする。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -841,7 +841,7 @@ pub unsafe extern "C" fn snwc_export_private_key(
 
 /// passwordなしでProfile一覧を取得する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `store`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -879,7 +879,7 @@ pub unsafe extern "C" fn snwc_list_profiles(
 
 /// Profile内のSoftware Key一覧を取得する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `store`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1032,7 +1032,7 @@ fn parse_signing_request(value: SnwcSigningRequest) -> Result<SigningRequest, Wa
 
 /// MnemonicからSoftware Keyを導出して保存する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1070,7 +1070,7 @@ pub unsafe extern "C" fn snwc_derive_software_key(
 
 /// raw private keyを検証してSoftware Keyとして保存する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// 入力の各bufferと各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1108,7 +1108,7 @@ pub unsafe extern "C" fn snwc_import_software_key(
 
 /// CSPRNGでSoftware Keyを生成して保存する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1144,7 +1144,7 @@ pub unsafe extern "C" fn snwc_generate_software_key(
 
 /// Software Keyのpublic account情報を取得する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1178,7 +1178,7 @@ pub unsafe extern "C" fn snwc_get_public_account(
 
 /// Software Keyでpayload byte列に署名する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// 入力の各bufferと各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1208,7 +1208,7 @@ pub unsafe extern "C" fn snwc_sign(
 
 /// Profile passwordを変更してreplacement Storeを返す。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// 入力の各bufferと各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1240,7 +1240,7 @@ pub unsafe extern "C" fn snwc_change_profile_password(
 
 /// Software Keyを削除してreplacement Storeを返す。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1272,7 +1272,7 @@ pub unsafe extern "C" fn snwc_delete_software_key(
 
 /// Profileを削除してreplacement Storeを返す。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `store`、`password_utf8`および各出力ポインターは、呼び出し中有効でなければならない。
 #[no_mangle]
@@ -1302,7 +1302,7 @@ pub unsafe extern "C" fn snwc_delete_profile(
 
 /// `SnwcOwnedBytes`を解放し、内容を可能な範囲でzeroizeしてhandleを空にする。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `value`はこのBindingが返した未解放のbufferへのmutable pointerでなければならない。
 #[no_mangle]
@@ -1315,7 +1315,7 @@ pub unsafe extern "C" fn snwc_free_bytes(value: *mut SnwcOwnedBytes) {
 
 /// warning配列を解放する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `value`はこのBindingが返した未解放のwarning配列へのmutable pointerでなければならない。
 #[no_mangle]
@@ -1330,7 +1330,7 @@ pub unsafe extern "C" fn snwc_free_warnings(value: *mut SnwcWarnings) {
 
 /// Profile一覧配列を解放する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `values_ptr`と`len`は、このBindingが返した未解放のProfile一覧配列のhandleへのmutable
 /// pointerでなければならない。正常解放後、両方をNULL / 0へ更新する。
@@ -1349,7 +1349,7 @@ pub unsafe extern "C" fn snwc_free_profiles(
 
 /// Software Key一覧配列を解放する。
 ///
-/// # Safety
+/// # 安全性
 ///
 /// `values_ptr`と`len`は、このBindingが返した未解放のSoftware Key一覧配列のhandleへの
 /// mutable pointerでなければならない。正常解放後、両方をNULL / 0へ更新する。
@@ -1371,6 +1371,7 @@ mod binding_tests {
     use super::*;
     use std::ffi::CStr;
 
+    // FFI境界のpanicがBindingFailureへ対応付けられることを確認する。
     #[test]
     fn ffi_panic_maps_to_binding_failure() {
         let result: *const c_char = ffi_call!({
@@ -1380,6 +1381,7 @@ mod binding_tests {
         assert_eq!(code.to_bytes(), b"BindingFailure");
     }
 
+    // 出力allocation failureがBindingFailureへ対応付けられ、部分出力を返さないことを確認する。
     #[test]
     fn output_allocation_failure_maps_to_binding_failure_without_partial_output() {
         const PASSWORD: &[u8] = b"correct horse battery staple";
@@ -1395,8 +1397,8 @@ mod binding_tests {
             let mut input_store = SnwcOwnedBytes::default();
             assert!(snwc_create_empty_store(&mut input_store).is_null());
 
-            // Fail at the second output allocation. The first allocation must be reclaimed
-            // by its guard, and neither secret output may become visible to the C caller.
+            // 2回目の出力allocationで失敗させる。1回目のallocationはguardで解放され、
+            // 秘密情報を含む出力はいずれもC callerから参照できないことを確認する。
             let mut mnemonic = SnwcOwnedBytes::default();
             let mut pending = SnwcOwnedBytes::default();
             let mut warnings = SnwcWarnings::default();

@@ -2,6 +2,7 @@
 
 use super::*;
 
+// 秘密情報を含むDTOのDebug出力で値がredactされることを確認する。
 #[test]
 fn secret_dto_debug_output_is_redacted() {
     // Mnemonic、private key、Pending ProfileのいずれもDebug出力へ現れない。

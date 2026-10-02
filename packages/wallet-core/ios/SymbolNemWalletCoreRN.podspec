@@ -12,12 +12,10 @@ Pod::Spec.new do |s|
   s.requires_arc     = true
   s.static_framework = true
   xcframework = "../dist/react-native/ios/SymbolNemWalletCoreRN.xcframework"
-  # Keep the resolved Pod specification byte-for-byte identical for the source
-  # producer and the assembled-XCFramework consumer. The selected native
-  # implementation is decided by the build phase below, not while CocoaPods
-  # evaluates this podspec; otherwise the two legitimate inputs produce
-  # different SPEC CHECKSUMS and deployment-mode installation rejects the
-  # source-controlled Podfile.lock.
+  # source producerと組立済みXCFramework consumerで、解決されるPod仕様のbyte列を一致させる。
+  # 使用するnative実装は下のbuild phaseで選択し、CocoaPodsがpodspecを評価する時点では決めない。
+  # そうしないと、どちらも正当な入力である2つの経路でSPEC CHECKSUMSが異なり、
+  # deployment modeのinstall時にrepository管理下のPodfile.lockと不一致になる。
   s.source_files = [
     "NativeSymbolNemWalletCoreProvider.{h,mm}",
     "SnwcRnLifecycleDelegate.{h,mm}",
@@ -56,9 +54,8 @@ if test -d "$xcframework"; then
   esac
   input="$xcframework/$slice/libsymbol_nem_wallet_core_rn.a"
 else
-  # The source implementation is already linked through the static framework
-  # emitted by this Pod target. Keep the common force-load output valid but
-  # empty so the source producer does not link that same archive twice.
+  # source実装はこのPod targetが出力するstatic framework経由ですでにlinkされている。
+  # 共通force-load出力の形式は保ちつつ空にし、source producerが同じarchiveを二重linkしないようにする。
   mkdir -p "$(dirname "$output")"
   empty_object="$BUILT_PRODUCTS_DIR/symbol_nem_wallet_core_rn_empty.o"
   rm -f "$output"
@@ -85,9 +82,8 @@ SCRIPT
   s.pod_target_xcconfig = {
     "CLANG_CXX_LANGUAGE_STANDARD" => "c++17",
     "CLANG_CXX_LIBRARY" => "libc++",
-    # React Native generates this header during the ReactCodegen before-
-    # compile phase.  The source Pod must consume that exact generated output,
-    # rather than relying on a header-map side effect of the app target.
+    # React NativeはReactCodegenのcompile前phaseでこのheaderを生成する。
+    # source Podはapp targetのheader mapによる副作用に依存せず、その生成物を直接使う。
     "HEADER_SEARCH_PATHS" => [
       "$(inherited)",
       '"$(PODS_ROOT)/Headers/Public/ReactCodegen"',

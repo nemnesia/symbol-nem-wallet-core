@@ -1,6 +1,5 @@
 #import "SnwcRnLifecycleDelegate.h"
 
-// Keep a source file in the artifact-consuming Pod target so CocoaPods emits
-// the Clang module that Swift uses for SnwcRnLifecycleDelegate. The actual
-// Objective-C implementation is already present in the force-loaded
-// XCFramework archive and must not be compiled a second time.
+// artifactを使うPod targetにsource fileを残し、SwiftがSnwcRnLifecycleDelegateに使う
+// Clang moduleをCocoaPodsに生成させる。実際のObjective-C実装はforce-loadされる
+// XCFramework archiveに含まれるため、二重にcompileしてはならない。

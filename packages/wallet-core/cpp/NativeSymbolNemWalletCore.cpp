@@ -652,7 +652,7 @@ Object publicAccountToJs(Runtime &runtime, const SnwcPublicAccountInfo &account,
   setValue(runtime, result, "key_id", String::createFromUtf8(runtime, uuidString(account.key_id)));
   setValue(runtime, result, "chain", String::createFromUtf8(runtime, account.chain == 0 ? "nem" : "symbol"));
   setValue(runtime, result, "network", String::createFromUtf8(runtime, account.network == 0 ? "testnet" : "mainnet"));
-  /* public_key is fixed storage, so copy it without invoking a C ABI free function. */
+/* public_keyは固定領域なので、C ABIのfree関数を呼ばずにcopyする。 */
   Uint8Array publicKey(runtime, sizeof(account.public_key));
   ArrayBuffer keyBuffer = publicKey.buffer(runtime);
   std::memcpy(keyBuffer.data(runtime) + publicKey.byteOffset(runtime), account.public_key, sizeof(account.public_key));
@@ -741,8 +741,7 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
       integrationStaleSecretBaseline.store(
           integrationSecretZeroizeCount.load(std::memory_order_relaxed), std::memory_order_relaxed);
       if (!RnLifecycleCoordinator::shared().armIntegrationStaleGate()) fail(kBindingFailure);
-      // This is the real C ABI path. The controlled gate is reached after
-      // the C ABI has allocated its output and before any JSI DTO is built.
+// 実際のC ABI経路である。C ABIが出力をallocateした後、JSI DTOを構築する前に制御gateへ到達する。
       OwnedBytes store;
       checkCoreError(snwc_create_empty_store(&store.value));
       SecretBytes nativeStore = copyOwnedBytes(store, ticket);

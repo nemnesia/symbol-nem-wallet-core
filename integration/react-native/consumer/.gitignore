@@ -1,8 +1,8 @@
-# OSX
+# macOS
 #
 .DS_Store
 
-# Xcode
+# Xcode関連
 #
 build/
 *.pbxuser
@@ -22,7 +22,7 @@ DerivedData
 *.xcuserstate
 **/.xcode.env.local
 
-# Android/IntelliJ
+# Android / IntelliJ関連
 #
 build/
 .idea
@@ -35,17 +35,16 @@ local.properties
 !debug.keystore
 .kotlin/
 
-# node.js
+# Node.js関連
 #
 node_modules/
 npm-debug.log
 yarn-error.log
 
-# fastlane
+# fastlane関連
 #
-# It is recommended to not store the screenshots in the git repo. Instead, use fastlane to re-generate the
-# screenshots whenever they are needed.
-# For more information about the recommended setup visit:
+# screenshotはgit repositoryに保存せず、必要なときにfastlaneで再生成することを推奨する。
+# 推奨設定の詳細:
 # https://docs.fastlane.tools/best-practices/source-control/
 
 **/fastlane/report.xml
@@ -53,20 +52,20 @@ yarn-error.log
 **/fastlane/screenshots
 **/fastlane/test_output
 
-# Bundle artifact
+# bundle生成物
 *.jsbundle
 
-# Ruby / CocoaPods
+# Ruby / CocoaPods関連
 **/Pods/
 /vendor/bundle/
 
-# Temporary files created by Metro to check the health of the file watcher
+# file watcherの状態確認用にMetroが作成するtemporary file
 .metro-health-check*
 
-# testing
+# test関連
 /coverage
 
-# Yarn
+# Yarn関連
 .yarn/*
 !.yarn/patches
 !.yarn/plugins

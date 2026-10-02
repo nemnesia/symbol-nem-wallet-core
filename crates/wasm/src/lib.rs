@@ -69,23 +69,22 @@ fn set(object: &Object, key: &str, value: JsValue) -> Result<(), JsValue> {
 }
 
 fn checked_uint8_array_view(value: &Uint8Array) -> Result<(ArrayBuffer, u32, u32), JsValue> {
-    // ArrayBuffer.isView is an engine-level view check. The captured TypedArray brand getter
-    // distinguishes Uint8Array from Uint8ClampedArray and the other typed-array element types.
-    // It also rejects a Proxy before any proxy trap can substitute the view metadata.
+    // ArrayBuffer.isViewはエンジンレベルのビュー判定である。取得済みのTypedArray brand getterで
+    // Uint8ArrayとUint8ClampedArrayなど、要素型の異なるTypedArrayを区別する。
+    // また、Proxyのtrapによってビューのmetadataを差し替えられる前にProxyを拒否する。
     if !try_is_exact_uint8_array(value).map_err(|_| conversion_error())? {
         return Err(conversion_error());
     }
 
-    // The JS bridge invokes captured intrinsic accessors. This avoids input own-properties and
-    // mutable prototypes shadowing length, byteLength, byteOffset, buffer, or detached.
+    // JS bridgeは取得済みの組み込みaccessorを呼び出す。入力のown-propertyや変更可能なprototypeで
+    // length、byteLength、byteOffset、buffer、detachedを偽装されることを防ぐ。
     let buffer = try_uint8_array_buffer(value).map_err(|_| conversion_error())?;
     if try_array_buffer_detached(&buffer).map_err(|_| conversion_error())? {
         return Err(conversion_error());
     }
 
-    // These are the typed-array accessors, not properties/methods obtained from the input
-    // object. Validate both the view byte length and its bounds against the actual backing
-    // buffer before reading any bytes.
+    // これらは入力objectから取得したpropertyやmethodではなく、TypedArrayのaccessorである。
+    // byteを読む前に、実際のbacking bufferに対するviewのbyte長と範囲の両方を検証する。
     let length = try_uint8_array_length(value).map_err(|_| conversion_error())?;
     let byte_length = try_uint8_array_byte_length(value).map_err(|_| conversion_error())?;
     let byte_offset = try_uint8_array_byte_offset(value).map_err(|_| conversion_error())?;
@@ -103,8 +102,8 @@ fn copy_uint8_array(
     value: &Uint8Array,
     max_length: Option<usize>,
 ) -> Result<Zeroizing<Vec<u8>>, JsValue> {
-    // Read the representation before allocating. A detached Uint8Array reports length 0,
-    // so length alone must never be used to distinguish it from an attached empty array.
+    // allocation前にrepresentationを読み取る。detached Uint8Arrayはlength 0を返すため、
+    // lengthだけでattachedな空配列と区別してはならない。
     let (buffer, byte_offset, length) = checked_uint8_array_view(value)?;
     let length = length as usize;
     if max_length.is_some_and(|max_length| length > max_length) {
@@ -115,11 +114,10 @@ fn copy_uint8_array(
     output
         .try_reserve_exact(length)
         .map_err(|_| conversion_error())?;
-    // The capacity was reserved successfully and is at least `length`. Constructing a fresh
-    // view from the validated backing ArrayBuffer makes the copy independent of all methods on
-    // the input object and its mutable prototype. The inline bridge captures the native
-    // Uint8Array.prototype.set once when the binding module is initialized, then uses it with
-    // the fresh view and the Wasm destination; it never reads a method from the input object.
+    // capacityは正常に確保済みで、`length`以上である。検証済みbacking ArrayBufferから新しいviewを
+    // 作ることで、入力objectや変更可能なprototype上のmethodに依存しないcopyにする。inline bridgeは
+    // binding moduleの初期化時にnativeのUint8Array.prototype.setを一度だけ取得し、新しいviewと
+    // Wasm側の出力先に対して使用する。入力objectからmethodを読み取ることはない。
     output.resize(length, 0);
     try_copy_uint8_array(&buffer, byte_offset, length as u32, &mut output)
         .map_err(|_| conversion_error())?;
@@ -152,8 +150,8 @@ extern "C" {
     #[wasm_bindgen(catch, js_name = snwc_array_push)]
     fn try_array_push(array: &Array, value: &JsValue) -> Result<(), JsValue>;
 
-    // Uint8Array construction is a JS exception-capable representation boundary. The catch
-    // ABI maps a constructor exception to the caller's BindingFailure path.
+    // Uint8Arrayの構築は、JS例外が発生し得るrepresentation境界である。catch ABIはconstructorの
+    // 例外を呼び出し側のBindingFailure経路へ対応付ける。
     #[wasm_bindgen(catch, js_name = snwc_new_uint8_array)]
     fn try_new_uint8_array(value: &[u8]) -> Result<Uint8Array, JsValue>;
 
@@ -250,9 +248,9 @@ fn js_array_push(array: &Array, value: &JsValue) -> Result<(), JsValue> {
 }
 
 fn uint8_array(value: &[u8]) -> Result<JsValue, JsValue> {
-    // Rust reservation and the catch-enabled JS constructor cover allocation/construction
-    // failures that return to the binding. A host/runtime OOM that aborts execution before an
-    // exception can be delivered is outside this guarantee and cannot be mapped to BindingFailure.
+    // Rust側の領域確保とcatch対応JS constructorにより、bindingへ制御が戻るallocation / construction
+    // failureを扱う。例外を通知できる前に実行が中断されるhost / runtimeのOOMはこの保証の対象外であり、
+    // BindingFailureへ対応付けられない。
     if output_allocation_should_fail() {
         return Err(conversion_error());
     }

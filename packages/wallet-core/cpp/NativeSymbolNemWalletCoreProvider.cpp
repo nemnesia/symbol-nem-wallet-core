@@ -37,9 +37,8 @@ extern "C" SNWC_RN_EXPORT const char *snwc_rn_artifact_identity() {
   return snwc_rn_artifact_identity_value[0] == '\0' ? nullptr : snwc_rn_artifact_identity_value;
 }
 
-/* Keep this value in the binary as a data symbol as well as returning it from
- * the provider. Release inspection verifies both the target tables and this
- * exact embedded value. */
+/* providerから返すだけでなく、この値をdata symbolとしてbinary内に保持する。
+ * release検査ではtarget tableと埋め込み値の両方を照合する。 */
 extern "C" SNWC_RN_EXPORT const char snwc_rn_artifact_identity_value[] =
 #if defined(SNWC_RN_PLATFORM_ANDROID)
     "android|" SNWC_RN_ANDROID_ABI "|dist/react-native/android/jni/" SNWC_RN_ANDROID_ABI "/libsymbol_nem_wallet_core_rn.so";
@@ -68,10 +67,9 @@ SNWC_RN_EXPORT std::shared_ptr<TurboModule> symbolNemWalletCoreCxxModuleProvider
     const std::shared_ptr<CallInvoker> &jsInvoker) {
   (void)name;
   (void)jsInvoker;
-  // A bare provider callback has no actual RN registration, logical context,
-  // or module-registry identity. It must not manufacture one. Android uses
-  // the RN 0.87 CxxReactPackage path below, while iOS uses its Codegen
-  // RCTModuleProvider path with host/runtime lifecycle binding.
+  // provider callback単体では実際のRN登録、logical context、module registry identityを持たない。
+  // それらをここで生成してはならない。Androidは下記のRN 0.87 CxxReactPackage経路を使い、
+  // iOSはhost / runtime lifecycleに結び付いたCodegen RCTModuleProvider経路を使う。
   return nullptr;
 }
 

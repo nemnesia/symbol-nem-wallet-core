@@ -3,18 +3,16 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /**
- * RCTHostDelegate adapter that exposes the actual RN host, module registry,
- * and JSI runtime lifecycle to the package coordinator.
+ * 実際のRN host、module registry、JSI runtime lifecycleをpackage coordinatorへ渡すRCTHostDelegate adapter。
  */
 @interface SnwcRnLifecycleDelegate : RCTDefaultReactNativeFactoryDelegate
 
 @end
 
 /**
- * RCTReactNativeFactory normally forwards hostDidStart to its factory
- * delegate, but RN 0.87.x does not forward didInitializeRuntime. The
- * subclass is the actual RCTHostDelegate installation point that forwards
- * that callback to the lifecycle delegate before the JS bundle executes.
+ * RCTReactNativeFactoryは通常hostDidStartをfactory delegateへ転送するが、RN 0.87.xでは
+ * didInitializeRuntimeを転送しない。このsubclassは実際のRCTHostDelegate設定箇所として、
+ * JS bundle実行前にlifecycle delegateへcallbackを転送する。
  */
 @interface SnwcRnReactNativeFactory : RCTReactNativeFactory
 

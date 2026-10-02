@@ -1,7 +1,7 @@
 source 'https://rubygems.org'
 
-# The producer graph is intentionally tied to one Ruby patch release. The
-# matching Gemfile.lock is part of the source-controlled consumer input.
+# producerが使う依存関係をRubyのpatch releaseひとつに固定する。
+# 対応するGemfile.lockもconsumer入力の一部としてrepositoryで管理する。
 ruby "3.3.8"
 
 gem "cocoapods", "1.16.2"
@@ -9,7 +9,7 @@ gem "activesupport", "7.2.3.1"
 gem "xcodeproj", "1.27.0"
 gem "concurrent-ruby", "1.3.7"
 
-# These libraries are no longer guaranteed to ship with every supported Ruby.
+# これらのlibraryは、対応するすべてのRubyに標準同梱される保証がなくなった。
 gem "bigdecimal", "3.1.8"
 gem "logger", "1.6.2"
 gem "benchmark", "0.4.0"
