@@ -321,6 +321,31 @@ export default function App() {
         ),
         'export_mnemonic',
       );
+      await step('reentrant_export_getter', () => {
+        const request = exportRequest(profileId);
+        const target = request.target;
+        let rejected = false;
+        Object.defineProperty(request, 'target', {
+          get() {
+            try {
+              walletCore.list_profiles(restored.store);
+            } catch (error) {
+              if (errorCode(error) !== 'BindingFailure') {
+                smokeAssertion('reentry:wrong-error');
+              }
+              rejected = true;
+            }
+            return target;
+          },
+        });
+        // outerはJSIを直接呼び、getterがnative admission内で実行されるようにする。
+        const outer = requireRead(module.invoke('export_mnemonic', {
+          args: [restored.store, request, password],
+        }), 'reentry:outer-export');
+        requireBytes(outer.value.mnemonic_utf8, 'reentry:outer-bytes').fill(0);
+        if (!rejected) smokeAssertion('reentry:not-rejected');
+        requireRead(walletCore.list_profiles(restored.store), 'reentry:cleanup');
+      });
       const generated = requireMutation(
         await step('generate_software_key', () =>
           walletCore.generate_software_key(

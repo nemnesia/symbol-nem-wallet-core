@@ -168,6 +168,26 @@ fn c_abi_keeps_byte_boundaries_and_core_results() {
         snwc_free_bytes(&mut sentinel_store);
         snwc_free_warnings(&mut sentinel_warnings);
 
+        for oversized in [
+            vec![b'a'; 1_000_000],
+            "\u{301}".repeat(1_000_000).into_bytes(),
+        ] {
+            let error = snwc_restore_profile(
+                borrowed(&store),
+                borrowed(&oversized),
+                borrowed(PASSWORD),
+                1,
+                &mut sentinel_store,
+                &mut sentinel_profile,
+                &mut sentinel_warnings,
+            );
+            assert_eq!(
+                std::ffi::CStr::from_ptr(error).to_str().unwrap(),
+                "InvalidMnemonic"
+            );
+            assert!(sentinel_store.ptr.is_null() && sentinel_store.len == 0);
+        }
+
         let mut invalid_store = SnwcOwnedBytes {
             ptr: ptr::null_mut(),
             len: 0,

@@ -77,8 +77,44 @@ pub(crate) fn parse_mnemonic(input: &[u8]) -> WalletResult<([u8; 32], Zeroizing<
     // 入力境界ではUTF-8とNFKDを検証し、BIP39のword list・checksum・24 wordsを確認する。
     let input =
         core::str::from_utf8(input).map_err(|_| WalletError::new(ErrorCode::InvalidMnemonic))?;
-    let normalized = Zeroizing::new(input.nfkd().collect::<String>());
-    let mnemonic = Mnemonic::parse_in_normalized(Language::English, &normalized)
+    // English wordlistの最長語は8 ASCII文字。空白の数やUTF-8入力長を制限せず、
+    // 24語のcanonical表現だけを保持する。結合文字列全体のNFKD iteratorは
+    // combining markを無制限に溜め得るため、1 scalarずつ分解する。
+    // 有効なEnglish語には結合文字がなく、scalar間のcanonical並替えは不要。
+    const MAX_WORD_BYTES: usize = 8;
+    const MAX_PHRASE_BYTES: usize = 24 * MAX_WORD_BYTES + 23;
+    let mut normalized = Zeroizing::new([0u8; MAX_PHRASE_BYTES]);
+    let mut length = 0;
+    let mut words = 0;
+    let mut word_length = 0;
+    for character in input
+        .chars()
+        .flat_map(|character| core::iter::once(character).nfkd())
+    {
+        if character.is_whitespace() {
+            word_length = 0;
+            continue;
+        }
+        if !character.is_ascii_lowercase() || word_length == MAX_WORD_BYTES {
+            return Err(WalletError::new(ErrorCode::InvalidMnemonic));
+        }
+        if word_length == 0 {
+            if words == 24 {
+                return Err(WalletError::new(ErrorCode::InvalidMnemonic));
+            }
+            if words != 0 {
+                normalized[length] = b' ';
+                length += 1;
+            }
+            words += 1;
+        }
+        normalized[length] = character as u8;
+        length += 1;
+        word_length += 1;
+    }
+    let normalized = core::str::from_utf8(&normalized[..length])
+        .map_err(|_| WalletError::new(ErrorCode::InvalidMnemonic))?;
+    let mnemonic = Mnemonic::parse_in_normalized(Language::English, normalized)
         .map_err(|_| WalletError::new(ErrorCode::InvalidMnemonic))?;
     if mnemonic.word_count() != 24 {
         return Err(WalletError::new(ErrorCode::InvalidMnemonic));

@@ -433,15 +433,21 @@ fn store_bytes(value: &Unknown<'_>) -> Result<Zeroizing<Vec<u8>>> {
 }
 
 fn output_bytes(env: &Env, value: &[u8]) -> Result<JsObject> {
-    // JS側へ返すbufferはRust temporaryとaliasしない独立copyにする。Rust側の
-    // allocationとN-API typed-array constructionはpanicではなくBindingFailureとして返す。
-    let mut copied = Vec::new();
-    copied
-        .try_reserve_exact(value.len())
+    // JS engine所有のArrayBufferへ直接copyし、消去されないRust VecをGC finalizerへ
+    // 移管しない。Core所有の元bufferは呼出し元のsecret DTOが消去する。
+    // allocation / typed-array / object変換が失敗した時点では秘密情報をcopyしていない。
+    let buffer = env
+        .create_arraybuffer(value.len())
         .map_err(|_| binding_error())?;
-    copied.extend_from_slice(value);
-    let typed_array = Uint8ArraySlice::from_data(env, copied).map_err(|_| binding_error())?;
-    JsObject::try_from(typed_array.to_unknown()).map_err(|_| binding_error())
+    let typed_array = buffer
+        .value
+        .into_typedarray(TypedArrayType::Uint8, value.len(), 0)
+        .map_err(|_| binding_error())?;
+    let output = JsObject::try_from(typed_array.to_unknown()).map_err(|_| binding_error())?;
+    let mut backing = typed_array.into_value().map_err(|_| binding_error())?;
+    let bytes: &mut [u8] = backing.as_mut();
+    bytes.copy_from_slice(value);
+    Ok(output)
 }
 
 fn output_object<T>(env: &Env, value: T) -> Result<JsObject>
