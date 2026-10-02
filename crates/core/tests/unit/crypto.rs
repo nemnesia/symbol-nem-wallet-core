@@ -2,6 +2,49 @@
 
 use super::*;
 
+#[test]
+fn mnemonic_normalization_has_bounded_storage_and_preserves_compatibility() {
+    assert_eq!(
+        Language::English
+            .word_list()
+            .iter()
+            .map(|word| word.len())
+            .max(),
+        Some(8)
+    );
+    let canonical = mnemonic_from_entropy(&[0u8; 32]).unwrap();
+    let phrase = core::str::from_utf8(&canonical).unwrap();
+    let expected = parse_mnemonic(&canonical).unwrap();
+    let fullwidth: String = phrase
+        .chars()
+        .map(|character| {
+            if character == ' ' {
+                '\u{3000}'
+            } else {
+                char::from_u32(character as u32 + 0xfee0).unwrap()
+            }
+        })
+        .collect();
+    let padded = format!(
+        "{}{}{}",
+        "\u{2003}".repeat(100_000),
+        fullwidth,
+        "\t".repeat(100_000)
+    );
+    let actual = parse_mnemonic(padded.as_bytes()).unwrap();
+    assert!(actual.0 == expected.0 && actual.1.as_slice() == expected.1.as_slice());
+    for invalid in [
+        "a".repeat(1_000_000),
+        "\u{301}".repeat(1_000_000),
+        format!("{phrase} abandon"),
+        format!("{phrase}\u{301}"),
+        "abandon ".repeat(23),
+    ] {
+        let error = parse_mnemonic(invalid.as_bytes()).err().unwrap();
+        assert_eq!(error.code, ErrorCode::InvalidMnemonic);
+    }
+}
+
 fn bytes<const N: usize>(hex: &str) -> [u8; N] {
     hex::decode(hex).unwrap().try_into().unwrap()
 }

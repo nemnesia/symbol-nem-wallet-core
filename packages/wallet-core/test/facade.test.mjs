@@ -22,6 +22,36 @@ import * as wasmFacade from "../dist/wasm/index.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageName = "@nemnesia/symbol-nem-wallet-core";
+
+test("過大MnemonicとUnicode正規化の結果がnativeとWASMで一致する", () => {
+  const password = new TextEncoder().encode("mnemonic boundary fixture");
+  for (const api of [facade, wasmFacade]) {
+    const store = api.create_empty_store();
+    for (const source of ["a".repeat(1_000_000), "\u0301".repeat(1_000_000)]) {
+      assert.throws(() => api.restore_profile(store, new TextEncoder().encode(source), password, 1),
+        error => error.name === "WalletCoreError" && error.code === "InvalidMnemonic");
+    }
+    const prepared = api.prepare_generated_profile(store, password, 1);
+    const canonical = prepared.value.mnemonic_utf8.slice();
+    const normalized = new TextDecoder().decode(canonical).replace(/[a-z]/g,
+      letter => String.fromCharCode(letter.charCodeAt(0) + 0xfee0));
+    const imported = api.restore_profile(store, new TextEncoder().encode(`\u2003${normalized}\u3000`), password, 1);
+    const id = imported.value.profile_id;
+    const target = { kind: "mnemonic", profile_id: id };
+    const exported = api.export_mnemonic(imported.store, {
+      target, user_request: { target, status: "requested" },
+      application_confirmation: { target, status: "confirmed" },
+    }, password);
+    assert.ok(exported.value.mnemonic_utf8 instanceof Uint8Array);
+    assert.ok(exported.value.mnemonic_utf8.length === canonical.length &&
+      exported.value.mnemonic_utf8.every((byte, index) => byte === canonical[index]));
+    exported.value.mnemonic_utf8.fill(0);
+    assert.ok(prepared.value.mnemonic_utf8.length === canonical.length &&
+      prepared.value.mnemonic_utf8.every((byte, index) => byte === canonical[index]));
+    prepared.value.mnemonic_utf8.fill(0);
+    canonical.fill(0);
+  }
+});
 const expectedExports = [
   "create_empty_store",
   "prepare_generated_profile",

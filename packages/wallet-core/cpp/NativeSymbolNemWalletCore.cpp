@@ -82,8 +82,9 @@ class AdmissionTicket final {
  public:
   AdmissionTicket(RnLifecycleCoordinator &coordinator, const RnLifecycleCoordinator::Registration &registration,
       Runtime &runtime)
-      : coordinator_(coordinator), lock_(coordinator.executionMutex()) {
+      : coordinator_(coordinator), lock_(coordinator.executionMutex(), std::defer_lock) {
     if (coordinator_.hasActiveRequestOnCurrentThread()) fail(kBindingFailure);
+    lock_.lock();
     request_ = coordinator_.begin(registration, &runtime);
   }
 
