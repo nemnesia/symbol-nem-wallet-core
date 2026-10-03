@@ -20,9 +20,12 @@
     "test:release-record": "node scripts/test-release-record.mjs",
     "test:third-party-license-evidence": "node scripts/test-third-party-license-evidence.mjs",
     "test:npm:release": "node scripts/test-npm-release.mjs",
-    "test:npm:bundlers": "node scripts/test-npm-bundlers.mjs"
+    "test:npm:bundlers": "node scripts/test-npm-bundlers.mjs",
+    "codex-security:login": "codex-security login",
+    "codex-security:scan": "codex-security scan --path ./crates --path packages --model gpt-6-luna --effort high"
   },
   "devDependencies": {
+    "@openai/codex-security": "^0.1.31",
     "esbuild": "0.25.4",
     "vite": "6.4.3",
     "webpack": "5.104.1",
