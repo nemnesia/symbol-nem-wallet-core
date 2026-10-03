@@ -63,6 +63,7 @@ async function readRequestBody(request) {
 
 function contentType(path) {
   if (path.endsWith(".mjs") || path.endsWith(".js")) return "text/javascript; charset=utf-8";
+  if (path.endsWith(".json")) return "application/json; charset=utf-8";
   if (path.endsWith(".wasm")) return "application/wasm";
   return "application/octet-stream";
 }
