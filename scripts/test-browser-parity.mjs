@@ -21,21 +21,38 @@ class FixtureServer extends EventEmitter {
     return { port: 43123 };
   }
 
+  async request(method, url, body = "") {
+    let statusCode;
+    let headers = {};
+    let responseBody = Buffer.alloc(0);
+    const request = {
+      method,
+      url,
+      async *[Symbol.asyncIterator]() {
+        if (body.length > 0) yield Buffer.from(body);
+      },
+    };
+    const response = {
+      writeHead(code, values = {}) {
+        statusCode = code;
+        headers = values;
+      },
+      end(value = Buffer.alloc(0)) {
+        responseBody = Buffer.from(value);
+      },
+    };
+    await this.handler(request, response);
+    return { statusCode, headers, body: responseBody };
+  }
+
   close(callback) {
     callback();
   }
 
   async report(value) {
     const body = typeof value === "string" ? value : JSON.stringify(value);
-    const request = {
-      method: "POST",
-      url: "/__snwc_report",
-      async *[Symbol.asyncIterator]() {
-        yield Buffer.from(body);
-      },
-    };
-    const response = { writeHead() {}, end() {} };
-    await this.handler(request, response);
+    const response = await this.request("POST", "/__snwc_report", body);
+    assert.equal(response.statusCode, 204);
   }
 }
 
@@ -84,6 +101,23 @@ assert.equal(notFound.diagnostic.classification, "browser-not-found");
   const result = await runBrowserParity({ findBrowserImpl: () => browser, spawnImpl: fixture.spawnImpl, createServerImpl, timeoutMs: 50 });
   assert.equal(result.status, "ok");
   assert.equal(fixture.calls(), 2);
+}
+
+{
+  const fixture = spawnFixture([async (args) => {
+    const response = await currentServer.request("GET", "/packages/wallet-core/package.json");
+    assert.equal(response.statusCode, 200);
+    assert.match(response.headers["content-type"], /^application\/json(?:;|$)/);
+    assert.equal(JSON.parse(response.body.toString("utf8")).name, "@nemnesia/symbol-nem-wallet-core");
+    await post(args, { status: "ok", result: { value: "pass" } });
+  }]);
+  const result = await runBrowserParity({
+    findBrowserImpl: () => browser,
+    spawnImpl: fixture.spawnImpl,
+    createServerImpl,
+    timeoutMs: 50,
+  });
+  assert.equal(result.status, "ok");
 }
 
 {
