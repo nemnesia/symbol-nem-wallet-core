@@ -493,14 +493,20 @@ function snapshotSigningApproval(value) {
 
 function snapshotSigningRequest(value) {
   requiredObject(value);
-  const target = snapshotSigningTarget(dtoField(value, "target"));
-  const payload = snapshotUint8Array(dtoField(value, "payload"));
-  const approval = snapshotSigningApproval(dtoField(value, "approval"));
-  const snapshot = dtoObject();
-  snapshot.target = target;
-  snapshot.payload = payload;
-  snapshot.approval = approval;
-  return snapshot;
+  let payload;
+  try {
+    const target = snapshotSigningTarget(dtoField(value, "target"));
+    payload = snapshotUint8Array(dtoField(value, "payload"));
+    const approval = snapshotSigningApproval(dtoField(value, "approval"));
+    const snapshot = dtoObject();
+    snapshot.target = target;
+    snapshot.payload = payload;
+    snapshot.approval = approval;
+    return snapshot;
+  } catch (error) {
+    clearSecretBytes(payload);
+    throw error;
+  }
 }
 
 function validateNetworkOrChain(value) {

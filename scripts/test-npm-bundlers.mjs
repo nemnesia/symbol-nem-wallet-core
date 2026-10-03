@@ -164,6 +164,7 @@ function assertOutput(outputRoot, label) {
 
 async function runBrowser(outputRoot, browser, options = {}) {
   let report;
+  let expectedDigestReplacements = 0;
   let reportResolve;
   let reportReject;
   const reportPromise = new Promise((resolveReport, rejectReport) => {
@@ -201,8 +202,10 @@ async function runBrowser(outputRoot, browser, options = {}) {
     }
     const contentType = path.endsWith(".html")
       ? "text/html; charset=utf-8"
-      : path.endsWith(".js")
+      : path.endsWith(".js") || path.endsWith(".mjs")
         ? "text/javascript; charset=utf-8"
+        : path.endsWith(".json")
+          ? "application/json; charset=utf-8"
         : path.endsWith(".wasm")
           ? "application/wasm"
           : "application/octet-stream";
@@ -213,6 +216,14 @@ async function runBrowser(outputRoot, browser, options = {}) {
     if (options.corruptWasm && path.endsWith(".wasm")) {
       content = Buffer.from(content);
       content[0] ^= 0xff;
+    }
+    if (options.expectedDigest !== undefined && /\.(?:js|mjs|json)$/.test(path)) {
+      const source = content.toString("utf8");
+      const occurrences = source.split(options.expectedDigest).length - 1;
+      if (occurrences > 0) {
+        expectedDigestReplacements += occurrences;
+        content = Buffer.from(source.split(options.expectedDigest).join(options.wrongDigest));
+      }
     }
     response.end(content);
   });
@@ -256,6 +267,14 @@ async function runBrowser(outputRoot, browser, options = {}) {
         report.error?.message !== "backend initialization failed" ||
         report.operation_available !== false
       ) fail("browser accepted a WASM asset with a mismatched digest");
+    } else if (options.expectedDigest !== undefined) {
+      if (expectedDigestReplacements === 0) fail("bundled browser manifest digest was not replaced");
+      if (
+        report?.status !== "initialization_failed" ||
+        report.error?.name !== "WalletCoreBackendInitializationError" ||
+        report.error?.message !== "backend initialization failed" ||
+        report.operation_available !== false
+      ) fail("browser accepted valid WASM with a mismatched expected digest");
     } else if (report?.status !== "ok") {
       fail("browser integration operation failed");
     }
@@ -276,18 +295,21 @@ function bin(name) {
 async function buildBundlers(projectRoot, browser) {
   const fixtureRoot = mkdtempSync(resolve(projectRoot, "release-bundlers-"));
   const results = {};
+  const packageWasmManifest = JSON.parse(readFileSync(resolve(projectRoot, "node_modules", packageName, "dist/wasm/artifact-manifest.json"), "utf8"));
+  const wrongDigest = `${packageWasmManifest.sha256[0] === "0" ? "1" : "0"}${packageWasmManifest.sha256.slice(1)}`;
+  const digestMismatchOptions = { expectedDigest: packageWasmManifest.sha256, wrongDigest };
   try {
     writeFixture(fixtureRoot);
     const viteConfig = resolve(fixtureRoot, "vite.config.mjs");
     writeFileSync(viteConfig, `export default { root: ${JSON.stringify(fixtureRoot)}, build: { outDir: ${JSON.stringify(resolve(fixtureRoot, "vite-dist"))}, emptyOutDir: true, assetsInlineLimit: 0, target: "es2022" }, resolve: { conditions: ["browser", "import", "module", "default"] } };\n`);
     run(bin("vite"), ["build", "--config", viteConfig], { cwd: projectRoot });
-    results.vite = { ...assertOutput(resolve(fixtureRoot, "vite-dist"), "Vite"), browser: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "vite-dist"), browser), wasm_integrity_failure: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "vite-dist"), browser, { corruptWasm: true }) };
+    results.vite = { ...assertOutput(resolve(fixtureRoot, "vite-dist"), "Vite"), browser: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "vite-dist"), browser), wasm_integrity_failure: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "vite-dist"), browser, digestMismatchOptions) };
 
     const webpackConfig = resolve(fixtureRoot, "webpack.config.cjs");
     writeFileSync(webpackConfig, `const path = require("node:path");\nmodule.exports = { mode: "production", entry: path.resolve(${JSON.stringify(fixtureRoot)}, "src/main.mjs"), output: { path: path.resolve(${JSON.stringify(fixtureRoot)}, "webpack-dist"), filename: "bundle.js", clean: true }, experiments: { topLevelAwait: true }, module: { rules: [{ test: /\\.wasm$/, type: "asset/resource" }] }, resolve: { conditionNames: ["webpack", "browser", "import", "module", "default"], mainFields: ["browser", "module", "main"] } };\n`);
     run(bin("webpack"), ["--config", webpackConfig], { cwd: projectRoot });
     writeFileSync(resolve(fixtureRoot, "webpack-dist/index.html"), `<!doctype html><meta charset="utf-8"><script type="module" src="./bundle.js"></script>`);
-    results.webpack5 = { ...assertOutput(resolve(fixtureRoot, "webpack-dist"), "webpack 5"), browser: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "webpack-dist"), browser), wasm_integrity_failure: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "webpack-dist"), browser, { corruptWasm: true }) };
+    results.webpack5 = { ...assertOutput(resolve(fixtureRoot, "webpack-dist"), "webpack 5"), browser: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "webpack-dist"), browser), wasm_integrity_failure: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "webpack-dist"), browser, digestMismatchOptions) };
 
     const esbuildRoot = resolve(fixtureRoot, "esbuild-dist");
     await esbuild({
@@ -304,7 +326,7 @@ async function buildBundlers(projectRoot, browser) {
       sourcemap: false,
     });
     writeFileSync(resolve(esbuildRoot, "index.html"), `<!doctype html><meta charset="utf-8"><script type="module" src="./main.js"></script>`);
-    results.esbuild = { ...assertOutput(esbuildRoot, "esbuild"), browser: browser === null ? { status: "skipped" } : await runBrowser(esbuildRoot, browser), wasm_integrity_failure: browser === null ? { status: "skipped" } : await runBrowser(esbuildRoot, browser, { corruptWasm: true }) };
+    results.esbuild = { ...assertOutput(esbuildRoot, "esbuild"), browser: browser === null ? { status: "skipped" } : await runBrowser(esbuildRoot, browser), wasm_integrity_failure: browser === null ? { status: "skipped" } : await runBrowser(esbuildRoot, browser, digestMismatchOptions) };
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }

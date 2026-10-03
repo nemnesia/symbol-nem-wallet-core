@@ -1,6 +1,5 @@
 import { createFacade } from "../facade-runtime.mjs";
 import { loadWasmAsset, verifyWasmAsset } from "./asset.mjs";
-import wasmArtifactManifest from "./artifact-manifest.json" with { type: "json" };
 import * as generated from "./generated.mjs";
 
 function backendInitializationError() {
@@ -15,6 +14,20 @@ const isNode =
   process.versions.node.length > 0;
 
 try {
+  let wasmArtifactManifest;
+  let nodeReadFileSync;
+  if (isNode) {
+    const nodeFsSpecifier = ["node", "fs"].join(":");
+    ({ readFileSync: nodeReadFileSync } = await import(nodeFsSpecifier));
+    wasmArtifactManifest = JSON.parse(
+      nodeReadFileSync(new URL("./artifact-manifest.json", import.meta.url), "utf8"),
+    );
+  } else {
+    const manifestModule = await import("./artifact-manifest.json", {
+      with: { type: "json" },
+    });
+    wasmArtifactManifest = manifestModule.default ?? manifestModule;
+  }
   if (
     wasmArtifactManifest === null ||
     typeof wasmArtifactManifest !== "object" ||
@@ -25,9 +38,7 @@ try {
     throw new Error("WASM integrity metadata invalid");
   }
   if (isNode) {
-    const nodeFsSpecifier = ["node", "fs"].join(":");
-    const { readFileSync } = await import(nodeFsSpecifier);
-    const bytes = readFileSync(new URL("./symbol_nem_wallet_core_wasm_bg.wasm", import.meta.url));
+    const bytes = nodeReadFileSync(new URL("./symbol_nem_wallet_core_wasm_bg.wasm", import.meta.url));
     await verifyWasmAsset(bytes, wasmArtifactManifest.sha256);
     generated.initSync({ module: bytes });
   } else {

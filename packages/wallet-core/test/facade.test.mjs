@@ -658,6 +658,68 @@ test("backendはvalidation後のcaller mutationではなくnested snapshotとpay
   assert.deepEqual(payloadBacking, new Uint8Array([7, 7, 7, 7]));
 });
 
+test("SigningRequest snapshot途中のapproval failureでfacade payload copyを消去する", () => {
+  const profileId = "11111111-1111-4111-8111-111111111111";
+  const keyId = "22222222-2222-4222-8222-222222222222";
+  const OriginalUint8Array = globalThis.Uint8Array;
+  const backend = Object.fromEntries(expectedExports.map((name) => [name, () => new OriginalUint8Array()]));
+  let backendCalls = 0;
+  backend.sign = () => {
+    backendCalls += 1;
+    return { value: { signature: new OriginalUint8Array(64) }, warnings: [] };
+  };
+  const api = createFacade(backend);
+  const failures = [
+    ["missing", undefined, "InvalidArgument"],
+    ["invalid literal", { status: "approved-later" }, "InvalidArgument"],
+    ["accessor", Object.defineProperty({}, "status", { get() { throw new Error("getter invoked"); } }), "InvalidArgument"],
+    [
+      "descriptor trap",
+      new Proxy({}, {
+        getOwnPropertyDescriptor(target, name) {
+          if (name === "status") throw new Error("descriptor trap");
+          return Reflect.getOwnPropertyDescriptor(target, name);
+        },
+      }),
+      "BindingFailure",
+    ],
+  ];
+
+  for (const [label, approval, expectedCode] of failures) {
+    const copies = [];
+    globalThis.Uint8Array = class TrackingUint8Array extends OriginalUint8Array {
+      constructor(...args) {
+        super(...args);
+        if (args.length === 1 && typeof args[0] === "number") copies.push(this);
+      }
+    };
+    const payloadBacking = new globalThis.Uint8Array([9, 1, 2, 8]);
+    const payloadView = payloadBacking.subarray(1, 3);
+    const request = {
+      target: {
+        profile_id: profileId,
+        key_id: keyId,
+        context: { chain: "nem", network: "testnet" },
+      },
+      payload: payloadView,
+      ...(approval === undefined ? {} : { approval }),
+    };
+    try {
+      assert.throws(
+        () => api.sign(new OriginalUint8Array(), request, new OriginalUint8Array()),
+        (error) => error.code === expectedCode,
+        label,
+      );
+      assert.equal(copies.length, 1, `${label}: exactly one facade payload copy should be created`);
+      assert.deepEqual([...copies[0]], [0, 0], `${label}: facade copy must be zeroized`);
+      assert.deepEqual([...payloadBacking], [9, 1, 2, 8], `${label}: caller bytes must remain untouched`);
+      assert.equal(backendCalls, 0, `${label}: backend must not be reached`);
+    } finally {
+      globalThis.Uint8Array = OriginalUint8Array;
+    }
+  }
+});
+
 test(
   "manifest entryが有効でもartifactを読めない場合はfail-closedで終了する",
   { skip: currentNativeArtifact === null || !existsSync(currentNativeArtifact) },
