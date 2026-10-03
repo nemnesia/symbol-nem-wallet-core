@@ -756,6 +756,9 @@ pub fn sign(
     if request.approval.status != SigningApprovalStatus::Approved {
         return Err(WalletError::new(ErrorCode::InvalidArgument));
     }
+    if request.payload.len() > crypto::MAX_SIGNING_PAYLOAD_BYTES {
+        return Err(WalletError::new(ErrorCode::InvalidArgument));
+    }
     let profile_id = request.target.profile_id;
     let key_id = request.target.key_id;
     let (wallet, mut warnings) = decode_store(store)?;

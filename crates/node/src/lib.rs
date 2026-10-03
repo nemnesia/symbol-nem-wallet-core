@@ -15,6 +15,9 @@ use symbol_nem_wallet_core as core;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+const MAX_MNEMONIC_INPUT_BYTES: usize = 1024 * 1024;
+const MAX_SIGNING_PAYLOAD_BYTES: usize = 1024 * 1024;
+
 /// Node-API Bindingが公開するCore operationのinventory。
 pub const NODE_OPERATION_NAMES: [&str; 16] = [
     "create_empty_store",
@@ -391,6 +394,35 @@ fn invalid_store() -> Error {
 
 #[allow(deprecated)]
 fn copy_bytes(value: &Unknown<'_>, max_length: Option<usize>) -> Result<Zeroizing<Vec<u8>>> {
+    copy_bytes_checked(value, max_length, None, None, false)
+}
+
+fn copy_fixed_bytes(value: &Unknown<'_>, expected_length: usize) -> Result<Zeroizing<Vec<u8>>> {
+    copy_bytes_checked(value, None, Some(expected_length), None, false)
+}
+
+fn copy_bounded_bytes(value: &Unknown<'_>, max_length: usize) -> Result<Zeroizing<Vec<u8>>> {
+    copy_bytes_checked(
+        value,
+        Some(max_length),
+        None,
+        Some(invalid_argument()),
+        false,
+    )
+}
+
+fn copy_bounded_sentinel(value: &Unknown<'_>, max_length: usize) -> Result<Zeroizing<Vec<u8>>> {
+    copy_bytes_checked(value, Some(max_length), None, None, true)
+}
+
+#[allow(deprecated)]
+fn copy_bytes_checked(
+    value: &Unknown<'_>,
+    max_length: Option<usize>,
+    exact_length: Option<usize>,
+    max_length_error: Option<Error>,
+    oversize_sentinel: bool,
+) -> Result<Zeroizing<Vec<u8>>> {
     if value.get_type().map_err(|_| binding_error())? != ValueType::Object
         || !value.is_typedarray().map_err(|_| binding_error())?
     {
@@ -417,8 +449,18 @@ fn copy_bytes(value: &Unknown<'_>, max_length: Option<usize>) -> Result<Zeroizin
     }
 
     let input: &[u8] = typed_array.as_ref();
+    if let Some(expected) = exact_length {
+        if input.len() != expected {
+            // Core receives a fixed-size-invalid sentinel, preserving operation validation order
+            // without allocating from a caller-controlled mismatched length.
+            return Ok(Zeroizing::new(Vec::new()));
+        }
+    }
     if max_length.is_some_and(|max| input.len() > max) {
-        return Err(invalid_store());
+        if oversize_sentinel {
+            return Ok(Zeroizing::new(Vec::new()));
+        }
+        return Err(max_length_error.unwrap_or_else(invalid_store));
     }
     let mut output = Zeroizing::new(Vec::new());
     output
@@ -576,7 +618,8 @@ fn parse_account_context(value: Unknown<'_>) -> Result<core::AccountContext> {
 
 fn parse_signing_request(value: Unknown<'_>) -> Result<core::SigningRequest> {
     let value: SigningRequestInput = convert_object_representation(value)?;
-    let payload = copy_bytes(&value.payload, None).map(|mut value| std::mem::take(&mut *value))?;
+    let payload = copy_bounded_bytes(&value.payload, MAX_SIGNING_PAYLOAD_BYTES)
+        .map(|mut value| std::mem::take(&mut *value))?;
     let target = core::SigningTarget {
         profile_id: parse_uuid(&value.target.profile_id)?,
         key_id: parse_uuid(&value.target.key_id)?,
@@ -759,7 +802,7 @@ pub fn finalize_generated_profile(
     #[napi(ts_arg_type = "HandoffConfirmationInput")] handoff_confirmation: Unknown<'_>,
 ) -> Result<JsObject> {
     let store = store_bytes(&store)?;
-    let pending_profile = copy_bytes(&pending_profile, None)?;
+    let pending_profile = copy_fixed_bytes(&pending_profile, 134)?;
     let password = copy_bytes(&password_utf8, None)?;
     let handoff_confirmation = parse_handoff_confirmation(handoff_confirmation)?;
     let result =
@@ -793,7 +836,7 @@ pub fn restore_profile(
 ) -> Result<JsObject> {
     let network = parse_network(convert_number(network)?)?;
     let store = store_bytes(&store)?;
-    let mnemonic = copy_bytes(&mnemonic_utf8, None)?;
+    let mnemonic = copy_bounded_sentinel(&mnemonic_utf8, MAX_MNEMONIC_INPUT_BYTES)?;
     let password = copy_bytes(&password_utf8, None)?;
     let result =
         core::restore_profile(&store, &mnemonic, &password, network).map_err(core_error)?;
@@ -956,7 +999,7 @@ pub fn import_software_key(
     let chain = parse_chain(convert_number(chain)?)?;
     let store = store_bytes(&store)?;
     let password = copy_bytes(&password_utf8, None)?;
-    let private_key = copy_bytes(&private_key, None)?;
+    let private_key = copy_fixed_bytes(&private_key, 32)?;
     let result = core::import_software_key(&store, profile_id, &password, chain, &private_key)
         .map_err(core_error)?;
     let core::MutationResult {

@@ -675,6 +675,16 @@ fn wasm_assertion_context_and_binding_failure_contracts() {
     let prepared = prepare_generated_profile(&empty_store, &password, 1.0).unwrap();
     let prepared_value = value(&prepared);
     let pending = bytes_field(&prepared_value, "pending_profile");
+    for malformed_pending in [vec![0u8; 1024 * 1024], vec![0u8; 133]] {
+        let error = finalize_generated_profile(
+            &empty_store,
+            &Uint8Array::from(malformed_pending.as_slice()),
+            &password,
+            &handoff("confirmed"),
+        )
+        .unwrap_err();
+        assert_eq!(error.as_string().as_deref(), Some("PendingProfileInvalid"));
+    }
     let unconfirmed =
         finalize_generated_profile(&empty_store, &pending, &password, &handoff("unconfirmed"))
             .unwrap_err();
@@ -697,6 +707,18 @@ fn wasm_assertion_context_and_binding_failure_contracts() {
         restore_profile(&empty_store, &Uint8Array::from(MNEMONIC), &password, 1.0).unwrap();
     let restored_store = mutation_store(&restored);
     let profile_id = string_field(&value(&restored), "profile_id");
+    let restored_store_array = Uint8Array::from(restored_store.as_slice());
+    for malformed_key in [vec![0x11u8; 1024 * 1024], vec![0x11u8; 31]] {
+        let error = import_software_key(
+            &restored_store_array,
+            &profile_id,
+            &password,
+            1.0,
+            &Uint8Array::from(malformed_key.as_slice()),
+        )
+        .unwrap_err();
+        assert_eq!(error.as_string().as_deref(), Some("InvalidPrivateKey"));
+    }
     let derived = derive_software_key(
         &Uint8Array::from(restored_store.as_slice()),
         &profile_id,

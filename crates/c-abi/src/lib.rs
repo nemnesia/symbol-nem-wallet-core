@@ -23,6 +23,8 @@ use std::{
 };
 use zeroize::Zeroizing;
 
+const MAX_SIGNING_PAYLOAD_BYTES: usize = 1024 * 1024;
+
 use symbol_nem_wallet_core::{
     change_profile_password, create_empty_store, delete_profile, delete_software_key,
     derive_software_key, export_mnemonic, export_private_key, finalize_generated_profile,
@@ -1012,7 +1014,13 @@ fn parse_signing_request(value: SnwcSigningRequest) -> Result<SigningRequest, Wa
             code: ErrorCode::InvalidArgument,
         });
     }
-    let payload = unsafe { input(value.payload)? }.to_vec();
+    let payload = unsafe { input(value.payload)? };
+    if payload.len() > MAX_SIGNING_PAYLOAD_BYTES {
+        return Err(WalletError {
+            code: ErrorCode::InvalidArgument,
+        });
+    }
+    let payload = payload.to_vec();
     Ok(SigningRequest {
         target: SigningTarget {
             profile_id: uuid::Uuid::from_bytes(value.target.profile_id.bytes),

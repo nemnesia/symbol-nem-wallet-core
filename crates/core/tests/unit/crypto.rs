@@ -31,8 +31,19 @@ fn mnemonic_normalization_has_bounded_storage_and_preserves_compatibility() {
         fullwidth,
         "\t".repeat(100_000)
     );
+    assert!(padded.len() <= MAX_MNEMONIC_INPUT_BYTES);
     let actual = parse_mnemonic(padded.as_bytes()).unwrap();
     assert!(actual.0 == expected.0 && actual.1.as_slice() == expected.1.as_slice());
+    let at_limit = format!(
+        "{phrase}{}",
+        " ".repeat(MAX_MNEMONIC_INPUT_BYTES - phrase.len())
+    );
+    assert_eq!(parse_mnemonic(at_limit.as_bytes()).unwrap().0, expected.0);
+    let oversized_whitespace = vec![b' '; MAX_MNEMONIC_INPUT_BYTES + 1];
+    assert_eq!(
+        parse_mnemonic(&oversized_whitespace).err().unwrap().code,
+        ErrorCode::InvalidMnemonic
+    );
     for invalid in [
         "a".repeat(1_000_000),
         "\u{301}".repeat(1_000_000),
