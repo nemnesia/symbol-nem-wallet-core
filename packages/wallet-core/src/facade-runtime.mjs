@@ -23,6 +23,13 @@ const UUID_PATTERN =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 const fillBytes = Function.prototype.call.bind(Uint8Array.prototype.fill);
+const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+const hasOwnProperty = Function.prototype.call.bind(Object.prototype.hasOwnProperty);
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+const typedArrayBuffer = getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get;
+const typedArrayByteOffset = getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset").get;
+const typedArrayByteLength = getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
+const typedArraySet = Function.prototype.call.bind(Uint8Array.prototype.set);
 
 const OPERATION_NAMES = [
   "create_empty_store",
@@ -83,27 +90,63 @@ function property(value, name) {
   }
 }
 
+function dtoField(value, name, required = true) {
+  if (!isObject(value)) {
+    throw bindingFailure();
+  }
+  let descriptor;
+  try {
+    descriptor = getOwnPropertyDescriptor(value, name);
+  } catch {
+    throw bindingFailure();
+  }
+  if (descriptor === undefined) {
+    if (required) invalidArgument();
+    return undefined;
+  }
+  if (!hasOwnProperty(descriptor, "value")) {
+    invalidArgument();
+  }
+  if (required && descriptor.value === undefined) {
+    invalidArgument();
+  }
+  return descriptor.value;
+}
+
+function dtoObject() {
+  return Object.create(null);
+}
+
+function dtoFieldString(value, name) {
+  const field = dtoField(value, name);
+  if (typeof field !== "string") {
+    throw bindingFailure();
+  }
+  return field;
+}
+
+function snapshotUint8Array(value) {
+  if (!(value instanceof Uint8Array)) {
+    throw bindingFailure();
+  }
+  try {
+    const buffer = Reflect.apply(typedArrayBuffer, value, []);
+    const byteOffset = Reflect.apply(typedArrayByteOffset, value, []);
+    const byteLength = Reflect.apply(typedArrayByteLength, value, []);
+    const source = new Uint8Array(buffer, byteOffset, byteLength);
+    const snapshot = new Uint8Array(byteLength);
+    typedArraySet(snapshot, source);
+    return snapshot;
+  } catch {
+    throw bindingFailure();
+  }
+}
+
 function requiredObject(value) {
   if (!isObject(value)) {
     throw bindingFailure();
   }
   return value;
-}
-
-function requiredField(value, name) {
-  const field = property(value, name);
-  if (field === undefined) {
-    invalidArgument();
-  }
-  return field;
-}
-
-function requiredStringField(value, name) {
-  const field = requiredField(value, name);
-  if (typeof field !== "string") {
-    throw bindingFailure();
-  }
-  return field;
 }
 
 function requiredString(value) {
@@ -345,99 +388,119 @@ function validateDirectId(value) {
   validateUuidValue(value);
 }
 
-function validateUuidField(value, name) {
-  validateUuidValue(requiredStringField(value, name));
-}
-
-function validateLiteralField(value, name, literals) {
-  const field = requiredStringField(value, name);
-  if (!literals.has(field)) {
-    invalidArgument();
-  }
-}
-
-function validateObjectField(value, name, validator) {
-  const field = requiredField(value, name);
-  validator(requiredObject(field));
-}
-
-function validateHandoffConfirmation(value) {
+function snapshotHandoffConfirmation(value) {
   requiredObject(value);
-  validateLiteralField(value, "status", new Set(["unconfirmed", "confirmed"]));
+  const status = dtoFieldString(value, "status");
+  if (status !== "unconfirmed" && status !== "confirmed") invalidArgument();
+  const snapshot = dtoObject();
+  snapshot.status = status;
+  return snapshot;
 }
 
-function validateExportTarget(value) {
+function snapshotExportTarget(value) {
   requiredObject(value);
-  const kind = requiredStringField(value, "kind");
-  if (kind !== "mnemonic" && kind !== "software_key") {
-    invalidArgument();
-  }
-  validateUuidField(value, "profile_id");
-  const keyId = property(value, "key_id");
+  const kind = dtoFieldString(value, "kind");
+  if (kind !== "mnemonic" && kind !== "software_key") invalidArgument();
+  const profileId = dtoFieldString(value, "profile_id");
+  validateUuidValue(profileId);
+  const keyId = dtoField(value, "key_id", false);
+  const snapshot = dtoObject();
+  snapshot.kind = kind;
+  snapshot.profile_id = profileId;
   if (kind === "mnemonic") {
     if (keyId !== undefined) {
-      if (typeof keyId !== "string") {
-        throw bindingFailure();
-      }
+      if (typeof keyId !== "string") throw bindingFailure();
       invalidArgument();
     }
-    return;
+    return snapshot;
   }
-  if (keyId === undefined) {
-    invalidArgument();
-  }
+  if (keyId === undefined) invalidArgument();
   validateUuidValue(keyId);
+  snapshot.key_id = keyId;
+  return snapshot;
 }
 
-function validateExportUserRequest(value) {
+function snapshotExportUserRequest(value) {
   requiredObject(value);
-  validateObjectField(value, "target", validateExportTarget);
-  validateLiteralField(value, "status", new Set(["not_requested", "requested"]));
+  const target = snapshotExportTarget(dtoField(value, "target"));
+  const status = dtoFieldString(value, "status");
+  if (status !== "not_requested" && status !== "requested") invalidArgument();
+  const snapshot = dtoObject();
+  snapshot.target = target;
+  snapshot.status = status;
+  return snapshot;
 }
 
-function validateExportApplicationConfirmation(value) {
+function snapshotExportApplicationConfirmation(value) {
   requiredObject(value);
-  validateObjectField(value, "target", validateExportTarget);
-  validateLiteralField(value, "status", new Set(["not_confirmed", "confirmed"]));
+  const target = snapshotExportTarget(dtoField(value, "target"));
+  const status = dtoFieldString(value, "status");
+  if (status !== "not_confirmed" && status !== "confirmed") invalidArgument();
+  const snapshot = dtoObject();
+  snapshot.target = target;
+  snapshot.status = status;
+  return snapshot;
 }
 
-function validateExportRequest(value) {
+function snapshotExportRequest(value) {
   requiredObject(value);
-  validateObjectField(value, "target", validateExportTarget);
-  validateObjectField(value, "user_request", validateExportUserRequest);
-  validateObjectField(
-    value,
-    "application_confirmation",
-    validateExportApplicationConfirmation,
+  const target = snapshotExportTarget(dtoField(value, "target"));
+  const userRequest = snapshotExportUserRequest(dtoField(value, "user_request"));
+  const confirmation = snapshotExportApplicationConfirmation(
+    dtoField(value, "application_confirmation"),
   );
+  const snapshot = dtoObject();
+  snapshot.target = target;
+  snapshot.user_request = userRequest;
+  snapshot.application_confirmation = confirmation;
+  return snapshot;
 }
 
-function validateAccountContext(value) {
+function snapshotAccountContext(value) {
   requiredObject(value);
-  validateLiteralField(value, "chain", new Set(["nem", "symbol"]));
-  validateLiteralField(value, "network", new Set(["testnet", "mainnet"]));
+  const chain = dtoFieldString(value, "chain");
+  const network = dtoFieldString(value, "network");
+  if (chain !== "nem" && chain !== "symbol") invalidArgument();
+  if (network !== "testnet" && network !== "mainnet") invalidArgument();
+  const snapshot = dtoObject();
+  snapshot.chain = chain;
+  snapshot.network = network;
+  return snapshot;
 }
 
-function validateSigningTarget(value) {
+function snapshotSigningTarget(value) {
   requiredObject(value);
-  validateUuidField(value, "profile_id");
-  validateUuidField(value, "key_id");
-  validateObjectField(value, "context", validateAccountContext);
+  const profileId = dtoFieldString(value, "profile_id");
+  const keyId = dtoFieldString(value, "key_id");
+  validateUuidValue(profileId);
+  validateUuidValue(keyId);
+  const context = snapshotAccountContext(dtoField(value, "context"));
+  const snapshot = dtoObject();
+  snapshot.profile_id = profileId;
+  snapshot.key_id = keyId;
+  snapshot.context = context;
+  return snapshot;
 }
 
-function validateSigningApproval(value) {
+function snapshotSigningApproval(value) {
   requiredObject(value);
-  validateLiteralField(value, "status", new Set(["not_approved", "approved"]));
+  const status = dtoFieldString(value, "status");
+  if (status !== "not_approved" && status !== "approved") invalidArgument();
+  const snapshot = dtoObject();
+  snapshot.status = status;
+  return snapshot;
 }
 
-function validateSigningRequest(value) {
+function snapshotSigningRequest(value) {
   requiredObject(value);
-  validateObjectField(value, "target", validateSigningTarget);
-  const payload = requiredField(value, "payload");
-  if (!(payload instanceof Uint8Array)) {
-    throw bindingFailure();
-  }
-  validateObjectField(value, "approval", validateSigningApproval);
+  const target = snapshotSigningTarget(dtoField(value, "target"));
+  const payload = snapshotUint8Array(dtoField(value, "payload"));
+  const approval = snapshotSigningApproval(dtoField(value, "approval"));
+  const snapshot = dtoObject();
+  snapshot.target = target;
+  snapshot.payload = payload;
+  snapshot.approval = approval;
+  return snapshot;
 }
 
 function validateNetworkOrChain(value) {
@@ -485,11 +548,11 @@ export function createFacade(backend) {
     },
 
     finalize_generated_profile: (store, pendingProfile, passwordUtf8, handoffConfirmation) => {
-      validateHandoffConfirmation(handoffConfirmation);
+      const handoffSnapshot = snapshotHandoffConfirmation(handoffConfirmation);
       return invoke(
         backend,
         "finalize_generated_profile",
-        [store, pendingProfile, passwordUtf8, handoffConfirmation],
+        [store, pendingProfile, passwordUtf8, handoffSnapshot],
         (value) => outputMutationResult(value, outputProfileInfo),
       );
     },
@@ -508,21 +571,21 @@ export function createFacade(backend) {
       invoke(backend, "list_profiles", [store], (value) => outputReadResult(value, outputProfiles)),
 
     export_mnemonic: (store, request, passwordUtf8) => {
-      validateExportRequest(request);
+      const requestSnapshot = snapshotExportRequest(request);
       return invoke(
         backend,
         "export_mnemonic",
-        [store, request, passwordUtf8],
+        [store, requestSnapshot, passwordUtf8],
         (value) => outputSecretReadResult(value, [["mnemonic_utf8"]]),
       );
     },
 
     export_private_key: (store, request, passwordUtf8) => {
-      validateExportRequest(request);
+      const requestSnapshot = snapshotExportRequest(request);
       return invoke(
         backend,
         "export_private_key",
-        [store, request, passwordUtf8],
+        [store, requestSnapshot, passwordUtf8],
         (value) => outputSecretReadResult(value, [["private_key", 32]]),
       );
     },
@@ -574,23 +637,27 @@ export function createFacade(backend) {
     get_public_account: (store, profileId, keyId, requestedContext, passwordUtf8) => {
       validateDirectId(profileId);
       validateDirectId(keyId);
-      validateAccountContext(requestedContext);
+      const contextSnapshot = snapshotAccountContext(requestedContext);
       return invoke(
         backend,
         "get_public_account",
-        [store, profileId, keyId, requestedContext, passwordUtf8],
+        [store, profileId, keyId, contextSnapshot, passwordUtf8],
         (value) => outputReadResult(value, outputPublicAccount),
       );
     },
 
     sign: (store, request, passwordUtf8) => {
-      validateSigningRequest(request);
-      return invoke(
-        backend,
-        "sign",
-        [store, request, passwordUtf8],
-        (value) => outputReadResult(value, outputSignature),
-      );
+      const requestSnapshot = snapshotSigningRequest(request);
+      try {
+        return invoke(
+          backend,
+          "sign",
+          [store, requestSnapshot, passwordUtf8],
+          (value) => outputReadResult(value, outputSignature),
+        );
+      } finally {
+        clearSecretBytes(requestSnapshot.payload);
+      }
     },
 
     change_profile_password: (store, profileId, currentPasswordUtf8, newPasswordUtf8) => {

@@ -539,6 +539,20 @@ secret-containing DTO は成功時だけ返す。error、warning、exception mes
 representation、package metadata、manifest、artifact filename に Mnemonic、private key、
 password、seed、ciphertext、Store contents または payload の内容を含めない。
 
+facade は caller DTO の required field を own data property descriptor から読み、同じ値を
+一度だけ plain / null-prototype snapshot に取り込んでから型・semantic validation を行う。
+inherited field と accessor field は DTO の値として採用せず、field 欠落 / 不正として既存の
+error mapping を使う。Nested DTO も再帰的に snapshot し、backend には snapshot だけを渡す。
+`SigningRequest.payload` は `Uint8Array` view の対象範囲を facade-owned array へ copy し、
+caller buffer は変更しない。copy は同期 backend call の終了時に消去する。
+
+JavaScript Proxy の trap を実行せずに own-property descriptor を調べる標準手段はない。
+descriptor inspection が throw した場合は `BindingFailure` とする。inspection が正常に
+返る Proxy は取得値を snapshot できるが、trap の副作用や object 群全体に対する原子的な
+snapshot は保証しない。これは malicious Application や同一 realm のコードを信頼可能にする
+仕組みではない。`SigningApproval` は引き続き Application assertion であり、Core は承認の
+freshness を独立に証明しない。
+
 ## 8. ErrorCode とエラー表現
 
 ### 8.1 Core ErrorCode
@@ -591,8 +605,10 @@ artifact path、filename、raw addon error、raw wasm error、Rust error detail�
 
 representation failure の正規化は次の通りとする。
 
-- object が必要な DTO の null、primitive、proxy または object shape 自体の unreadable
-  failure は `BindingFailure`。
+- object が必要な DTO の null、primitive、または Proxy descriptor trap / object shape の
+  unreadable failure は `BindingFailure`。trap を実行せず Proxy を識別する標準手段はなく、
+  正常に descriptor を返す Proxy は取得値を snapshot できる。Proxy trap の副作用や全 field
+  の原子的 snapshot は保証しない。
 - `Uint8Array` 以外、detached / unreadable buffer、output allocation、ownership、lifecycle
   または output conversion の失敗は `BindingFailure`。
 - 受け取った DTO の field 欠落、unknown literal、status 不正、malformed UUID、numeric
@@ -917,6 +933,12 @@ manifest の `sha256` は assembly / release evidence と runtime integrity veri
 承認済み release implementation により実装する。失敗は `BackendInitializationError` とし、Core
 error や WASM retry に変換しない。
 
+Node loader は artifact bytes を読み SHA-256 を検証してから `require(artifactPath)` を行う。
+Node-API の path-based loader へ検証済み Buffer を直接渡す portable API がないため、hash check
+と native loader の path read の間に TOCTOU window が残る。runtime digest check は corruption /
+mismatch detection であり、package directory への write access を持つ攻撃者への code-signing
+mechanism ではない。この残余リスクを一時コピーや独自 `dlopen` で隠さない。
+
 React Native artifact は本 manifest に混在させない。RN manifest は
 `dist/react-native/artifact-manifest.json` に置き、Android `arm64-v8a` / `x86_64` と iOS device /
 Apple Silicon simulator slice の identity、digest、source revision および package assembly を
@@ -971,6 +993,7 @@ fallback で隠してはならず、manifest entry が存在する supported art
 ```text
 dist/wasm/index.mjs
 dist/wasm/index.cjs
+dist/wasm/artifact-manifest.json
 dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm
 dist/wasm/<generated wasm-bindgen glue files>
 ```
@@ -1014,6 +1037,17 @@ local file path または worker 等、該当 host で許可される方式に�
 synchronous instantiation documentation](https://wasm-bindgen.github.io/wasm-bindgen/examples/synchronous-instantiation.html)
 および [wasm-bindgen deployment documentation](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html)
 を根拠とする。
+
+package assembly は single canonical WASM bytes の SHA-256 を
+`dist/wasm/artifact-manifest.json` に記録し、release manifest の
+`wasm.canonical_artifact.sha256` と同じ artifact digest であることを検証する。Node ESM / CJS
+と Browser ESM は package-local WASM bytes を取得し、digest が一致
+した同じ bytes を同期または非同期初期化へ渡す。Browser bundler が asset URL を返す場合も
+URL を fetch して bytes を検証してから instantiate する。digest mismatch / hash API failure
+は `BackendInitializationError` とし、Core operation を開始せず別 backend へ fallback
+しない。runtime metadata は誤 assembly、corruption、artifact mismatch の検出用であり、同一
+npm package 内の JS / metadata を書き換えられる攻撃者に対する code-signing mechanism では
+ない。npm provenance、lockfile integrity または deployment integrity の代替ではない。
 
 ### 14.3 初期化失敗
 

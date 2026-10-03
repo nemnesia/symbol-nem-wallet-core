@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, cpSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -138,7 +139,14 @@ function copyWasmGlue(sourceRoot, destinationRoot, outputName) {
   if (!existsSync(sourceJs) || !existsSync(sourceWasm)) {
     throw new Error("wasm-bindgen output is incomplete");
   }
-  writeFileSync(resolve(destinationRoot, outputName), readFileSync(sourceJs));
+  let glue = readFileSync(sourceJs, "utf8");
+  if (outputName === "generated.cjs") {
+    const marker = "const wasmPath = `${__dirname}/symbol_nem_wallet_core_wasm_bg.wasm`;";
+    const initializer = glue.lastIndexOf(marker);
+    if (initializer < 0) throw new Error("Node WASM glue initializer is missing");
+    glue = `${glue.slice(0, initializer)}let wasm;\nfunction __snwcInitializeWasm(wasmBytes) {\n  const wasmModule = new WebAssembly.Module(wasmBytes);\n  const wasmInstance = new WebAssembly.Instance(wasmModule, __wbg_get_imports());\n  wasm = wasmInstance.exports;\n  wasm.__wbindgen_start();\n}\nexports.__snwcInitializeWasm = __snwcInitializeWasm;\n`;
+  }
+  writeFileSync(resolve(destinationRoot, outputName), glue);
   const destinationWasm = resolve(destinationRoot, wasmFilename);
   const wasmBytes = readFileSync(sourceWasm);
   if (existsSync(destinationWasm) && !Buffer.from(readFileSync(destinationWasm)).equals(wasmBytes)) {
@@ -233,6 +241,18 @@ function build(options) {
   } finally {
     rmSync(generatedRoot, { recursive: true, force: true });
   }
+
+  const canonicalWasmPath = resolve(distRoot, "wasm", wasmFilename);
+  const canonicalWasmSha256 = createHash("sha256")
+    .update(readFileSync(canonicalWasmPath))
+    .digest("hex");
+  writeFileSync(
+    resolve(distRoot, "wasm/artifact-manifest.json"),
+    `${JSON.stringify({
+      artifact_filename: wasmFilename,
+      sha256: canonicalWasmSha256,
+    }, null, 2)}\n`,
+  );
 
   writeFileSync(
     resolve(distRoot, "wasm/index.mjs"),

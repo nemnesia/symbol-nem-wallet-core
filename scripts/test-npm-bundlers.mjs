@@ -96,8 +96,24 @@ function packageInstallRoot(tarball) {
 }
 
 function browserEntry() {
-  return `import * as api from ${JSON.stringify(packageName)};
-
+  return `let api;
+let initializationError;
+try {
+  api = await import(${JSON.stringify(packageName)});
+} catch (error) {
+  initializationError = error;
+}
+if (initializationError !== undefined) {
+  await fetch("/__snwc_report", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      status: "initialization_failed",
+      error: { name: initializationError?.name, message: initializationError?.message },
+      operation_available: false,
+    }),
+  });
+} else {
 const store = api.create_empty_store();
 const listed = api.list_profiles(store);
 const password = new TextEncoder().encode("release browser fixture password");
@@ -123,6 +139,7 @@ await fetch("/__snwc_report", {
     core_error: { name: error.name, code: error.code, message: error.message },
   }),
 });
+}
 `;
 }
 
@@ -145,7 +162,7 @@ function assertOutput(outputRoot, label) {
   return { output_file_count: outputFiles.length, local_wasm_assets: wasmFiles.length };
 }
 
-async function runBrowser(outputRoot, browser) {
+async function runBrowser(outputRoot, browser, options = {}) {
   let report;
   let reportResolve;
   let reportReject;
@@ -190,9 +207,14 @@ async function runBrowser(outputRoot, browser) {
           ? "application/wasm"
           : "application/octet-stream";
     response.writeHead(200, { "content-type": contentType, "cache-control": "no-store" });
-    response.end(await new Promise((resolveRead, rejectRead) => {
+    let content = await new Promise((resolveRead, rejectRead) => {
       readFile(path, (error, content) => (error ? rejectRead(error) : resolveRead(content)));
-    }));
+    });
+    if (options.corruptWasm && path.endsWith(".wasm")) {
+      content = Buffer.from(content);
+      content[0] ^= 0xff;
+    }
+    response.end(content);
   });
 
   let child;
@@ -227,7 +249,16 @@ async function runBrowser(outputRoot, browser) {
     } finally {
       clearTimeout(timeout);
     }
-    if (report?.status !== "ok") fail("browser integration operation failed");
+    if (options.corruptWasm) {
+      if (
+        report?.status !== "initialization_failed" ||
+        report.error?.name !== "WalletCoreBackendInitializationError" ||
+        report.error?.message !== "backend initialization failed" ||
+        report.operation_available !== false
+      ) fail("browser accepted a WASM asset with a mismatched digest");
+    } else if (report?.status !== "ok") {
+      fail("browser integration operation failed");
+    }
     return report;
   } catch (error) {
     throw new Error(`browser runtime failed: ${error instanceof Error ? error.message : "unknown error"}`);
@@ -250,13 +281,13 @@ async function buildBundlers(projectRoot, browser) {
     const viteConfig = resolve(fixtureRoot, "vite.config.mjs");
     writeFileSync(viteConfig, `export default { root: ${JSON.stringify(fixtureRoot)}, build: { outDir: ${JSON.stringify(resolve(fixtureRoot, "vite-dist"))}, emptyOutDir: true, assetsInlineLimit: 0, target: "es2022" }, resolve: { conditions: ["browser", "import", "module", "default"] } };\n`);
     run(bin("vite"), ["build", "--config", viteConfig], { cwd: projectRoot });
-    results.vite = { ...assertOutput(resolve(fixtureRoot, "vite-dist"), "Vite"), browser: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "vite-dist"), browser) };
+    results.vite = { ...assertOutput(resolve(fixtureRoot, "vite-dist"), "Vite"), browser: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "vite-dist"), browser), wasm_integrity_failure: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "vite-dist"), browser, { corruptWasm: true }) };
 
     const webpackConfig = resolve(fixtureRoot, "webpack.config.cjs");
     writeFileSync(webpackConfig, `const path = require("node:path");\nmodule.exports = { mode: "production", entry: path.resolve(${JSON.stringify(fixtureRoot)}, "src/main.mjs"), output: { path: path.resolve(${JSON.stringify(fixtureRoot)}, "webpack-dist"), filename: "bundle.js", clean: true }, experiments: { topLevelAwait: true }, module: { rules: [{ test: /\\.wasm$/, type: "asset/resource" }] }, resolve: { conditionNames: ["webpack", "browser", "import", "module", "default"], mainFields: ["browser", "module", "main"] } };\n`);
     run(bin("webpack"), ["--config", webpackConfig], { cwd: projectRoot });
     writeFileSync(resolve(fixtureRoot, "webpack-dist/index.html"), `<!doctype html><meta charset="utf-8"><script type="module" src="./bundle.js"></script>`);
-    results.webpack5 = { ...assertOutput(resolve(fixtureRoot, "webpack-dist"), "webpack 5"), browser: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "webpack-dist"), browser) };
+    results.webpack5 = { ...assertOutput(resolve(fixtureRoot, "webpack-dist"), "webpack 5"), browser: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "webpack-dist"), browser), wasm_integrity_failure: browser === null ? { status: "skipped" } : await runBrowser(resolve(fixtureRoot, "webpack-dist"), browser, { corruptWasm: true }) };
 
     const esbuildRoot = resolve(fixtureRoot, "esbuild-dist");
     await esbuild({
@@ -273,7 +304,7 @@ async function buildBundlers(projectRoot, browser) {
       sourcemap: false,
     });
     writeFileSync(resolve(esbuildRoot, "index.html"), `<!doctype html><meta charset="utf-8"><script type="module" src="./main.js"></script>`);
-    results.esbuild = { ...assertOutput(esbuildRoot, "esbuild"), browser: browser === null ? { status: "skipped" } : await runBrowser(esbuildRoot, browser) };
+    results.esbuild = { ...assertOutput(esbuildRoot, "esbuild"), browser: browser === null ? { status: "skipped" } : await runBrowser(esbuildRoot, browser), wasm_integrity_failure: browser === null ? { status: "skipped" } : await runBrowser(esbuildRoot, browser, { corruptWasm: true }) };
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }

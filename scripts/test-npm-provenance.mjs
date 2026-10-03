@@ -297,6 +297,13 @@ try {
   const wasmContent = Buffer.from("deterministic wasm fixture\n", "utf8");
   mkdirSync(join(packageRoot, wasmRelativePath, ".."), { recursive: true });
   writeFileSync(join(packageRoot, wasmRelativePath), wasmContent);
+  writeFileSync(
+    join(packageRoot, "dist/wasm/artifact-manifest.json"),
+    `${JSON.stringify({
+      artifact_filename: "symbol_nem_wallet_core_wasm_bg.wasm",
+      sha256: createHash("sha256").update(wasmContent).digest("hex"),
+    })}\n`,
+  );
 
   const packageMetadata = {
     name: PACKAGE_NAME,
@@ -354,6 +361,35 @@ try {
   );
   assert.deepEqual(validated.metadata, packageMetadata, "package/package.json must be extracted from the gzip registry tarball");
   assert.deepEqual(validated.runtimeManifest, runtimeManifest, "native artifact manifest must be extracted from the gzip registry tarball");
+
+  const runtimeWasmManifestPath = join(packageRoot, "dist/wasm/artifact-manifest.json");
+  const originalWasmManifest = readFileSync(runtimeWasmManifestPath);
+  writeFileSync(runtimeWasmManifestPath, `${JSON.stringify({
+    artifact_filename: "symbol_nem_wallet_core_wasm_bg.wasm",
+    sha256: "0".repeat(64),
+  })}\n`);
+  const mismatchedWasmManifestTarball = execFileSync("tar", [
+    "--sort=name",
+    "--mtime=@0",
+    "--owner=0",
+    "--group=0",
+    "--numeric-owner",
+    "-czf",
+    "-",
+    "-C",
+    tarFixtureRoot,
+    "package",
+  ]);
+  assert.throws(
+    () => validateRegistryTarballContent(
+      mismatchedWasmManifestTarball,
+      { version: VERSION, sourceCommit: COMMIT },
+      candidateManifest,
+      true,
+    ),
+    /registry runtime WASM metadata differs from the canonical artifact/,
+  );
+  writeFileSync(runtimeWasmManifestPath, originalWasmManifest);
 
   const corruptTarball = tarball.subarray(0, tarball.length - 1);
   assert.throws(

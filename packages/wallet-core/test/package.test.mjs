@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
@@ -83,6 +84,7 @@ test("package metadataがconditional exportの順序とpackage内許可一覧を
     "wasm/generated.mjs",
     "wasm/generated.cjs",
     "wasm/asset.mjs",
+    "wasm/artifact-manifest.json",
     "wasm/index.mjs",
     "wasm/index.cjs",
     "wasm/symbol_nem_wallet_core_wasm_bg.wasm",
@@ -98,7 +100,13 @@ test("package metadataがconditional exportの順序とpackage内許可一覧を
   }
   assert.deepEqual(files, [...allowed].sort());
   assert.equal(files.filter((file) => file.endsWith(".wasm")).length, 1);
-  assert.equal(statSync(resolve(packageRoot, "dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm")).isFile(), true);
+  const wasmPath = resolve(packageRoot, "dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm");
+  assert.equal(statSync(wasmPath).isFile(), true);
+  const wasmDigest = createHash("sha256").update(readFileSync(wasmPath)).digest("hex");
+  assert.deepEqual(
+    JSON.parse(readFileSync(resolve(packageRoot, "dist/wasm/artifact-manifest.json"), "utf8")),
+    { artifact_filename: "symbol_nem_wallet_core_wasm_bg.wasm", sha256: wasmDigest },
+  );
 });
 
 test("公開declarationのbyte列がStage 7Aのdeclarationと一致する", () => {
@@ -172,6 +180,7 @@ test("npm pack dry runにpackage metadata、README、license、dist許可一覧�
     "dist/wasm/generated.cjs",
     "dist/wasm/generated.mjs",
     "dist/wasm/asset.mjs",
+    "dist/wasm/artifact-manifest.json",
     "dist/wasm/index.cjs",
     "dist/wasm/index.mjs",
     ...snippetFiles,
