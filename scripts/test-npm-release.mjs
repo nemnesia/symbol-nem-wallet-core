@@ -361,6 +361,7 @@ function packageInventory(manifest, entry) {
     "dist/wasm/generated.cjs",
     "dist/wasm/generated.mjs",
     "dist/wasm/asset.mjs",
+    "dist/wasm/artifact-manifest.json",
     "dist/wasm/index.cjs",
     "dist/wasm/index.mjs",
     "dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm",
