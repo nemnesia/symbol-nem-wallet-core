@@ -37,6 +37,8 @@ use symbol_nem_wallet_core::{
     SigningApprovalStatus, SigningRequest, SigningTarget, SoftwareKeyInfo, SoftwareKeyListItem,
     SoftwareKeyOrigin, WalletError,
 };
+const MAX_MNEMONIC_INPUT_BYTES: usize = 1024 * 1024;
+const MAX_SIGNING_PAYLOAD_BYTES: usize = 1024 * 1024;
 
 fn binding_error(error: WalletError) -> JsValue {
     // errorにはcodeだけを返し、秘密情報や内部メッセージはJavaScriptへ出さない。
@@ -128,6 +130,43 @@ fn copy_uint8_array(
 
 fn bytes(value: &Uint8Array) -> Result<Zeroizing<Vec<u8>>, JsValue> {
     copy_uint8_array(value, None)
+}
+
+fn bounded_bytes(value: &Uint8Array, max_length: usize) -> Result<Zeroizing<Vec<u8>>, JsValue> {
+    let (buffer, byte_offset, length) = checked_uint8_array_view(value)?;
+    let length = length as usize;
+    if length > max_length {
+        return Err(JsValue::from_str(ErrorCode::InvalidArgument.as_str()));
+    }
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(length)
+        .map_err(|_| conversion_error())?;
+    output.resize(length, 0);
+    try_copy_uint8_array(&buffer, byte_offset, length as u32, &mut output)
+        .map_err(|_| conversion_error())?;
+    Ok(Zeroizing::new(output))
+}
+
+fn bounded_sentinel_bytes(
+    value: &Uint8Array,
+    max_length: usize,
+) -> Result<Zeroizing<Vec<u8>>, JsValue> {
+    let (_, _, length) = checked_uint8_array_view(value)?;
+    if length as usize > max_length {
+        return Ok(Zeroizing::new(Vec::new()));
+    }
+    bytes(value)
+}
+
+fn fixed_bytes(value: &Uint8Array, expected_length: usize) -> Result<Zeroizing<Vec<u8>>, JsValue> {
+    // 固定長入力はbinding側のcopyを作る前に長さを確定する。不一致なら空値をCoreへ渡し、
+    // Coreのvalidation orderと外部errorを維持する。対象APIは空値を必ず拒否する。
+    let (_, _, length) = checked_uint8_array_view(value)?;
+    if length as usize != expected_length {
+        return Ok(Zeroizing::new(Vec::new()));
+    }
+    bytes(value)
 }
 
 fn store_bytes(value: &Uint8Array) -> Result<Zeroizing<Vec<u8>>, JsValue> {
@@ -397,7 +436,7 @@ fn parse_signing_request(value: &JsValue) -> Result<SigningRequest, JsValue> {
     let payload = payload_value
         .dyn_into::<Uint8Array>()
         .map_err(|_| invalid_argument())?;
-    let mut payload = bytes(&payload)?;
+    let mut payload = bounded_bytes(&payload, MAX_SIGNING_PAYLOAD_BYTES)?;
     let payload = std::mem::take(&mut *payload);
     let approval_value = field(value, "approval")?;
     let approval = SigningApproval {
@@ -630,7 +669,7 @@ pub fn finalize_generated_profile(
     handoff_confirmation: &JsValue,
 ) -> Result<JsValue, JsValue> {
     let store_bytes = store_bytes(store)?;
-    let pending_bytes = bytes(pending_profile)?;
+    let pending_bytes = fixed_bytes(pending_profile, 134)?;
     let password = bytes(password_utf8)?;
     let handoff_confirmation = parse_handoff_confirmation(handoff_confirmation)?;
     let result = core_finalize_generated_profile(
@@ -657,7 +696,7 @@ pub fn restore_profile(
 ) -> Result<JsValue, JsValue> {
     let network = parse_network(network).map_err(binding_error)?;
     let store_bytes = store_bytes(store)?;
-    let mnemonic = bytes(mnemonic_utf8)?;
+    let mnemonic = bounded_sentinel_bytes(mnemonic_utf8, MAX_MNEMONIC_INPUT_BYTES)?;
     let password = bytes(password_utf8)?;
     let result =
         core_restore_profile(&store_bytes, &mnemonic, &password, network).map_err(binding_error)?;
@@ -772,7 +811,7 @@ pub fn import_software_key(
     let chain = parse_chain(chain).map_err(binding_error)?;
     let store_bytes = store_bytes(store)?;
     let password = bytes(password_utf8)?;
-    let private_key = bytes(private_key)?;
+    let private_key = fixed_bytes(private_key, 32)?;
     let result = core_import_software_key(&store_bytes, profile_id, &password, chain, &private_key)
         .map_err(binding_error)?;
     let value = software_key_info(&result.value)?;

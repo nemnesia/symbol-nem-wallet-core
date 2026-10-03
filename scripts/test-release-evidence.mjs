@@ -93,6 +93,7 @@ function fixture() {
     "dist/wasm/generated.mjs",
     "dist/wasm/generated.cjs",
     "dist/wasm/asset.mjs",
+    "dist/wasm/artifact-manifest.json",
     "dist/wasm/index.mjs",
     "dist/wasm/index.cjs",
     "dist/wasm/snippets/fixture/index.js",
@@ -277,6 +278,10 @@ function fixture() {
   });
   const canonicalWasm = Buffer.from("wasm-bindgen transformed wasm");
   writeFileSync(resolve(packageRoot, "dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm"), canonicalWasm);
+  writeJson(resolve(packageRoot, "dist/wasm/artifact-manifest.json"), {
+    artifact_filename: "symbol_nem_wallet_core_wasm_bg.wasm",
+    sha256: sha256(canonicalWasm),
+  });
 
   const sourceEvidencePath = resolve(root, "release-source.json");
   writeJson(sourceEvidencePath, {

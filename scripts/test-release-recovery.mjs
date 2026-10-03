@@ -95,7 +95,12 @@ function makeFixture() {
   writeJson(resolve(archiveRoot, "package/package.json"), registryPackage);
   const runtimeManifest = nativeManifest();
   writeJson(resolve(archiveRoot, "package/dist/native/artifact-manifest.json"), runtimeManifest);
-  write(resolve(archiveRoot, "package/dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm"), Buffer.from("published wasm\n"));
+  const publishedWasm = Buffer.from("published wasm\n");
+  write(resolve(archiveRoot, "package/dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm"), publishedWasm);
+  writeJson(resolve(archiveRoot, "package/dist/wasm/artifact-manifest.json"), {
+    artifact_filename: "symbol_nem_wallet_core_wasm_bg.wasm",
+    sha256: hash(publishedWasm),
+  });
   write(resolve(archiveRoot, "package/dist/wasm/generated.mjs"), "export const fixture = true;\n");
   mkdirSync(resolve(root, "candidate-tar-source/package"), { recursive: true });
   execFileSync("tar", ["-czf", registryPath, "-C", archiveRoot, "package"]);

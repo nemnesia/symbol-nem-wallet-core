@@ -581,10 +581,27 @@ function validateTarball(releaseDir, manifest, recovery) {
   const wasmPath = recovery ? "package/dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm" : `package/${manifest.wasm.canonical_artifact.relative_path}`;
   const wasmBytes = readTarEntry(tarballPath, wasmPath);
   if (wasmBytes.length === 0) fail("canonical WASM in npm tarball is empty");
+  let wasmRuntimeManifest;
+  try {
+    wasmRuntimeManifest = JSON.parse(
+      readTarEntry(tarballPath, "package/dist/wasm/artifact-manifest.json").toString("utf8"),
+    );
+  } catch {
+    fail("runtime WASM artifact manifest in npm tarball is invalid");
+  }
+  if (
+    !isPlainObject(wasmRuntimeManifest) ||
+    Object.keys(wasmRuntimeManifest).sort().join(",") !== "artifact_filename,sha256" ||
+    wasmRuntimeManifest.artifact_filename !== "symbol_nem_wallet_core_wasm_bg.wasm" ||
+    sha256(wasmBytes, "canonical WASM in npm tarball") !== wasmRuntimeManifest.sha256
+  ) {
+    fail("runtime WASM artifact manifest differs from the canonical package artifact");
+  }
   if (!recovery) {
     safeRelativePath(manifest.wasm.canonical_artifact.relative_path, "canonical WASM path");
     if (
       sha256(wasmBytes, "canonical WASM in npm tarball") !== manifest.wasm.canonical_artifact.sha256 ||
+      wasmRuntimeManifest.sha256 !== manifest.wasm.canonical_artifact.sha256 ||
       wasmBytes.length !== manifest.wasm.canonical_artifact.size
     ) {
       fail("canonical WASM in npm tarball differs from the release manifest");

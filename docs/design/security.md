@@ -443,6 +443,8 @@ JSI、TurboModule、Codegen、JNI、Swift / Objective-C++、RN-private adapter �
 
 immutable DTO、unexpected object / proxy、detached / altered `Uint8Array` または exception によって secret copy が増えないよう、binding は validated snapshot / view を境界の単位とする。exact copy count、zero-copy、allocator、pointer、free、zeroization および JS engine の object lifetime は下流へ委譲する。JS GC、crash dump、OS swap、debugger、runtime、third-party dependency または compromised host の全 memory を消去する保証はしないが、その保証外を不要 retention の理由にしない。
 
+TypeScript facade は required DTO fields を own data property として一度読み、nested DTO と signing payload を backend 呼出し前に snapshot する。payload copy は facade-owned であり、caller-owned buffer を変更しない。Proxy descriptor trap による副作用を防止したり、複数 field の atomic snapshot を保証したりする仕組みではなく、malicious Application 自体への信頼を与えない。`SigningApproval` は引き続き Application assertion であり、Core は assertion freshness を独立検証しない。
+
 RN adapter の serialization queue は secret cache ではない。password、Mnemonic、private key、decrypted material または plaintext Store を待機 item として長期保持せず、secret-bearing input は admission 後できるだけ遅く native materialize する。admission 前の cancellation / rejection、initialization failure、shutdown、exception または output conversion failure では queue descriptor と一時 native buffer を解放し、secret を error / diagnostic に含めない。JS call frame に自然に存在する copy と adapter が ownership を取得する copy を区別し、後者の lifetime は operation に限定する。
 
 ### 12.3 バッファ、エラー、安全側への失敗の不変条件
@@ -506,6 +508,10 @@ published package
 ```
 
 source revision と controlled release build / release evidence が trust authority である。Android は package / release assembly が expected target / ABI、package-approved artifact および digest / provenance relationship を検証した後に loader が使用し、runtime の毎回の cryptographic hash verification を必須にしない。iOS は package assembly、framework / archive composition、link input および release evidence の段階で expected target / slice、source、version および approved artifact を検証する。iOS static / integrated artifact は Android のような runtime load 前 verification ではなく、link / packaging boundary を verification point とする。
+
+Node native loader は manifest digest を確認してから path-based addon loading を行う。portable な Node-API path loader は検証済み Buffer 自体を受け取らないため、hash check と path の再 read の間に TOCTOU risk が残る。runtime digest check は package assembly mismatch / accidental corruption の検出であり、package directory write access を持つ攻撃者に対する code-signing mechanism ではない。危険な一時コピーや独自 `dlopen` を integrity guarantee として扱わない。
+
+Node / Browser WASM loader は package runtime metadata と比較した検証済み canonical bytes を同じ初期化処理に渡す。これは single WASM artifact の corruption / mismatch 検出である。同じ npm package 内の JavaScript または metadata を変更できる攻撃者への真正性保証、npm provenance、lockfile integrity、deployment integrity の代替にはならない。
 
 existing public C ABI release artifact と RN package-internal artifact は同一概念ではない。RN consumer は public C ABI artifact を別途 install せず、npm release chain で approved された RN artifact を利用する。RN-only internal symbol を public supported C ABI として宣言せず、既存 public C ABI compatibility semantics を RN private adapter が変更しない。missing、wrong target / ABI / slice、manifest mismatch、release evidence mismatch または unapproved artifact は fail closed とし、Node / WASM へ fallback しない。
 

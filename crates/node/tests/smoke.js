@@ -88,6 +88,30 @@ assert.deepEqual(inputCopyResult.value, []);
 const prepared = addon.prepare_generated_profile(emptyStore, PASSWORD, 1);
 assert.ok(prepared.value.mnemonic_utf8 instanceof Uint8Array);
 assert.ok(prepared.value.pending_profile instanceof Uint8Array);
+expectCode("PendingProfileInvalid", () =>
+  addon.finalize_generated_profile(
+    emptyStore,
+    new Uint8Array(1024 * 1024),
+    PASSWORD,
+    { status: "confirmed" },
+  ),
+);
+expectCode("BindingFailure", () =>
+  addon.finalize_generated_profile(
+    emptyStore,
+    new Uint8Array(1024 * 1024),
+    PASSWORD,
+    null,
+  ),
+);
+expectCode("PendingProfileInvalid", () =>
+  addon.finalize_generated_profile(
+    emptyStore,
+    new Uint8Array(133),
+    PASSWORD,
+    { status: "confirmed" },
+  ),
+);
 // DTO representation failures are owned by the binding, while a well-formed DTO with an
 // invalid status remains a Core-level InvalidArgument.
 expectCode("BindingFailure", () =>
@@ -128,6 +152,19 @@ const symbolKeyId = derived.value.key_id;
 assert.equal(derived.value.chain, "symbol");
 assert.equal(derived.value.origin.kind, "derived");
 assert.equal(derived.value.origin.account_index, 0);
+
+expectCode("InvalidPrivateKey", () =>
+  addon.import_software_key(
+    store,
+    profileId,
+    PASSWORD,
+    0,
+    new Uint8Array(1024 * 1024),
+  ),
+);
+expectCode("InvalidPrivateKey", () =>
+  addon.import_software_key(store, profileId, PASSWORD, 0, new Uint8Array(31)),
+);
 
 const imported = addon.import_software_key(
   store,

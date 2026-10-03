@@ -319,7 +319,12 @@ try {
     }),
   };
   writeJson(resolve(recoveryArchiveRoot, "package/dist/native/artifact-manifest.json"), recoveryNativeManifest);
-  write(resolve(recoveryArchiveRoot, "package/dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm"), Buffer.from("recovery wasm\n"));
+  const recoveryWasm = Buffer.from("recovery wasm\n");
+  write(resolve(recoveryArchiveRoot, "package/dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm"), recoveryWasm);
+  writeJson(resolve(recoveryArchiveRoot, "package/dist/wasm/artifact-manifest.json"), {
+    artifact_filename: "symbol_nem_wallet_core_wasm_bg.wasm",
+    sha256: hash(recoveryWasm),
+  });
   write(resolve(recoveryArchiveRoot, "package/dist/wasm/generated.mjs"), "export const recovery = true;\n");
   execFileSync("tar", ["-czf", recoveryRegistryPath, "-C", recoveryArchiveRoot, "package"]);
   const publishedTarball = readFileSync(recoveryRegistryPath);

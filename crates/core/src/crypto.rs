@@ -37,6 +37,10 @@ pub(crate) const KDF_ITERATIONS: u32 = 3;
 pub(crate) const KDF_PARALLELISM: u32 = 1;
 pub(crate) const KDF_VERSION: u32 = 0x13;
 pub(crate) const DUPLICATE_DOMAIN: &[u8] = b"symbol-nem-wallet-core/profile-duplicate/v1";
+/// Mnemonic復元で受け付けるUTF-8入力の最大byte長。
+pub(crate) const MAX_MNEMONIC_INPUT_BYTES: usize = 1024 * 1024;
+/// SigningRequestで受け付ける署名payloadの最大byte長。
+pub(crate) const MAX_SIGNING_PAYLOAD_BYTES: usize = 1024 * 1024;
 
 // OSまたはWeb Crypto由来のCSPRNGを使用し、予測可能なfallbackは設けない。
 pub(crate) fn random<const N: usize>() -> WalletResult<[u8; N]> {
@@ -74,10 +78,13 @@ pub(crate) fn mnemonic_from_entropy(entropy: &[u8; 32]) -> WalletResult<Vec<u8>>
 }
 
 pub(crate) fn parse_mnemonic(input: &[u8]) -> WalletResult<([u8; 32], Zeroizing<Vec<u8>>)> {
+    if input.len() > MAX_MNEMONIC_INPUT_BYTES {
+        return Err(WalletError::new(ErrorCode::InvalidMnemonic));
+    }
     // 入力境界ではUTF-8とNFKDを検証し、BIP39のword list・checksum・24 wordsを確認する。
     let input =
         core::str::from_utf8(input).map_err(|_| WalletError::new(ErrorCode::InvalidMnemonic))?;
-    // English wordlistの最長語は8 ASCII文字。空白の数やUTF-8入力長を制限せず、
+    // English wordlistの最長語は8 ASCII文字。入力は上記のbyte上限で制限し、
     // 24語のcanonical表現だけを保持する。結合文字列全体のNFKD iteratorは
     // combining markを無制限に溜め得るため、1 scalarずつ分解する。
     // 有効なEnglish語には結合文字がなく、scalar間のcanonical並替えは不要。

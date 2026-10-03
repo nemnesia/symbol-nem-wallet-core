@@ -440,7 +440,10 @@ std::string uuidString(const uint8_t *bytes) {
   return result;
 }
 
-SecretBytes bytesValue(Runtime &runtime, const Value &value) {
+SecretBytes bytesValue(Runtime &runtime, const Value &value,
+    size_t expectedLength = static_cast<size_t>(-1),
+    size_t maximumLength = static_cast<size_t>(-1),
+    bool rejectMaximum = false) {
   if (!value.isObject() || value.isNull()) {
     fail(kBindingFailure);
   }
@@ -461,6 +464,16 @@ SecretBytes bytesValue(Runtime &runtime, const Value &value) {
   const uint8_t *data = buffer.data(runtime);
   if (length != 0 && data == nullptr) {
     fail(kBindingFailure);
+  }
+  if (expectedLength != static_cast<size_t>(-1) && length != expectedLength) {
+    // Core receives a fixed-size-invalid sentinel to preserve its validation order without
+    // allocating from a caller-controlled mismatched length.
+    return SecretBytes(std::vector<uint8_t>{});
+  }
+  if (maximumLength != static_cast<size_t>(-1) && length > maximumLength) {
+    if (rejectMaximum) fail("InvalidArgument");
+    // Pass a bounded invalid sentinel so Core preserves its operation validation order.
+    return SecretBytes(std::vector<uint8_t>{});
   }
   std::vector<uint8_t> copy(length);
   if (length != 0) {
@@ -523,7 +536,8 @@ SnwcSigningRequest signingRequest(Runtime &runtime, const Value &value, SecretBy
   result.target.profile_id = uuidValue(runtime, property(runtime, target, "profile_id"));
   result.target.key_id = uuidValue(runtime, property(runtime, target, "key_id"));
   result.target.context = contextValue(runtime, property(runtime, target, "context"));
-  payload = bytesValue(runtime, property(runtime, object, "payload"));
+  payload = bytesValue(runtime, property(runtime, object, "payload"),
+      static_cast<size_t>(-1), 1024 * 1024, true);
   result.payload = payload.cBytes();
   result.approval.status = exportStatus(runtime, property(runtime, object, "approval"), "not_approved", "approved");
   return result;
@@ -787,7 +801,10 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
     if (operation == "finalize_generated_profile" || operation == "restore_profile") {
       exactArgumentCount(runtime, args, 4);
       SecretBytes store(bytesValue(runtime, arrayItem(runtime, args, 0)));
-      SecretBytes second(bytesValue(runtime, arrayItem(runtime, args, 1)));
+      SecretBytes second(operation == "finalize_generated_profile"
+              ? bytesValue(runtime, arrayItem(runtime, args, 1), 134)
+              : bytesValue(runtime, arrayItem(runtime, args, 1), static_cast<size_t>(-1),
+                    1024 * 1024));
       SecretBytes password(bytesValue(runtime, arrayItem(runtime, args, 2)));
       OwnedBytes replacement;
       SnwcProfileInfo profile{};
@@ -878,7 +895,7 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
         error = snwc_derive_software_key(store.cBytes(), profile, password.cBytes(), chain,
             accountIndex(runtime, arrayItem(runtime, args, 4)), &replacement.value, &key, &warnings.value);
       } else if (operation == "import_software_key") {
-        SecretBytes privateKey(bytesValue(runtime, arrayItem(runtime, args, 4)));
+        SecretBytes privateKey(bytesValue(runtime, arrayItem(runtime, args, 4), 32));
         error = snwc_import_software_key(store.cBytes(), profile, password.cBytes(), chain,
             privateKey.cBytes(), &replacement.value, &key, &warnings.value);
       } else {

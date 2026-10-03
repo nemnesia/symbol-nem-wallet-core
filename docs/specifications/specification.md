@@ -114,7 +114,7 @@ v1 は BIP39 English 24 words に固定する。
 - BIP39 optional passphrase: 非対応、seed 化時は空文字列
 - CSPRNG: Rust `getrandom` が提供する OS / Web Crypto 対応乱数源
 
-復元時は Unicode NFKD 正規化後に word count、wordlist、checksum を検証する。12 / 15 / 18 / 21 words は受け付けない。
+復元時の入力は UTF-8 byte sequence とし、正規化処理の資源使用を制限するため最大 1 MiB とする。上限を超える入力は `InvalidMnemonic` として拒否する。上限以内の入力は Unicode NFKD 正規化後に word count、wordlist、checksum を検証する。12 / 15 / 18 / 21 words は受け付けない。
 
 seed は PBKDF2-HMAC-SHA512 により生成し、永続保存しない。処理終了後は zeroize 対象とする。
 
@@ -627,6 +627,8 @@ PrivateKeyExport {
 `sign` は `SigningRequest.approval.status = Approved` の request だけを対象とする。Application / UI が Account を選択し、同じ `SigningTarget` と raw payload の内容を提示して明示的な承認を取得した request でなければならない。Core はこの approval と、各呼出しの `password_utf8` による Profile password authorization、保存済み Account context の compatibility および signing primitive を別々に検証する。`NotApproved`、approval 欠落、target/context 不一致または認証失敗時は signature を生成せず、success result と secret を返さず、Store を変更しない。正しい password だけでは signing approval にならない。
 
 Core は payload を意味解釈しない。
+
+`SigningRequest.payload` は raw byte sequence とし、最大長を 1 MiB とする。超過時は `InvalidArgument` とし、Store のdecode、password認証または署名処理へ進まず、signature と success result を返さない。Binding は Core へ複製する前に長さを確認し、Core も同じ上限を検証する。
 
 ```text
 sign(request: SigningRequest, password_utf8: bytes)

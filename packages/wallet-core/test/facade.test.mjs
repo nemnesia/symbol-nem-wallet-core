@@ -165,7 +165,9 @@ function malformedRepresentationCases(api) {
           store,
           store,
           store,
-          new Proxy({ status: "confirmed" }, { get() { throw new Error("unreadable"); } }),
+          new Proxy({ status: "confirmed" }, {
+            getOwnPropertyDescriptor() { throw new Error("unreadable"); },
+          }),
         ),
       "BindingFailure",
     ],
@@ -359,6 +361,36 @@ test("Node CJSと--no-addons WASM entryが同じroot APIを公開する", () => 
   }
 });
 
+test("--no-addonsのWASM digest mismatchはESM/CJS共通でgeneric errorにして停止する", () => {
+  const { directory, copy } = makePackageCopy();
+  try {
+    const wasmPath = resolve(copy, "dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm");
+    const bytes = readFileSync(wasmPath);
+    bytes[0] ^= 0xff;
+    writeFileSync(wasmPath, bytes);
+    const check = `const show=(error)=>console.log(JSON.stringify({name:error?.name,message:error?.message,code:error?.code}));\n`;
+    const esm = runNode([
+      "--no-addons",
+      "--input-type=module",
+      "-e",
+      `${check}try { await import(${JSON.stringify(packageName)}); process.exit(2); } catch (error) { show(error); }`,
+    ], copy);
+    const cjs = runNode([
+      "--no-addons",
+      "-e",
+      `${check}try { require(${JSON.stringify(packageName)}); process.exit(2); } catch (error) { show(error); }`,
+    ], copy);
+    const expected = JSON.stringify({
+      name: "WalletCoreBackendInitializationError",
+      message: "backend initialization failed",
+    });
+    assert.equal(esm, expected);
+    assert.equal(cjs, expected);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("facadeがrepresentation、unitのnull、UUID error、Core errorを正規化する", () => {
   let called = false;
   const backend = Object.fromEntries(
@@ -458,7 +490,7 @@ test("nativeとdirect WASM entryが不正DTOに同じerror形式を返す", () =
   }
 });
 
-test("facadeが検証済みDTO objectをfieldの書換えやdefault補完なしで転送する", () => {
+test("facadeはDTOをown data propertyからsnapshotして転送する", () => {
   const profileId = "11111111-1111-4111-8111-111111111111";
   const keyId = "22222222-2222-4222-8222-222222222222";
   const target = { kind: "software_key", profile_id: profileId, key_id: keyId };
@@ -501,7 +533,15 @@ test("facadeが検証済みDTO objectをfieldの書換えやdefault補完なし�
     };
   };
   backend.sign = (...args) => {
-    captured.sign = args;
+    captured.sign = [args[0], {
+      target: {
+        profile_id: args[1].target.profile_id,
+        key_id: args[1].target.key_id,
+        context: { ...args[1].target.context },
+      },
+      payload: args[1].payload.slice(),
+      approval: { ...args[1].approval },
+    }, args[2]];
     return { value: { signature: new Uint8Array(64) }, warnings: [] };
   };
 
@@ -513,11 +553,171 @@ test("facadeが検証済みDTO objectをfieldの書換えやdefault補完なし�
   api.get_public_account(store, profileId, keyId, context, store);
   api.sign(store, signingRequest, store);
 
-  assert.equal(captured.finalize[3], handoff);
-  assert.equal(captured.export[1], exportRequest);
-  assert.equal(captured.account[3], context);
-  assert.equal(captured.sign[1], signingRequest);
-  assert.deepEqual(captured.sign[1].payload, signingRequest.payload);
+  assert.notEqual(captured.finalize[3], handoff);
+  assert.equal(Object.getPrototypeOf(captured.finalize[3]), null);
+  assert.equal(captured.finalize[3].status, "confirmed");
+  assert.notEqual(captured.export[1], exportRequest);
+  assert.notEqual(captured.export[1].target, target);
+  assert.equal(Object.getPrototypeOf(captured.export[1]), null);
+  assert.notEqual(captured.account[3], context);
+  assert.equal(Object.getPrototypeOf(captured.account[3]), null);
+  assert.notEqual(captured.sign[1], signingRequest);
+  assert.notEqual(captured.sign[1].target.context, context);
+  assert.deepEqual(captured.sign[1].payload, new Uint8Array([1, 2]));
+  assert.deepEqual(signingRequest.payload, new Uint8Array([1, 2]));
+});
+
+test("DTO snapshotは継承field、getter、prototype pollutionを承認条件にしない", () => {
+  const profileId = "11111111-1111-4111-8111-111111111111";
+  const keyId = "22222222-2222-4222-8222-222222222222";
+  let backendCalls = 0;
+  const backend = Object.fromEntries(expectedExports.map((name) => [name, () => {
+    backendCalls += 1;
+    return { store: new Uint8Array(), value: null, warnings: [] };
+  }]));
+  backend.finalize_generated_profile = () => {
+    backendCalls += 1;
+    return {
+      store: new Uint8Array(),
+      value: { profile_id: profileId, network: "testnet", software_key_count: 0 },
+      warnings: [],
+    };
+  };
+  backend.sign = () => {
+    backendCalls += 1;
+    return { value: { signature: new Uint8Array(64) }, warnings: [] };
+  };
+  const api = createFacade(backend);
+  const store = new Uint8Array();
+  assert.throws(
+    () => api.finalize_generated_profile(store, store, store, Object.create({ status: "confirmed" })),
+    (error) => error.code === "InvalidArgument",
+  );
+  let getterReads = 0;
+  const getterConfirmation = Object.defineProperty({}, "status", {
+    enumerable: true,
+    get() { getterReads += 1; return getterReads === 1 ? "confirmed" : "unconfirmed"; },
+  });
+  assert.throws(
+    () => api.finalize_generated_profile(store, store, store, getterConfirmation),
+    (error) => error.code === "InvalidArgument",
+  );
+  assert.equal(getterReads, 0);
+
+  const polluted = Object.getOwnPropertyDescriptor(Object.prototype, "status");
+  try {
+    Object.defineProperty(Object.prototype, "status", {
+      configurable: true,
+      value: "approved",
+    });
+    const request = {
+      target: { profile_id: profileId, key_id: keyId, context: { chain: "nem", network: "testnet" } },
+      payload: new Uint8Array([1]),
+      approval: {},
+    };
+    assert.throws(() => api.sign(store, request, store), (error) => error.code === "InvalidArgument");
+  } finally {
+    if (polluted === undefined) delete Object.prototype.status;
+    else Object.defineProperty(Object.prototype, "status", polluted);
+  }
+  assert.equal(backendCalls, 0);
+});
+
+test("backendはvalidation後のcaller mutationではなくnested snapshotとpayload copyを見る", () => {
+  const profileId = "11111111-1111-4111-8111-111111111111";
+  const keyId = "22222222-2222-4222-8222-222222222222";
+  const payloadBacking = new Uint8Array([9, 1, 2, 8]);
+  const payloadView = payloadBacking.subarray(1, 3);
+  const request = {
+    target: { profile_id: profileId, key_id: keyId, context: { chain: "nem", network: "testnet" } },
+    payload: payloadView,
+    approval: { status: "approved" },
+  };
+  let observed;
+  const backend = Object.fromEntries(expectedExports.map((name) => [name, () => new Uint8Array()]));
+  backend.sign = (_store, snapshot) => {
+    request.target.context.chain = "symbol";
+    request.target.context.network = "mainnet";
+    request.approval.status = "not_approved";
+    payloadBacking.fill(7);
+    observed = {
+      target: {
+        profile_id: snapshot.target.profile_id,
+        key_id: snapshot.target.key_id,
+        context: { ...snapshot.target.context },
+      },
+      approval: { ...snapshot.approval },
+      payload: snapshot.payload.slice(),
+    };
+    return { value: { signature: new Uint8Array(64) }, warnings: [] };
+  };
+  createFacade(backend).sign(new Uint8Array(), request, new Uint8Array());
+  assert.deepEqual(observed.target.context, { chain: "nem", network: "testnet" });
+  assert.deepEqual(observed.approval, { status: "approved" });
+  assert.deepEqual(observed.payload, new Uint8Array([1, 2]));
+  assert.deepEqual(payloadBacking, new Uint8Array([7, 7, 7, 7]));
+});
+
+test("SigningRequest snapshot途中のapproval failureでfacade payload copyを消去する", () => {
+  const profileId = "11111111-1111-4111-8111-111111111111";
+  const keyId = "22222222-2222-4222-8222-222222222222";
+  const OriginalUint8Array = globalThis.Uint8Array;
+  const backend = Object.fromEntries(expectedExports.map((name) => [name, () => new OriginalUint8Array()]));
+  let backendCalls = 0;
+  backend.sign = () => {
+    backendCalls += 1;
+    return { value: { signature: new OriginalUint8Array(64) }, warnings: [] };
+  };
+  const api = createFacade(backend);
+  const failures = [
+    ["missing", undefined, "InvalidArgument"],
+    ["invalid literal", { status: "approved-later" }, "InvalidArgument"],
+    ["accessor", Object.defineProperty({}, "status", { get() { throw new Error("getter invoked"); } }), "InvalidArgument"],
+    [
+      "descriptor trap",
+      new Proxy({}, {
+        getOwnPropertyDescriptor(target, name) {
+          if (name === "status") throw new Error("descriptor trap");
+          return Reflect.getOwnPropertyDescriptor(target, name);
+        },
+      }),
+      "BindingFailure",
+    ],
+  ];
+
+  for (const [label, approval, expectedCode] of failures) {
+    const copies = [];
+    globalThis.Uint8Array = class TrackingUint8Array extends OriginalUint8Array {
+      constructor(...args) {
+        super(...args);
+        if (args.length === 1 && typeof args[0] === "number") copies.push(this);
+      }
+    };
+    const payloadBacking = new globalThis.Uint8Array([9, 1, 2, 8]);
+    const payloadView = payloadBacking.subarray(1, 3);
+    const request = {
+      target: {
+        profile_id: profileId,
+        key_id: keyId,
+        context: { chain: "nem", network: "testnet" },
+      },
+      payload: payloadView,
+      ...(approval === undefined ? {} : { approval }),
+    };
+    try {
+      assert.throws(
+        () => api.sign(new OriginalUint8Array(), request, new OriginalUint8Array()),
+        (error) => error.code === expectedCode,
+        label,
+      );
+      assert.equal(copies.length, 1, `${label}: exactly one facade payload copy should be created`);
+      assert.deepEqual([...copies[0]], [0, 0], `${label}: facade copy must be zeroized`);
+      assert.deepEqual([...payloadBacking], [9, 1, 2, 8], `${label}: caller bytes must remain untouched`);
+      assert.equal(backendCalls, 0, `${label}: backend must not be reached`);
+    } finally {
+      globalThis.Uint8Array = OriginalUint8Array;
+    }
+  }
 });
 
 test(

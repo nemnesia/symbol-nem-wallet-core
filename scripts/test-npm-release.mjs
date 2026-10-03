@@ -431,6 +431,15 @@ if (manifest.artifacts.length !== 4) fail("final package must contain exactly fo
 if (files(resolve(packageRoot, "dist")).filter((file) => file.endsWith(".wasm")).length !== 1) {
   fail("final package must contain one canonical WASM asset");
 }
+const canonicalWasm = readFileSync(resolve(packageRoot, "dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm"));
+const canonicalWasmSha256 = createHash("sha256").update(canonicalWasm).digest("hex");
+const wasmArtifactManifest = json(resolve(packageRoot, "dist/wasm/artifact-manifest.json"));
+if (
+  wasmArtifactManifest.artifact_filename !== "symbol_nem_wallet_core_wasm_bg.wasm" ||
+  wasmArtifactManifest.sha256 !== canonicalWasmSha256
+) {
+  fail("runtime WASM digest metadata does not match the canonical package artifact");
+}
 
 const inventory = packageInventory(manifest, packResult.entry);
 const sizes = sizeEvidence(manifest, packResult.entry, packResult.tarball);

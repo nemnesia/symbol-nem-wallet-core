@@ -369,9 +369,33 @@ function validateRegistryTarballContent(tarball, expected, manifest, recovery) {
   const wasmPath = recovery ? "package/dist/wasm/symbol_nem_wallet_core_wasm_bg.wasm" : `package/${manifest.wasm.canonical_artifact.relative_path}`;
   const wasmBytes = tarEntry(tarball, wasmPath, "registry canonical WASM");
   if (wasmBytes.length === 0) fail("registry canonical WASM is empty");
+  let wasmRuntimeManifest;
+  try {
+    wasmRuntimeManifest = JSON.parse(
+      tarEntry(
+        tarball,
+        "package/dist/wasm/artifact-manifest.json",
+        "registry runtime WASM artifact manifest",
+      ).toString("utf8"),
+    );
+  } catch {
+    fail("registry runtime WASM artifact manifest is malformed");
+  }
+  if (
+    !isPlainObject(wasmRuntimeManifest) ||
+    Object.keys(wasmRuntimeManifest).sort().join(",") !== "artifact_filename,sha256" ||
+    wasmRuntimeManifest.artifact_filename !== "symbol_nem_wallet_core_wasm_bg.wasm" ||
+    sha256(wasmBytes) !== wasmRuntimeManifest.sha256
+  ) {
+    fail("registry runtime WASM metadata differs from the canonical artifact");
+  }
   if (!recovery) {
     const wasm = manifest.wasm.canonical_artifact;
-    if (sha256(wasmBytes) !== wasm.sha256 || wasmBytes.length !== wasm.size) fail("registry canonical WASM differs from the release manifest");
+    if (
+      sha256(wasmBytes) !== wasm.sha256 ||
+      wasmRuntimeManifest.sha256 !== wasm.sha256 ||
+      wasmBytes.length !== wasm.size
+    ) fail("registry canonical WASM differs from the release manifest");
   }
   return { metadata, runtimeManifest };
 }
