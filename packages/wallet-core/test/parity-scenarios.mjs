@@ -658,12 +658,17 @@ function mutationReplacement(api, fixture) {
 
 export function runParityScenarios(backend) {
   const exportedNames = Object.keys(backend).sort();
-  const expectedNames = [...OPERATION_NAMES].sort();
+  const expectedNames = ["Network", "Chain", ...OPERATION_NAMES].sort();
   ensure(
     exportedNames.length === expectedNames.length &&
       exportedNames.every((name, index) => name === expectedNames[index]),
     "runtime exports",
   );
+  exactKeys(backend.Network, ["TESTNET", "MAINNET"], "Network constants");
+  exactKeys(backend.Chain, ["NEM", "SYMBOL"], "Chain constants");
+  ensure(backend.Network.TESTNET === 0 && backend.Network.MAINNET === 1, "Network values");
+  ensure(backend.Chain.NEM === 0 && backend.Chain.SYMBOL === 1, "Chain values");
+  ensure(Object.isFrozen(backend.Network) && Object.isFrozen(backend.Chain), "immutable constants");
   ensure(!Object.prototype.hasOwnProperty.call(backend, "default"), "default export");
   const api = wrapSynchronous(backend);
   const fixture = createFixture(api);
@@ -691,8 +696,7 @@ export function runParityScenarios(backend) {
       private_key: { valid_authorization_and_guards: true, failure_returned: false },
       signature: { approved_and_authorized: true, failure_returned: false },
       pending_profile: {
-        prepare_success_returned: handoff.prepared.value.pending_profile_is_bytes,
-        unconfirmed_finalize_returned: false,
+        prepare_success_returned: generatedProfile.prepared.value.pending_profile_is_bytes,
       },
     },
   };

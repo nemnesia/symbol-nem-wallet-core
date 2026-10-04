@@ -601,12 +601,8 @@ fn public_store_paths_are_exercised_in_unit_build() {
     let empty = create_empty_store().unwrap();
     let prepared = prepare_generated_profile(&empty, PASSWORD, Network::Testnet).unwrap();
     assert!(!prepared.value.mnemonic_utf8.is_empty());
-    let finalized = finalize_generated_profile(
-        &empty,
-        &prepared.value.pending_profile,
-        PASSWORD,
-    )
-    .unwrap();
+    let finalized =
+        finalize_generated_profile(&empty, &prepared.value.pending_profile, PASSWORD).unwrap();
     assert_eq!(list_profiles(&finalized.store).unwrap().value.len(), 1);
 
     let (store, profile_id) = wallet_with_one_profile();

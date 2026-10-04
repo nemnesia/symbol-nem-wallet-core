@@ -23,6 +23,8 @@ A Profile has one Mnemonic and Network, and its Network is fixed at creation. A 
 
 ## Use npm
 
+If upgrading from 0.1.0, read [Migration to 0.2.0](docs/migration/0.2.0.md) (Japanese).
+
 ### Install
 
 ```bash

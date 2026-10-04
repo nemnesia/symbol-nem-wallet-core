@@ -764,7 +764,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbol-nem-wallet-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -784,7 +784,7 @@ dependencies = [
 
 [[package]]
 name = "symbol-nem-wallet-core-native"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex",
  "symbol-nem-wallet-core",
@@ -794,7 +794,7 @@ dependencies = [
 
 [[package]]
 name = "symbol-nem-wallet-core-node"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "napi",
  "napi-build",
@@ -806,7 +806,7 @@ dependencies = [
 
 [[package]]
 name = "symbol-nem-wallet-core-wasm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "getrandom",
  "hex",

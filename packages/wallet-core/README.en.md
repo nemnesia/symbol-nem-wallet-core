@@ -8,6 +8,8 @@ The Japanese version is authoritative if there is any discrepancy.
 
 ## Install
 
+If upgrading from 0.1.0, read [Migration to 0.2.0](../../docs/migration/0.2.0.md) (Japanese).
+
 ```bash
 npm install @nemnesia/symbol-nem-wallet-core
 ```
@@ -142,7 +144,7 @@ const account = get_public_account(
 console.log(account.value.address);
 ```
 
-`presentMnemonicAndWaitForExplicitConfirmation` is an Application-implemented UI / handoff operation, not a Wallet Core function. Do not make it always return `true` merely to run the sample, and do not pass `confirmed` without acknowledgement. Do not write the Mnemonic to logs, analytics, or diagnostics.
+`presentMnemonicAndWaitForExplicitConfirmation` is an Application-implemented UI / handoff operation, not a Wallet Core function. Do not make it always return `true` merely to run the sample, and only request finalization after acknowledgement. Do not write the Mnemonic to logs, analytics, or diagnostics.
 
 ### 3. Restore an existing Wallet
 

@@ -189,12 +189,12 @@ Core は operation ごとに Profile password を認証し、authorization を�
 2. Core が意図された Application へ完全な Mnemonic を渡す。
 3. Application が意図した利用者へ Mnemonic を提示する。
 4. 利用者が Mnemonic を受領したことを明示的に確認する。
-5. Application が確認成立を Core へ伝える。
-6. Core がその後だけ Profile 作成を成功状態として最終確定する。
+5. Application が現在の handoff に対する確認成立後だけ、Core へ Profile の確定を要求する。
+6. Core がその要求を認証・検証し、Profile 作成を成功状態として最終確定する。
 
-Mnemonic の生成、Core 内での一時保持、Binding の通過、Application の受領または Application の呼出しだけでは Profile success にならない。利用者確認前は committed Profile ではなく、正常 Profile として利用できない。
+Mnemonic の生成・受渡しだけでは Core は Profile を確定しない。Application は利用者確認前に確定要求を送らず、未確定の状態を正常 Profile として扱わない。Core は受領確認を独立検証せず、明示的な確定要求の認証・整合性検証を担う。
 
-受領不能、提示不能、利用者の拒否・未確認、Application から Core への確認伝達不能、handoff の中断または最終確定失敗では、Core は partial Profile を成功状態として残さず、stale / unconfirmed state を自動昇格させず、Mnemonic を通常結果、失敗結果または診断へ漏らさない。既存の committed state は壊さない。
+Application は受領不能、提示不能、利用者の拒否・未確認または中断時に確定要求を送らない。Core は確定要求の認証・検証または最終確定の失敗時に partial Profile を成功状態として残さず、明示的な確定要求なしに自動昇格させず、Mnemonic を通常結果、失敗結果または診断へ漏らさない。既存の committed state は壊さない。
 
 Core は UI を担当せず、利用者が紙・外部媒体へ保存したことまたは将来紛失しないことを独立検証しない。handoff confirmation の freshness は Application / UI が管理し、過去の確認を根拠に新しい finalize 呼出しを行わない。Core は Application が実際に Mnemonic を提示し、利用者が確認したことを独立には証明しない。handoff 後の Core 内 Mnemonic 原本は Core が継続管理し、Core 外 copy の表示・保管・紛失防止は Application / 利用者が担う。finalize 呼出し、Pending Profile、transport および具体的な確認表現は下流へ委譲する。
 

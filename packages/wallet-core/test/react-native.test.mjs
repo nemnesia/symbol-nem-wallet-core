@@ -20,7 +20,7 @@ function writeReactNativeRuntime(packageCopy, manifestOverrides = {}) {
   const manifest = {
     schema_version: 1,
     package_name: "@nemnesia/symbol-nem-wallet-core",
-    package_version: "0.1.0",
+    package_version: JSON.parse(readFileSync(resolve(packageCopy, "package.json"), "utf8")).version,
     source_commit: "a".repeat(40),
     artifacts: targetDefinitions.map(([target_id, platform, environment, architecture, relative_path, artifact_filename]) => ({
       target_id,

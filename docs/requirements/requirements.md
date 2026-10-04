@@ -81,15 +81,15 @@ Node.js Application / Node-API Binding は、Node.js 専用の暗号、Store、a
 ### 2.4 外部へ委ねる責任
 
 - Core: Profile パスワードによる処理単位の鍵利用認可、指定された Account / Software Key に対応する秘密鍵の利用、署名および署名結果の返却。Transaction の意味を利用者へ説明すること、利用者の意思を推測すること、署名内容を表示する UI を提供することは担わない。
-- Core: 新規 Mnemonic を生成し、初回 handoff の完了確認を受けるまでは新規 Profile を成功状態として確定しない。意図された呼出し元 Application への完全な Mnemonic の受渡し、Application からの完了確認およびその確認に基づく Profile 作成の確定を担う。Core が新しい Mnemonic を生成するが、handoff を行わずに Profile を成功させる経路は v1 で提供しない。
-- UI / Application: ユーザー操作、公開情報表示、利用する Account の選択、署名対象内容の提示、利用者が署名内容を確認できる状態の提供、利用者からの明示的な署名承認、ウォレット固有設定を担う。承認された署名要求だけを Core へ送る。新規 Mnemonic 生成では、Core から受け取った完全な Mnemonic を意図した利用者へ提示し、利用者の明示的な受領確認が成立した場合だけ、その事実を Core へ伝える。利用者確認前に Profile 作成を成功扱いしない。署名 approval、export confirmation および handoff confirmation の freshness は Application / UI が管理し、過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用しない。
+- Core: 新規 Mnemonic と未確定の Pending Profile を生成し、意図された呼出し元 Application へ渡す。生成・受渡しだけでは Profile を確定せず、Application の明示的な確定要求を受けて認証・対象 Store との整合性を検証し、成功時だけ Profile を確定する。利用者への提示・受領確認は Application の責務とし、Core は確認成立を示す独立した assertion を要求・検証しない。
+- UI / Application: ユーザー操作、公開情報表示、利用する Account の選択、署名対象内容の提示、利用者が署名内容を確認できる状態の提供、利用者からの明示的な署名承認、ウォレット固有設定を担う。承認された署名要求だけを Core へ送る。新規 Mnemonic 生成では、Core から受け取った完全な Mnemonic を意図した利用者へ提示し、利用者の明示的な受領確認が成立した場合だけ、Core へ Profile の確定を要求する。利用者確認前に Profile 作成を成功扱いしない。handoff の受領確認、署名 approval および export confirmation が現在の操作に対する意思であることは Application / UI が管理し、過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用しない。
 - 上位 Application / Package: Profile パスワード品質ポリシー。利便性のためパスワードを一時保持する場合の管理。
 - Web Application / Browser Extension: Web 固有の状態、Browser 固有 Storage、ページ / Extension 実行環境のセキュリティ。
 - Desktop Application、React Native Application、Web Application、Browser、OS、host process: それぞれの実行環境の安全性。Application、Browser、OS または host process の侵害を Core が防止する保証はしない。ただし、Core / Binding が不要に秘密情報を公開しない責任は維持する。
 - Network 層: REST、WebSocket、announce 等。
 - Transaction 構築層: Transaction の生成・シリアライズ。
 - Application / 上流側: Application が current Store を選択・保存し、Core が返した replacement Store を正しく適用する責任。stale / historical Store の再適用防止、backup / snapshot の最新版管理、端末間移行および消失・破損からの復旧を提供する場合の責任。Core は Store の過去 snapshot を永続記憶せず、valid historical Store の freshness または rollback を単独では判定しない。
-- 利用者: 初回 handoff 後の Mnemonic の外部バックアップ、保存および紛失防止。Core は、利用者が紙や外部媒体へ正しく保存したこと、または将来紛失しないことを独立して検証・保証しない。Application が利用者から受領確認を得た事実は、この handoff における責任境界として Core が扱う。
+- 利用者: 初回 handoff 後の Mnemonic の外部バックアップ、保存および紛失防止。Core は、利用者が紙や外部媒体へ正しく保存したこと、または将来紛失しないことを独立して検証・保証しない。Application が利用者から現在の handoff の受領確認を得てから確定を要求することを責任境界とし、Core はその外部事実を独立検証しない。
 - Application / 利用者: 明示的な秘密情報アクセスで Core 外へ渡された Mnemonic / 秘密鍵のコピーの表示、保管、利用、紛失防止。エクスポート後も Core が保持する Mnemonic / Software Key 原本の継続管理責任は Core に残る。
 
 ### 2.5 v1 対象外
@@ -142,10 +142,10 @@ Core が新規 Mnemonic を生成し、初回 handoff の成立条件を満た�
 1. Core が完全な Mnemonic を生成し、意図された呼出し元 Application へ渡す。
 2. Application がその完全な Mnemonic を意図した利用者へ提示する。
 3. 利用者が Mnemonic を受領したことを明示的に確認する。
-4. Application が利用者の確認成立を Core へ伝える。
-5. Core がその確認に基づいて Profile 作成を成功状態として確定する。
+4. Application が現在の handoff に対する利用者の確認成立後だけ、Core へ Profile の確定を要求する。
+5. Core がその要求を認証・検証し、Profile 作成を成功状態として確定する。
 
-Core が Mnemonic を生成したことだけ、一時的に保持できることだけ、Binding を介して Application へ渡したことだけ、または Application が呼出しを行ったことだけでは handoff 成功とみなさない。受領不能、提示不能、利用者の拒否または確認未取得、Application から Core への完了確認不能、handoff の中断、または Core の最終確定処理の失敗時は、新規 Profile を成功状態として残さず、部分状態を残さず、Mnemonic を通常結果または診断へ漏らさない。Core は紙への記録、外部バックアップの保存、将来の紛失を保証しないため、受渡し後の Mnemonic の保管・紛失防止は利用者および上位 Application / Package の責任とする。
+Core が Mnemonic を生成・受渡ししただけでは Profile を確定しない。Application は受領不能、提示不能、利用者の拒否、確認未取得または handoff の中断時に確定を要求せず、成功扱いしない。Core は利用者確認の成立を独立検証せず、正しい Pending Profile、対象 Store およびパスワードによる明示的な確定要求を認証・検証する。確定要求または Core の最終確定処理が失敗した場合は、新規 Profile または部分状態を成功状態として残さず、Mnemonic を通常結果または診断へ漏らさない。Core は紙への記録、外部バックアップの保存、将来の紛失を保証しないため、受渡し後の Mnemonic の保管・紛失防止は利用者および上位 Application / Package の責任とする。
 
 保存済み Mnemonic は通常処理結果として取得せず、対象 Profile、処理単位の正しい Profile パスワードおよび利用者の明示的な要求を伴う UC-011 の場合だけ返却する。既存 Mnemonic による restore は、Mnemonic validity、password、Store および duplicate 等の通常 restore 条件に従い、生成時の handoff confirmation を要求しない。
 
@@ -197,7 +197,7 @@ Desktop Application は Native C ABI、Node.js は Node-API Binding、Browser / 
 
 | ID | 優先度 | 要件 |
 | --- | --- | --- |
-| FR-001 | MUST | Core は新規 Mnemonic 生成または既存 Mnemonic から、未指定でも空でもない Profile パスワードと Mainnet / Testnet を使用して Profile を作成・復元できること。Mnemonic なし Profile を作成しないこと。新規 Mnemonic 生成では、完全な Mnemonic が意図された呼出し元 Application へ渡され、Application が意図された利用者へ提示し、利用者の明示的な受領確認を Application が Core へ伝え、Core がその確認に基づいて Profile 作成を成功状態として確定した場合だけ成功させること。handoff を行わずに新規 Profile を成功させる経路を提供しないこと。受領・提示・確認・完了確認または最終確定のいずれかが失敗・中断・未確認の場合は、新規 Profile または部分状態を成功状態として残さず、Mnemonic を通常結果や診断へ漏らさないこと。既存 Mnemonic の restore はこの生成時 handoff の対象外とし、通常の restore 条件で成功させること。 |
+| FR-001 | MUST | Core は新規 Mnemonic 生成または既存 Mnemonic から、未指定でも空でもない Profile パスワードと Mainnet / Testnet を使用して Profile を作成・復元できること。Mnemonic なし Profile を作成しないこと。新規 Mnemonic 生成では、完全な Mnemonic が意図された呼出し元 Application へ渡され、Application が意図された利用者へ提示し、Application が現在の handoff に対する利用者の明示的な受領確認後だけ確定を要求し、Core がその要求を認証・検証して Profile 作成を成功状態として確定した場合だけ成功させること。Core は生成・受渡しだけでは Profile を確定しないこと。Application は受領・提示・確認が失敗・中断・未確認の場合に確定要求を送らないこと。Core は利用者確認を示す独立した assertion を要求・検証せず、確定要求の認証・検証または最終確定が失敗した場合は、新規 Profile または部分状態を成功状態として残さず、Mnemonic を通常結果や診断へ漏らさないこと。既存 Mnemonic の restore はこの生成時 handoff の対象外とし、通常の restore 条件で成功させること。 |
 | FR-002 | MUST | Mnemonic を Profile のルート秘密情報として Profile 管理下へ保存すること。 |
 | FR-003 | MUST | 保存済み Mnemonic から Profile の Network と指定 Chain に対応する Derived Software Key を導出し、§3.3 の妥当性確認に成功した場合だけ保存すること。導出、妥当性確認または保存に失敗した場合は Profile と既存 Software Key を変更しないこと。 |
 | FR-004 | MUST | 正しい Profile パスワードを Core が処理単位で認可し、§3.3 の妥当性基準を満たした外部秘密鍵だけを Imported Software Key として保存すること。認可、妥当性確認または保存に失敗した場合は Profile 状態を変更しないこと。 |
@@ -295,7 +295,7 @@ Desktop Application は Native C ABI、Node.js は Node-API Binding、Browser / 
 
 | ID | 対応 | 受け入れ条件 |
 | --- | --- | --- |
-| AC-001 | FR-001, FR-015, FR-020, DR-001 | 未指定・空・Core 既定値でない Profile パスワードと Network でのみ Profile を作成でき、Mnemonic なし Profile を作成しない。すべての新規 Mnemonic 生成では、(1) 完全な Mnemonic が意図された呼出し元 Application へ渡り、(2) Application が意図した利用者へ提示し、(3) 利用者が受領を明示的に確認し、(4) Application がその確認成立を Core へ伝え、(5) Core がその確認に基づき Profile 作成を成功状態として確定した場合だけ成功する。handoff を行わない新規生成経路は提供せず、いずれかが失敗・中断・未確認の場合は新規 Profile または部分状態を成功状態として残さない。既存 Mnemonic の restore では、指定 Mnemonic、password、Store、duplicate 等の通常条件で Profile を作成でき、生成時の handoff confirmation は要求しない。 |
+| AC-001 | FR-001, FR-015, FR-020, DR-001 | 未指定・空・Core 既定値でない Profile パスワードと Network でのみ Profile を作成でき、Mnemonic なし Profile を作成しない。すべての新規 Mnemonic 生成では、(1) 完全な Mnemonic が意図された呼出し元 Application へ渡り、(2) Application が意図した利用者へ提示し、(3) 利用者が受領を明示的に確認し、(4) Application が現在の handoff に対する確認成立後だけ確定を要求し、(5) Core がその要求を認証・検証して Profile 作成を成功状態として確定した場合だけ成功する。生成・受渡しだけでは Profile を確定しない。Application は未確認時に確定要求を送らず、Core は利用者確認を独立検証しない。確定要求の認証・検証または最終確定が失敗した場合は新規 Profile または部分状態を成功状態として残さない。既存 Mnemonic の restore では、指定 Mnemonic、password、Store、duplicate 等の通常条件で Profile を作成でき、生成時の handoff confirmation は要求しない。 |
 | AC-002 | FR-002, FR-006, DR-002, SEC-001 | 保存 Mnemonic は暗号化対象であり平文永続保存されない。 |
 | AC-003 | FR-003, DR-005, DR-007, FR-024 | 正しいパスワード、Profile Network、指定 Chain から Derived Software Key を導出・妥当性確認・保存でき、同一 Chain の重複鍵を追加しない。導出、妥当性確認または保存に失敗した場合は Profile、既存 Software Key および秘密情報を変更しない。 |
 | AC-004 | FR-004, FR-018, FR-021, FR-024 | 認可・妥当性確認・保存に成功した Imported Software Key だけを登録し、失敗時は Profile、既存 Software Key および秘密情報を変更しない。 |
@@ -328,7 +328,7 @@ Desktop Application は Native C ABI、Node.js は Node-API Binding、Browser / 
 | AC-031 | SEC-014 | Binding / Application の要求だけでは認可できず、Core が正しい Profile パスワードを認可する。 |
 | AC-032 | SEC-015 | 初回 Mnemonic バックアップおよび明示的な個別エクスポートの成功結果を除き、外部出力・診断へ秘密情報または復元可能表現を含めない。エクスポートの失敗結果・診断出力には含めない。 |
 | AC-033 | DR-008 | Symbol / NEM の鍵・公開鍵・アドレス・署名・Network の互換性を `symbol-sdk` 3.3.2 と比較して判定できる。HD 復元互換性は仕様で固定した導出規則および deterministic fixture により判定する。特定の既存 Wallet 製品との互換性は、名称、version または commit、入力、期待値および fixture を明示した範囲に限り判定する。 |
-| AC-034 | FR-001, FR-019, SEC-010, SEC-017, SEC-018 | すべての新規 Mnemonic 生成時の初回 handoff は、(1) Core が完全な Mnemonic を意図された呼出し元 Application へ渡し、(2) Application が意図した利用者へ提示し、(3) 利用者が受領を明示的に確認し、(4) Application が確認成立を Core へ伝え、(5) Core がその確認に基づいて Profile 作成を成功状態として確定した場合だけ成功する。Core が生成したことだけ、Application が呼出しを行ったことだけ、handoff の未確認、受領不能、提示不能、利用者の拒否または確認未取得、完了確認不能、handoff の中断、最終確定処理の失敗では、新規 Profile または部分状態を成功状態として残さず、不要な宛先へ公開せず、途中内容をログ・診断情報へ残さない。handoff を行わずに新規 Profile を成功させる経路は提供しない。既存 Mnemonic の restore はこの handoff confirmation の対象外であり、受渡し後の保管・紛失防止は利用者および上位 Application / Package の責任とし、保存済み Mnemonic の通常取得には使用しない。 |
+| AC-034 | FR-001, FR-019, SEC-010, SEC-017, SEC-018 | すべての新規 Mnemonic 生成時の初回 handoff は、(1) Core が完全な Mnemonic を意図された呼出し元 Application へ渡し、(2) Application が意図した利用者へ提示し、(3) 利用者が受領を明示的に確認し、(4) Application が現在の handoff に対する確認成立後だけ確定を要求し、(5) Core がその要求を認証・検証して Profile 作成を成功状態として確定した場合だけ成功する。生成・受渡しだけでは Core は Profile を確定しない。Application は受領不能、提示不能、利用者の拒否、確認未取得または中断時に確定要求を送らない。Core は利用者確認を独立検証せず、確定要求の認証・検証または最終確定が失敗した場合に新規 Profile または部分状態を成功状態として残さない。不要な宛先へ公開せず、途中内容をログ・診断情報へ残さない。既存 Mnemonic の restore はこの handoff confirmation の対象外であり、受渡し後の保管・紛失防止は利用者および上位 Application / Package の責任とし、保存済み Mnemonic の通常取得には使用しない。 |
 | AC-035 | FR-004, FR-005, FR-021, §3.2, §3.3 | Mnemonic の生成・復元・取込みには BIP-0039（英語 24 語）基準を、Software Key の生成・取込み・HD Wallet からの導出には §3.3 の基準を一貫して適用し、Core が妥当性を判定する。失敗時に不完全状態、既存 Profile 変更または秘密情報返却を残さない。 |
 | AC-037 | SEC-017 | 一時的に扱った秘密情報を成功・失敗・中断後に継続利用可能状態または診断出力として残さない。 |
 | AC-038 | SEC-018 | Profile 作成、Derived / Imported / Generated Software Key 登録、パスワード変更・鍵削除・Profile 削除は成功時に全体反映し、失敗時に外部観測上の部分適用、不完全な秘密情報または既存データの破壊を残さない。 |
@@ -343,7 +343,7 @@ Desktop Application は Native C ABI、Node.js は Node-API Binding、Browser / 
 | AC-047 | FR-024, DR-005 | unsupported または不整合な Chain / Network、Profile Network と要求 Network の不一致、Software Key の固定 Chain と要求 Chain の不一致を拒否し、Profile、Software Key および秘密情報を変更・返却せず、別 Chain / Network へ fallback または暗黙変換しない。 |
 | AC-048 | FR-012, FR-017, SEC-005, SEC-018 | Application / persistence layer が current Store を選択・保存し、Core が成功時に返した replacement Store を適用し、stale / historical Store の再適用を防止する。Core は過去に返した Store を記憶せず、valid historical Store の freshness または rollback を単独で検出・拒否しない。current Store として正しく選択された状態で削除が成功した場合、Core の committed state と成功 replacement Store から対象秘密情報を再利用できない。malformed、tampered、authentication failure または unsupported version の fail-closed は SEC-004、DR-009 および SEC-018 に従い維持する。 |
 | AC-049 | SEC-023 | Core 自身が実装・管理する秘密情報処理に、不要な secret-dependent control flow、timing behavior または data access が導入されていないことを確認できる。third-party cryptographic library、compiler、runtime、OS、browser、hardware または CPU microarchitecture 内部の完全な side-channel absence はこの受入条件の保証対象外であり、具体方式・検証方法は下流へ委譲する。 |
-| AC-050 | FR-009, SEC-021, SEC-022 | Application / UI が現在の handoff、export または signing operation に対する利用者の確認・承認を取得し、過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用しない。Core は operation ごとの password authorization、request target / payload / AccountContext と assertion の仕様どおりの検証、pending の未確認状態からの非昇格を行うが、Application が実際に表示・確認したことや assertion freshness を独立には証明しない。retry / restart で Core 内 authorization を暗黙継承せず、v1 Core は challenge、nonce、expiry または one-shot token を追加しない。 |
+| AC-050 | FR-001, FR-009, SEC-021, SEC-022 | Application / UI が現在の handoff、export または signing operation に対する利用者の確認・承認を取得し、過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用しない。Core は operation ごとの password authorization、request target / payload / AccountContext と export / signing assertion の仕様どおりの検証を行う。handoff では Application が受領確認後だけ確定を要求し、Core は Pending Profile の認証・対象 Store との整合性を検証し、明示的な確定要求なしに Profile を確定しない。Core は handoff の確認 assertion を要求・検証せず、Application が実際に表示・確認したことや assertion freshness を独立には証明しない。retry / restart で Core 内 authorization を暗黙継承せず、v1 Core は challenge、nonce、expiry または one-shot token を追加しない。 |
 | AC-051 | NFR-006, NFR-014, FR-019 | React Native Android application から、platform-specific binding boundary を介して Wallet Core の v1 対象 operation を利用できる。利用経路は同一 Rust Wallet Core の処理を使用し、Node.js native addon または Browser / WASM runtime を通常経路として要求しない。 |
 | AC-052 | NFR-006, NFR-014, FR-019 | React Native iOS application から、platform-specific binding boundary を介して Wallet Core の v1 対象 operation を利用できる。利用経路は同一 Rust Wallet Core の処理を使用し、Node.js native addon または Browser / WASM runtime を通常経路として要求しない。 |
 | AC-053 | NFR-007 | repository が `nemnesia/symbol-nem-wallet-core` の単一 repository として維持され、npm consumer 向け公開 package が `@nemnesia/symbol-nem-wallet-core` に統一されている。React Native 専用 npm package がなく、内部ディレクトリ構造・build artifact・package exports の具体形式をこの受入条件だけで固定しない。 |
@@ -417,7 +417,7 @@ React Native version、Android API level、iOS version、CPU architecture、New 
 - メモリ上の秘密情報保持時間、所有権、コピー回数、zeroize / 解放方法
 - 生成 Mnemonic の初回 handoff の具体的な方式。すべての新規 Mnemonic 生成において handoff と利用者の受領確認を完了させる外部事実、責任主体、Profile 作成の成功条件および失敗時の扱いは本書で定める。既存 Mnemonic の restore は生成時 handoff の対象外とする。
 - Mnemonic 回復 / export、Software Key 秘密鍵 export の認可条件、利用者意思の確認方法および受渡し方式
-- handoff、export および signing における assertion の対象結合と、Application / UI が現在の利用者意思に基づく freshness を管理する具体方式。Core が Application の表示・確認または assertion freshness を独立証明しない境界は本書で定める。Core に challenge、nonce、expiry または one-shot token を追加する方式は v1 要件に含めない。
+- handoff における確認後の確定要求、および export / signing assertion の対象結合と、Application / UI が現在の利用者意思に基づく freshness を管理する具体方式。Core が Application の表示・確認または assertion freshness を独立証明しない境界は本書で定める。Core に challenge、nonce、expiry または one-shot token を追加する方式は v1 要件に含めない。
 - 署名対象内容の提示、利用者の明示的承認および署名要求の受渡し方式
 - Core 自身の秘密情報処理における SEC-023 の side-channel property の具体方式および検証。third-party library、compiler、runtime、OS、browser、hardware および CPU microarchitecture の保証範囲は本書で限定し、具体確認を下流へ委譲する。
 

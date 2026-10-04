@@ -23,6 +23,8 @@ Profile は1つの Mnemonic と Network を持ち、Network は作成時に固�
 
 ## npm を使う
 
+0.1.0 から更新する場合は [0.2.0 への移行](docs/migration/0.2.0.md) を確認してください。
+
 ### インストール
 
 ```bash

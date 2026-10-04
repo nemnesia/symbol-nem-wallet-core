@@ -27,10 +27,10 @@ const sourceDir = resolve(root, "source");
 const outputDir = resolve(root, "output");
 const registryPath = resolve(root, "registry.tgz");
 const archiveRoot = resolve(root, "archive");
-const VERSION = "0.1.0";
-const TAG = "v0.1.0";
+const VERSION = "0.2.0";
+const TAG = "v0.2.0";
 const COMMIT = "a".repeat(40);
-const tarballFilename = "nemnesia-symbol-nem-wallet-core-0.1.0.tgz";
+const tarballFilename = "nemnesia-symbol-nem-wallet-core-0.2.0.tgz";
 const packageMetadata = JSON.parse(readFileSync(resolve("packages/wallet-core", "package.json"), "utf8"));
 
 function hash(value) {

@@ -12,8 +12,7 @@ use symbol_nem_wallet_core::{
     prepare_generated_profile, restore_profile, sign, AccountContext, Chain, ErrorCode,
     ExportApplicationConfirmation, ExportApplicationConfirmationStatus, ExportRequest,
     ExportTarget, ExportUserRequest, ExportUserRequestStatus, Network, SigningApproval,
-    SigningApprovalStatus, SigningRequest,
-    SigningTarget, SoftwareKeyOrigin, WalletError,
+    SigningApprovalStatus, SigningRequest, SigningTarget, SoftwareKeyOrigin, WalletError,
 };
 
 const MNEMONIC: &[u8] = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
@@ -487,33 +486,22 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     );
     assert!(list_profiles(&store).unwrap().value.is_empty());
     assert_eq!(
-        finalize_generated_profile(
-            &store,
-            &prepared.value.pending_profile,
-            b"wrong",
-        )
-        .unwrap_err()
-        .code,
+        finalize_generated_profile(&store, &prepared.value.pending_profile, b"wrong",)
+            .unwrap_err()
+            .code,
         ErrorCode::AuthenticationFailed
     );
     assert!(list_profiles(&store).unwrap().value.is_empty());
 
-    let finalized = finalize_generated_profile(
-        &store,
-        &prepared.value.pending_profile,
-        PASSWORD,
-    )
-    .unwrap();
+    let finalized =
+        finalize_generated_profile(&store, &prepared.value.pending_profile, PASSWORD).unwrap();
     assert_eq!(finalized.value.network, Network::Testnet);
     assert_eq!(finalized.value.software_key_count, 0);
     assert_eq!(list_profiles(&finalized.store).unwrap().value.len(), 1);
 
-    let reused = finalize_generated_profile(
-        &finalized.store,
-        &prepared.value.pending_profile,
-        PASSWORD,
-    )
-    .unwrap_err();
+    let reused =
+        finalize_generated_profile(&finalized.store, &prepared.value.pending_profile, PASSWORD)
+            .unwrap_err();
     assert_eq!(reused.code, ErrorCode::PendingProfileInvalid);
     assert_eq!(
         restore_profile(

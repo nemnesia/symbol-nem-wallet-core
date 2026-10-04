@@ -8,6 +8,8 @@
 
 ## インストール
 
+0.1.0 から更新する場合は [0.2.0 への移行](../../docs/migration/0.2.0.md) を確認してください。
+
 ```bash
 npm install @nemnesia/symbol-nem-wallet-core
 ```
@@ -142,7 +144,7 @@ const account = get_public_account(
 console.log(account.value.address);
 ```
 
-`presentMnemonicAndWaitForExplicitConfirmation` は Application が実装する UI / handoff 処理です。Wallet Core が自動で確認する関数ではありません。サンプルを動かすためだけに常に `true` を返したり、確認なしで `confirmed` を渡したりしないでください。また Mnemonic を log / analytics / diagnostics へ出力しないでください。
+`presentMnemonicAndWaitForExplicitConfirmation` は Application が実装する UI / handoff 処理です。Wallet Core が自動で確認する関数ではありません。サンプルを動かすためだけに常に `true` を返したり、確認なしで確定を要求したりしないでください。また Mnemonic を log / analytics / diagnostics へ出力しないでください。
 
 ### 3. 既存 Wallet を復元する
 

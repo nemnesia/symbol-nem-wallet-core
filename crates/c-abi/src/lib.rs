@@ -32,9 +32,9 @@ use symbol_nem_wallet_core::{
     list_software_keys, prepare_generated_profile, restore_profile, sign, AccountContext, Chain,
     DecodeWarning, ErrorCode, ExportApplicationConfirmation, ExportApplicationConfirmationStatus,
     ExportRequest, ExportTarget, ExportUserRequest, ExportUserRequestStatus, MutationResult,
-    Network, ProfileInfo, PublicAccountInfo, ReadResult,
-    SigningApproval, SigningApprovalStatus, SigningRequest, SigningTarget, SoftwareKeyInfo,
-    SoftwareKeyListItem, SoftwareKeyOrigin, WalletError,
+    Network, ProfileInfo, PublicAccountInfo, ReadResult, SigningApproval, SigningApprovalStatus,
+    SigningRequest, SigningTarget, SoftwareKeyInfo, SoftwareKeyListItem, SoftwareKeyOrigin,
+    WalletError,
 };
 
 /// C callerから借用するbyte slice。Bindingは所有権を取得しない。

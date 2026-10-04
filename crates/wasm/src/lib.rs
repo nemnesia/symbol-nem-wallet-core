@@ -32,10 +32,9 @@ use symbol_nem_wallet_core::{
     restore_profile as core_restore_profile, sign as core_sign, AccountContext, Chain,
     DecodeWarning, ErrorCode, ExportApplicationConfirmation, ExportApplicationConfirmationStatus,
     ExportRequest, ExportTarget, ExportUserRequest, ExportUserRequestStatus, MnemonicExport,
-    MutationResult, Network, PreparedProfile,
-    PrivateKeyExport, ProfileInfo, PublicAccountInfo, Signature, SigningApproval,
-    SigningApprovalStatus, SigningRequest, SigningTarget, SoftwareKeyInfo, SoftwareKeyListItem,
-    SoftwareKeyOrigin, WalletError,
+    MutationResult, Network, PreparedProfile, PrivateKeyExport, ProfileInfo, PublicAccountInfo,
+    Signature, SigningApproval, SigningApprovalStatus, SigningRequest, SigningTarget,
+    SoftwareKeyInfo, SoftwareKeyListItem, SoftwareKeyOrigin, WalletError,
 };
 const MAX_MNEMONIC_INPUT_BYTES: usize = 1024 * 1024;
 const MAX_SIGNING_PAYLOAD_BYTES: usize = 1024 * 1024;

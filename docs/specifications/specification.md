@@ -329,13 +329,13 @@ Application は `prepare_generated_profile` が返した正確な Mnemonic 全�
 
 `finalize_generated_profile` は呼び出し時に Pending / Store / password を検証し、Profile の最終確定が成功して replacement Store が返された場合に限り成功する。handoff が未完了の場合に Application が finalize を呼ばないことは Application の責務である。Core は finalize 呼び出しから handoff の実施や freshness を独立証明しない。
 
-確認前、表示値不一致、受渡し失敗・中断、または `finalize_generated_profile` の失敗時は、新規 Profile を正常状態として残さず、replacement Store を返さず、Core / Binding が Mnemonic、Pending、または中間秘密情報を次の operation のために継続保持・cache・diagnostic output へ含めない。未確認 pending は committed Profile へ昇格させてはならない。
+Application は確認前、表示値不一致または受渡し失敗・中断時に `finalize_generated_profile` を呼ばず、未確定の Pending Profile を正常 Profile として扱ってはならない。Core は受領確認を独立検証しない。`finalize_generated_profile` の失敗時は新規 Profile を正常状態として残さず、replacement Store を返さない。Core / Binding は Mnemonic、Pending、または中間秘密情報を次の operation のために継続保持・cache・diagnostic output へ含めない。
 
 `PendingProfileBlob` は Core 内部の versioned opaque blob とし、Wallet Store の wire-level 互換契約には含めない。外部契約として、format version を識別でき、`prepare_generated_profile` に渡した対象 Store と結び付き、Profile password で保護され、改ざん・破損を検知できることだけを要求する。具体的な CBOR key、内部 envelope schema、nonce構造、期限および再利用回数は公開契約に含めない。
 
 `finalize_generated_profile` は、同じ Profile password、Pending、対象 Store、Profile schema および既存 Profile との整合性を検証する。対象 Storeとの結合が一致しない、Pendingのversionが未対応、Pendingが改ざん・破損している、stale である、またはProfile作成条件を満たさない場合は `PendingProfileInvalid` とする。Pendingのpassword認証または保護データの認証に失敗した場合は、§6.4 に従い `AuthenticationFailed` とする。仕様の整合性を満たす対象 Storeで既存Profileと同一 Mnemonic + Network になる場合は `DuplicateProfile` とする。
 
-中断時は Core / Binding が保持する pending state を破棄する。Application が保持する `PendingProfileBlob` は opaque な外部値に過ぎず、restart または retry で自動復元・authorization 継承・Profile 昇格に使用してはならない。Application がそれを新しい operation に再提供する場合も、現在の Pending validation、confirmation および password 条件を改めて満たさなければならない。
+中断時は Core / Binding が保持する pending state を破棄する。Application が保持する `PendingProfileBlob` は opaque な外部値に過ぎず、restart または retry で自動復元・authorization 継承・Profile 昇格に使用してはならない。Application がそれを新しい operation に再提供する場合も、Application が現在の handoff の受領確認を改めて取得してから確定を要求し、Core が現在の Pending validation および password 条件を改めて検証しなければならない。
 
 ### 8.2 復元 Profile
 

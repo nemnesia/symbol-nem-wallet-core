@@ -92,7 +92,7 @@ export function validateNpmRepositoryMetadata(metadata, label = "npm package met
 export function validateNpmPackageMetadata(metadata, label = "npm package metadata") {
   if (!isPlainObject(metadata)) fail(`${label} is not an object`);
   exactKeys(metadata, EXPECTED_NPM_PACKAGE_KEYS, label);
-  if (metadata.name !== "@nemnesia/symbol-nem-wallet-core" || metadata.version !== "0.1.0") {
+  if (metadata.name !== "@nemnesia/symbol-nem-wallet-core" || metadata.version !== "0.2.0") {
     fail(`${label} package identity is not the formal production package`);
   }
   validateNpmRepositoryMetadata(metadata, label);
