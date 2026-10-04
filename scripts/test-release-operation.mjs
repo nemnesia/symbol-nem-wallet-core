@@ -27,7 +27,9 @@ import {
   validateRecoveryWorkflowBoundary,
   validateReleaseWorkflowBoundary,
   validateSpdxReleaseIdentity,
+  validateNpmTarballReactNativeManifest,
 } from "./release-operation.mjs";
+import { REACT_NATIVE_TARGETS } from "../packages/wallet-core/src/react-native-manifest.mjs";
 import { validateReleaseIdentity } from "./release-identity.mjs";
 import {
   PROVENANCE_PREDICATE_TYPES,
@@ -135,6 +137,35 @@ const valid = validateReleaseOperationIdentity(identityFixture());
 assert.equal(valid.environment, RELEASE_ENVIRONMENT);
 assert.equal(valid.provenance_required, true);
 assert.equal(valid.trusted_publishing, "npm-oidc");
+
+const reactNativePackageMetadata = {
+  name: "@nemnesia/symbol-nem-wallet-core",
+  version: VERSION,
+};
+const reactNativeTarballManifest = {
+  schema_version: 1,
+  package_name: reactNativePackageMetadata.name,
+  package_version: reactNativePackageMetadata.version,
+  source_commit: COMMIT,
+  artifacts: Object.entries(REACT_NATIVE_TARGETS).map(([targetId, target]) => ({
+    target_id: targetId,
+    platform: target.platform,
+    environment: target.environment,
+    architecture: target.architecture,
+    relative_path: target.relativePath,
+    artifact_filename: target.artifactFilename,
+    sha256: "a".repeat(64),
+    toolchain_identifier: `test-${targetId}`,
+  })),
+};
+assert.deepEqual(
+  validateNpmTarballReactNativeManifest(Buffer.from(JSON.stringify(reactNativeTarballManifest)), reactNativePackageMetadata),
+  reactNativeTarballManifest,
+);
+expectFailure(
+  () => validateNpmTarballReactNativeManifest(Buffer.from("{}"), reactNativePackageMetadata),
+  /npm tarball React Native artifact manifest is invalid/,
+);
 
 expectFailure(() => validateReleaseOperationIdentity(identityFixture({ tag: "v0.1.0.invalid" })), /tag\/version mismatch/);
 expectFailure(() => validateReleaseOperationIdentity(identityFixture({ tag: "v0.1.1" })), /tag\/version mismatch/);

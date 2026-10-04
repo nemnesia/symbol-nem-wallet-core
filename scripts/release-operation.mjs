@@ -18,6 +18,7 @@ import {
   CANONICAL_REACT_NATIVE_TARGET_ORDER,
   REACT_NATIVE_TARGETS,
   inspectReactNativeArtifact,
+  validateReactNativeManifest,
 } from "../packages/wallet-core/src/react-native-manifest.mjs";
 import {
   consumerGemfileLockSha256,
@@ -515,6 +516,15 @@ function validateWasmEvidence(releaseDir, manifest, sourceCommit) {
   }
 }
 
+export function validateNpmTarballReactNativeManifest(manifestBytes, packageMetadata) {
+  try {
+    const reactNativeManifest = JSON.parse(manifestBytes.toString("utf8"));
+    return validateReactNativeManifest(reactNativeManifest, packageMetadata, { requireComplete: true });
+  } catch {
+    fail("npm tarball React Native artifact manifest is invalid");
+  }
+}
+
 function validateTarball(releaseDir, manifest, recovery) {
   const tarballPath = requiredFile(releaseDir, manifest.npm_tarball.filename, "npm tarball");
   if (basename(tarballPath) !== manifest.npm_tarball.filename) fail("npm tarball filename is unsafe");
@@ -555,15 +565,8 @@ function validateTarball(releaseDir, manifest, recovery) {
       if (!isPlainObject(expectedArtifact) || runtime.relative_path !== expectedArtifact.relative_path || runtime.sha256 !== expectedArtifact.sha256 || artifactBytes.length !== expectedArtifact.size) fail(`native artifact in npm tarball differs from the release manifest: ${artifact.target_id}`);
     }
   }
-  let reactNativeManifest;
-  let reactNativeManifestBytes;
-  try {
-    reactNativeManifestBytes = readTarEntry(tarballPath, "package/dist/react-native/artifact-manifest.json");
-    reactNativeManifest = JSON.parse(reactNativeManifestBytes.toString("utf8"));
-    validateReactNativeManifest(reactNativeManifest, metadata, { requireComplete: true });
-  } catch {
-    fail("npm tarball React Native artifact manifest is invalid");
-  }
+  const reactNativeManifestBytes = readTarEntry(tarballPath, "package/dist/react-native/artifact-manifest.json");
+  const reactNativeManifest = validateNpmTarballReactNativeManifest(reactNativeManifestBytes, metadata);
   if (sha256(reactNativeManifestBytes, "React Native artifact manifest in npm tarball") !== manifest.react_native.artifact_manifest.sha256) {
     fail("npm tarball React Native artifact manifest differs from the release manifest");
   }
