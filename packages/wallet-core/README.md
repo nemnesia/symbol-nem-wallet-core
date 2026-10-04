@@ -28,6 +28,8 @@ ESM の public entry point は package root だけです。
 
 ```ts
 import {
+  Chain,
+  Network,
   create_empty_store,
   restore_profile,
 } from "@nemnesia/symbol-nem-wallet-core";
@@ -79,10 +81,12 @@ derive_software_key
 get_public_account
 ```
 
-`prepare_generated_profile` は Mnemonic と Pending Profile を返しますが、まだ Profile は Store に確定されません。Application が Mnemonic 全体を intended user に提示し、**現在の操作について明示的な受領確認を得た後だけ** `finalize_generated_profile(..., { status: "confirmed" })` を呼び出してください。
+`prepare_generated_profile` は Mnemonic と Pending Profile を返しますが、まだ Profile は Store に確定されません。Application が Mnemonic 全体を intended user に提示し、**現在の操作について明示的な受領確認を得た後だけ** `finalize_generated_profile` を呼び出してください。Core は呼び出しから handoff の実施を独立検証しません。
 
 ```ts
 import {
+  Chain,
+  Network,
   create_empty_store,
   derive_software_key,
   finalize_generated_profile,
@@ -98,7 +102,7 @@ if (passwordText === undefined) {
 const password_utf8 = new TextEncoder().encode(passwordText);
 let store = create_empty_store();
 
-const prepared = prepare_generated_profile(store, password_utf8, 1);
+const prepared = prepare_generated_profile(store, password_utf8, Network.MAINNET);
 
 // Application側の責任:
 // 1. prepared.value.mnemonic_utf8全体を意図した利用者に安全に提示する。
@@ -115,7 +119,6 @@ const finalized = finalize_generated_profile(
   store,
   prepared.value.pending_profile,
   password_utf8,
-  { status: "confirmed" },
 );
 store = finalized.store;
 
@@ -123,7 +126,7 @@ const derived = derive_software_key(
   store,
   finalized.value.profile_id,
   password_utf8,
-  1, // symbol
+  Chain.SYMBOL,
   0, // account index
 );
 store = derived.store;
@@ -147,6 +150,8 @@ console.log(account.value.address);
 
 ```ts
 import {
+  Chain,
+  Network,
   create_empty_store,
   derive_software_key,
   get_public_account,
@@ -164,14 +169,14 @@ const mnemonic_utf8 = encoder.encode(mnemonicText);
 const password_utf8 = encoder.encode(passwordText);
 
 let store = create_empty_store();
-const restored = restore_profile(store, mnemonic_utf8, password_utf8, 1);
+const restored = restore_profile(store, mnemonic_utf8, password_utf8, Network.MAINNET);
 store = restored.store;
 
 const derived = derive_software_key(
   store,
   restored.value.profile_id,
   password_utf8,
-  1,
+  Chain.SYMBOL,
   0,
 );
 store = derived.store;
@@ -187,7 +192,7 @@ const account = get_public_account(
 console.log(account.value.address);
 ```
 
-`Network` / `Chain` の top-level input は `0 = testnet / nem`、`1 = mainnet / symbol` です。output DTO では `"testnet" | "mainnet"`、`"nem" | "symbol"` を使用します。
+top-level の `Network` / `Chain` 引数には、export された `Network.TESTNET` / `Network.MAINNET` と `Chain.NEM` / `Chain.SYMBOL` を使えます。値はそれぞれ `0` / `1` です。output DTO の Network / Chain は引き続き `"testnet" | "mainnet"`、`"nem" | "symbol"` の文字列です。
 
 ### Store を必ず置き換える
 
@@ -195,13 +200,13 @@ console.log(account.value.address);
 
 ## 公開関数 (16)
 
-package root の runtime export は次の16関数だけです。TypeScript の `interface`、`type` alias、error declaration は runtime named export ではありません。関数はすべて同期呼び出しで、`Promise` を返しません。
+package root は次の16関数と `Network` / `Chain` 定数を runtime export します。TypeScript の `interface`、`type` alias、error declaration は runtime named export ではありません。関数はすべて同期呼び出しで、`Promise` を返しません。
 
 | 関数 | 引数 | 戻り値の型 | 状態変更 / 読み取り | 目的 |
 | --- | --- | --- | --- | --- |
 | `create_empty_store` | なし | `Uint8Array` | Factory | 空の Wallet Store を作る |
 | `prepare_generated_profile` | `store`, `password_utf8`, `network` | `PreparedProfileResult` (`ReadResult<PreparedProfile>`) | Read / pending | 新しい Mnemonic と Pending Profile を準備する。Profile はまだ確定しない |
-| `finalize_generated_profile` | `store`, `pending_profile`, `password_utf8`, `handoff_confirmation` | `ProfileMutationResult` (`MutationResult<ProfileInfo>`) | Mutation | handoff 確認済みの Pending Profile を Profile として確定する |
+| `finalize_generated_profile` | `store`, `pending_profile`, `password_utf8` | `ProfileMutationResult` (`MutationResult<ProfileInfo>`) | Mutation | Pending Profile を確定する。Application は handoff 確認後だけ呼ぶ |
 | `restore_profile` | `store`, `mnemonic_utf8`, `password_utf8`, `network` | `ProfileMutationResult` (`MutationResult<ProfileInfo>`) | Mutation | 既存 Mnemonic から Profile を復元する |
 | `list_profiles` | `store` | `ProfileListResult` (`ReadResult<ProfileInfo[]>`) | Read | Profile の公開 index を一覧する |
 | `export_mnemonic` | `store`, `request`, `password_utf8` | `MnemonicExportResult` (`ReadResult<MnemonicExport>`) | Read / explicit export | 条件を満たす明示的な Mnemonic export を行う |
@@ -224,8 +229,8 @@ package root の runtime export は次の16関数だけです。TypeScript の `
 
 | 型 | TypeScript表現と意味 |
 | --- | --- |
-| `Network` | `0 \| 1`。top-level input では `0 = testnet`, `1 = mainnet` |
-| `Chain` | `0 \| 1`。top-level input では `0 = nem`, `1 = symbol` |
+| `Network` | `Network.TESTNET = 0`, `Network.MAINNET = 1`。top-level input 用の定数 |
+| `Chain` | `Chain.NEM = 0`, `Chain.SYMBOL = 1`。top-level input 用の定数 |
 | `NetworkName` | `"testnet" \| "mainnet"`。output DTO の表現 |
 | `ChainName` | `"nem" \| "symbol"`。output DTO の表現 |
 | `ProfileId` | `string`。ハイフン区切り UUID |
@@ -237,11 +242,6 @@ package root の runtime export は次の16関数だけです。TypeScript の `
 ### 確認、request、context
 
 ```ts
-HandoffConfirmationStatus = "unconfirmed" | "confirmed";
-HandoffConfirmation = {
-  status: HandoffConfirmationStatus;
-}
-
 ExportTarget =
   | { kind: "mnemonic"; profile_id: ProfileId; key_id?: undefined }
   | { kind: "software_key"; profile_id: ProfileId; key_id: SoftwareKeyId };
@@ -367,12 +367,12 @@ Application / persistence layer は、保存に成功した replacement Store �
 1. `prepare_generated_profile` が `PreparedProfile` として Mnemonic 全体および opaque `pending_profile` を返す。
 2. Application が Mnemonic 全体を intended user に提示する。
 3. User の明示的な受領確認を Application が取得する。
-4. Application が同じ Pending / Store / password と `{ status: "confirmed" }` を使って `finalize_generated_profile` を呼ぶ。
+4. Application が同じ Pending / Store / password で `finalize_generated_profile` を呼ぶ。
 
-確認は Application が現在の利用者から取得する assertion です。Application が status を都合よく生成したり、過去の確認を再利用したりしてはいけません。確認を取得できない、Pending が破損している、対象 Store と一致しない、password authorization に失敗する、または finalize に失敗する場合、Profile は成功状態になりません。
+Application が Mnemonic handoff の確認を取得できない場合は finalize を呼びません。Core は呼び出し自体を確定要求として扱い、handoff 確認が実際に行われたかは独立検証しません。Pending が破損している、対象 Store と一致しない、password authorization に失敗する、または finalize に失敗する場合、Profile は成功状態になりません。
 
 ```ts
-const prepared = prepare_generated_profile(store, password_utf8, 1);
+const prepared = prepare_generated_profile(store, password_utf8, Network.MAINNET);
 
 // Application側で実装するplaceholder:
 // mnemonic_utf8全体を意図した利用者に提示し、現在の利用者から明示確認を取得する。
@@ -386,12 +386,11 @@ const finalized = finalize_generated_profile(
   store,
   prepared.value.pending_profile,
   password_utf8,
-  { status: "confirmed" },
 );
 store = finalized.store;
 ```
 
-上の `presentMnemonicToIntendedUser` と `waitForExplicitUserHandoffConfirmation` は Application が実装する placeholder です。確認 UI を実装しないまま `confirmed` を固定して呼び出してはいけません。`restore_profile` で既存 Mnemonic を復元する処理は、生成時 handoff の対象ではありません。
+上の `presentMnemonicToIntendedUser` と `waitForExplicitUserHandoffConfirmation` は Application が実装する placeholder です。確認を取得できなければ finalize を呼びません。`restore_profile` で既存 Mnemonic を復元する処理は、生成時 handoff の対象ではありません。
 
 ### Mnemonic / private keyのexport
 

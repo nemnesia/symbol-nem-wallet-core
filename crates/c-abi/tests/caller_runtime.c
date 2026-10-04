@@ -53,22 +53,10 @@ int main(void) {
     SnwcOwnedBytes finalized = {NULL, 0};
     SnwcProfileInfo finalized_profile = {{0}, 0, 0};
     SnwcWarnings finalize_warnings = {NULL, 0};
-    SnwcHandoffConfirmation unconfirmed = {0};
     assert(snwc_finalize_generated_profile(
                borrowed(empty.ptr, empty.len),
                borrowed(generated_pending.ptr, generated_pending.len),
                borrowed(password, sizeof(password) - 1),
-               unconfirmed,
-               &finalized,
-               &finalized_profile,
-               &finalize_warnings) != NULL);
-    assert(finalized.ptr == NULL && finalized.len == 0);
-    SnwcHandoffConfirmation confirmed = {1};
-    assert(snwc_finalize_generated_profile(
-               borrowed(empty.ptr, empty.len),
-               borrowed(generated_pending.ptr, generated_pending.len),
-               borrowed(password, sizeof(password) - 1),
-               confirmed,
                &finalized,
                &finalized_profile,
                &finalize_warnings) == NULL);

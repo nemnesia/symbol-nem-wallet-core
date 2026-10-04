@@ -88,7 +88,7 @@ delete_software_key
 delete_profile
 ```
 
-上記以外の runtime export を追加しない。特に次を公開しない。
+上記16 function と `Network` / `Chain` value object 以外の runtime export を追加しない。特に次を公開しない。
 
 - `WalletCore` class
 - default export
@@ -96,12 +96,12 @@ delete_profile
 - backend object、native addon object、raw wasm-bindgen module
 - runtime `ErrorCode` object、debug helper、manifest loader
 
-React Native の `react-native` conditional entry は上記 16 function を同じ root facade として
-提供するための private backend resolution であり、named export、backend selector、native object
-または RN-specific public API を追加しない。
+React Native の `react-native` conditional entry は上記16 function と `Network` / `Chain` 定数を
+同じ root facade として提供するための private backend resolution であり、backend selector、native
+object または RN-specific public API を追加しない。
 
 `type`、`interface`、generic result alias および error declaration は TypeScript declaration
-上の型であり、runtime named export の数を増やさない。
+上の型であり、runtime named export ではない。`Network` / `Chain` は runtime constant export でもある。
 
 ### 3.2 Facade の責任
 
@@ -131,11 +131,11 @@ approval、export intent、authorization または Network / Chain policy を生
 ### 4.1 TypeScript の scalar 型
 
 ```ts
-export type Network = 0 | 1;
-// 0 = Testnet, 1 = Mainnet
+export const Network: Readonly<{ TESTNET: 0; MAINNET: 1 }>;
+export type Network = (typeof Network)[keyof typeof Network];
 
-export type Chain = 0 | 1;
-// 0 = NEM, 1 = Symbol
+export const Chain: Readonly<{ NEM: 0; SYMBOL: 1 }>;
+export type Chain = (typeof Chain)[keyof typeof Chain];
 
 export type NetworkName = "testnet" | "mainnet";
 export type ChainName = "nem" | "symbol";
@@ -149,6 +149,9 @@ export type AccountIndex = number;
 argument にだけ使用する。 `AccountContext`、`ProfileInfo`、`SoftwareKeyInfo`、
 `SoftwareKeyListItem` および `PublicAccountInfo` の `network` / `chain` は、現在の
 Node/WASM output surface と同じ `NetworkName` / `ChainName` string representation とする。
+`Network` と `Chain` は、それぞれ `TESTNET = 0` / `MAINNET = 1`、`NEM = 0` / `SYMBOL = 1`
+を持つ immutable な value object としても export する。これらは numeric input の名前付き値であり、
+output DTO の string representation は変更しない。
 
 `AccountIndex` は TypeScript の number representation であり、runtime では finite、整数、
 `0 <= account_index <= 2_147_483_647` を満たさなければならない。`NaN`、infinity、fraction、
@@ -192,19 +195,15 @@ variant の `key_id` だけであり、値は absent または `undefined` と�
 含めない。
 
 ```ts
-export type Network = 0 | 1;
-export type Chain = 0 | 1;
+export declare const Network: Readonly<{ TESTNET: 0; MAINNET: 1 }>;
+export type Network = (typeof Network)[keyof typeof Network];
+export declare const Chain: Readonly<{ NEM: 0; SYMBOL: 1 }>;
+export type Chain = (typeof Chain)[keyof typeof Chain];
 export type NetworkName = "testnet" | "mainnet";
 export type ChainName = "nem" | "symbol";
 export type ProfileId = string;
 export type SoftwareKeyId = string;
 export type AccountIndex = number;
-
-export type HandoffConfirmationStatus = "unconfirmed" | "confirmed";
-
-export interface HandoffConfirmation {
-  status: HandoffConfirmationStatus;
-}
 
 export type MnemonicExportTarget = {
   kind: "mnemonic";
@@ -384,7 +383,6 @@ export function finalize_generated_profile(
   store: Uint8Array,
   pending_profile: Uint8Array,
   password_utf8: Uint8Array,
-  handoff_confirmation: HandoffConfirmation,
 ): ProfileMutationResult;
 
 export function restore_profile(
@@ -520,12 +518,12 @@ generation、fee または chain-specific serialization を解釈しない。
 
 ## 7. DTO のセキュリティ契約
 
-`HandoffConfirmation`、`ExportRequest`、`SigningRequest`、`AccountContext` の field は
-省略、再命名、既定値補完または暗黙変換をしない。次の条件は Core の既存仕様をそのまま
-維持する。
+`ExportRequest`、`SigningRequest`、`AccountContext` の field は省略、再命名、既定値補完
+または暗黙変換をしない。次の条件は Core の既存仕様をそのまま維持する。
 
-- `finalize_generated_profile` は `confirmed` handoff の確認条件が成立する場合だけ
-  pending profile を committed Store へ移す。
+- `finalize_generated_profile` は Application が Mnemonic handoff の明示確認を取得した後だけ
+  呼ぶ。handoff confirmation は API input に含めず、Core は Application が確認したことを
+  独立検証しない。
 - `export_mnemonic` は `MnemonicExportTarget`、`export_private_key` は
   `SoftwareKeyExportTarget` だけを対象とし、`target`、`user_request.target`、
   `application_confirmation.target` の一致、要求 status、confirmation status、

@@ -38,13 +38,6 @@ pub const NODE_OPERATION_NAMES: [&str; 16] = [
     "delete_profile",
 ];
 
-/// 初回Profile handoffの入力。
-#[napi(object)]
-pub struct HandoffConfirmationInput {
-    /// `unconfirmed`または`confirmed`。
-    pub status: String,
-}
-
 /// Export対象の入力。
 #[napi(object)]
 pub struct ExportTargetInput {
@@ -550,16 +543,6 @@ fn parse_uuid_input(value: Unknown<'_>) -> Result<Uuid> {
     parse_uuid(&value)
 }
 
-fn parse_handoff_confirmation(value: Unknown<'_>) -> Result<core::HandoffConfirmation> {
-    let value: HandoffConfirmationInput = convert_object_representation(value)?;
-    let status = match value.status.as_str() {
-        "unconfirmed" => core::HandoffConfirmationStatus::Unconfirmed,
-        "confirmed" => core::HandoffConfirmationStatus::Confirmed,
-        _ => return Err(invalid_argument()),
-    };
-    Ok(core::HandoffConfirmation { status })
-}
-
 fn parse_export_target(value: ExportTargetInput) -> Result<core::ExportTarget> {
     let profile_id = parse_uuid(&value.profile_id)?;
     match value.kind.as_str() {
@@ -799,15 +782,12 @@ pub fn finalize_generated_profile(
     #[napi(ts_arg_type = "Uint8Array")] store: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] pending_profile: Unknown<'_>,
     #[napi(ts_arg_type = "Uint8Array")] password_utf8: Unknown<'_>,
-    #[napi(ts_arg_type = "HandoffConfirmationInput")] handoff_confirmation: Unknown<'_>,
 ) -> Result<JsObject> {
     let store = store_bytes(&store)?;
     let pending_profile = copy_fixed_bytes(&pending_profile, 134)?;
     let password = copy_bytes(&password_utf8, None)?;
-    let handoff_confirmation = parse_handoff_confirmation(handoff_confirmation)?;
-    let result =
-        core::finalize_generated_profile(&store, &pending_profile, &password, handoff_confirmation)
-            .map_err(core_error)?;
+    let result = core::finalize_generated_profile(&store, &pending_profile, &password)
+        .map_err(core_error)?;
     let core::MutationResult {
         store,
         value: core_value,

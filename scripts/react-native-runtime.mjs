@@ -13,9 +13,13 @@ export function inlineReactNativeRuntime(entryPath, runtimePaths, reactNativeMan
     },
   ];
   for (const { importLine, runtimePath } of replacements) {
-    const runtime = readFileSync(runtimePath, "utf8")
+    let runtime = readFileSync(runtimePath, "utf8")
       .replace(/^export \{[^;]+;\n?/gm, "")
       .replace(/^export /gm, "");
+    if (runtimePath.endsWith("facade-runtime.mjs")) {
+      // Keep runtime declarations separate from the entry point's public exports.
+      runtime = `const createFacade = (() => {\n${runtime}\nreturn createFacade;\n})();\n`;
+    }
     source = source.replace(importLine, runtime);
   }
   const manifestDeclaration = "const PACKAGE_REACT_NATIVE_MANIFEST = null;";

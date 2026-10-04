@@ -41,10 +41,6 @@ typedef struct {
 } SnwcOwnedBytes;
 
 typedef struct {
-    uint8_t status; /* 0 = unconfirmed, 1 = confirmed */
-} SnwcHandoffConfirmation;
-
-typedef struct {
     uint8_t kind; /* 0 = mnemonic, 1 = software key */
     SnwcUuid profile_id;
     SnwcUuid key_id; /* used for software key target */
@@ -140,7 +136,6 @@ const char *snwc_finalize_generated_profile(
     SnwcBytes store,
     SnwcBytes pending_profile,
     SnwcBytes password_utf8,
-    SnwcHandoffConfirmation handoff_confirmation,
     SnwcOwnedBytes *out_store,
     SnwcProfileInfo *out_profile,
     SnwcWarnings *out_warnings);

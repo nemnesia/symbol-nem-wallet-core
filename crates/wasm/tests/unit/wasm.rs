@@ -104,10 +104,6 @@ impl Drop for PropertyDeleteRestore {
     }
 }
 
-fn handoff(status: &str) -> JsValue {
-    object(&[("status", JsValue::from_str(status))])
-}
-
 fn export_target(profile_id: &str, key_id: Option<&str>) -> JsValue {
     let kind = if key_id.is_some() {
         "software_key"
@@ -187,17 +183,6 @@ fn detached_uint8_array(value: &[u8]) -> Uint8Array {
     buffer.transfer().expect("ArrayBuffer.transfer is required");
     assert!(buffer.detached());
     array
-}
-
-fn throwing_status_object() -> JsValue {
-    let object = Object::new();
-    let descriptor = Object::new();
-    let getter = Closure::once_into_js(|| -> JsValue {
-        wasm_bindgen::throw_str("test getter failure");
-    });
-    Reflect::set(&descriptor, &JsValue::from_str("get"), &getter).unwrap();
-    assert!(Reflect::define_property(&object, &JsValue::from_str("status"), &descriptor,).unwrap());
-    object.into()
 }
 
 fn unreadable_uint8_array() -> Uint8Array {
@@ -328,7 +313,6 @@ fn wasm_secret_boundaries_and_core_parity() {
         &empty_store,
         &Uint8Array::from(pending.as_slice()),
         &password,
-        &handoff("confirmed"),
     )
     .unwrap();
     assert!(!mutation_store(&finalized).is_empty());
@@ -672,37 +656,15 @@ fn wasm_secret_boundaries_and_core_parity() {
 fn wasm_assertion_context_and_binding_failure_contracts() {
     let password = Uint8Array::from(PASSWORD);
     let empty_store = create_empty_store().unwrap();
-    let prepared = prepare_generated_profile(&empty_store, &password, 1.0).unwrap();
-    let prepared_value = value(&prepared);
-    let pending = bytes_field(&prepared_value, "pending_profile");
     for malformed_pending in [vec![0u8; 1024 * 1024], vec![0u8; 133]] {
         let error = finalize_generated_profile(
             &empty_store,
             &Uint8Array::from(malformed_pending.as_slice()),
             &password,
-            &handoff("confirmed"),
         )
         .unwrap_err();
         assert_eq!(error.as_string().as_deref(), Some("PendingProfileInvalid"));
     }
-    let unconfirmed =
-        finalize_generated_profile(&empty_store, &pending, &password, &handoff("unconfirmed"))
-            .unwrap_err();
-    assert_eq!(unconfirmed.as_string().as_deref(), Some("InvalidArgument"));
-    let missing_handoff =
-        finalize_generated_profile(&empty_store, &pending, &password, &object(&[])).unwrap_err();
-    assert_eq!(
-        missing_handoff.as_string().as_deref(),
-        Some("InvalidArgument")
-    );
-    let unknown_handoff =
-        finalize_generated_profile(&empty_store, &pending, &password, &handoff("unknown"))
-            .unwrap_err();
-    assert_eq!(
-        unknown_handoff.as_string().as_deref(),
-        Some("InvalidArgument")
-    );
-
     let restored =
         restore_profile(&empty_store, &Uint8Array::from(MNEMONIC), &password, 1.0).unwrap();
     let restored_store = mutation_store(&restored);
@@ -860,7 +822,6 @@ fn wasm_detached_and_unreadable_inputs_fail_closed() {
         &empty_store,
         &detached_pending,
         &password,
-        &handoff("confirmed"),
     ));
     let detached_private_key = detached_uint8_array(&[0x11; 32]);
     assert_binding_failure(import_software_key(
@@ -888,16 +849,6 @@ fn wasm_detached_and_unreadable_inputs_fail_closed() {
     )
     .unwrap();
     assert_binding_failure(sign(&empty_store, &detached_signing_request, &password));
-
-    // 例外を投げるDTO getterは、実際のReflect::get変換failureとして扱う。
-    let empty_pending = Uint8Array::new_with_length(0);
-    let empty_password = Uint8Array::new_with_length(0);
-    assert_binding_failure(finalize_generated_profile(
-        &empty_store,
-        &empty_pending,
-        &empty_password,
-        &throwing_status_object(),
-    ));
 
     // attachされた長さ0のpayloadは、空のbyte列として扱う。有効な対象ならCoreへ渡してsignatureを生成し、
     // BindingFailureに分類しない。

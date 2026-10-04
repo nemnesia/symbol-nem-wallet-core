@@ -8,7 +8,6 @@
 typedef struct { const uint8_t *ptr; size_t len; } SnwcBytes;
 typedef struct { uint8_t bytes[16]; } SnwcUuid;
 typedef struct { uint8_t *ptr; size_t len; } SnwcOwnedBytes;
-typedef struct { uint8_t status; } SnwcHandoffConfirmation;
 typedef struct { uint8_t kind; SnwcUuid profile_id; SnwcUuid key_id; } SnwcExportTarget;
 typedef struct { SnwcExportTarget target; uint8_t status; } SnwcExportUserRequest;
 typedef struct { SnwcExportTarget target; uint8_t status; } SnwcExportApplicationConfirmation;
@@ -46,7 +45,7 @@ extern "C" {
 
 const char *snwc_create_empty_store(SnwcOwnedBytes *out);
 const char *snwc_prepare_generated_profile(SnwcBytes, SnwcBytes, uint8_t, SnwcOwnedBytes *, SnwcOwnedBytes *, SnwcWarnings *);
-const char *snwc_finalize_generated_profile(SnwcBytes, SnwcBytes, SnwcBytes, SnwcHandoffConfirmation, SnwcOwnedBytes *, SnwcProfileInfo *, SnwcWarnings *);
+const char *snwc_finalize_generated_profile(SnwcBytes, SnwcBytes, SnwcBytes, SnwcOwnedBytes *, SnwcProfileInfo *, SnwcWarnings *);
 const char *snwc_restore_profile(SnwcBytes, SnwcBytes, SnwcBytes, uint8_t, SnwcOwnedBytes *, SnwcProfileInfo *, SnwcWarnings *);
 const char *snwc_export_mnemonic(SnwcBytes, SnwcExportRequest, SnwcBytes, SnwcOwnedBytes *, SnwcWarnings *);
 const char *snwc_export_private_key(SnwcBytes, SnwcExportRequest, SnwcBytes, SnwcOwnedBytes *, SnwcWarnings *);

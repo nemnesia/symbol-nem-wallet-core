@@ -31,8 +31,8 @@ pub use error::{ErrorCode, WalletError, WalletResult};
 pub use types::{
     AccountContext, Chain, DecodeWarning, ExportApplicationConfirmation,
     ExportApplicationConfirmationStatus, ExportRequest, ExportTarget, ExportUserRequest,
-    ExportUserRequestStatus, HandoffConfirmation, HandoffConfirmationStatus, MnemonicExport,
-    MutationResult, Network, PendingProfileBlob, PreparedProfile, PrivateKeyExport, ProfileId,
+    ExportUserRequestStatus, MnemonicExport, MutationResult, Network, PendingProfileBlob,
+    PreparedProfile, PrivateKeyExport, ProfileId,
     ProfileInfo, PublicAccountInfo, ReadResult, Signature, SigningApproval, SigningApprovalStatus,
     SigningRequest, SigningTarget, SoftwareKeyId, SoftwareKeyInfo, SoftwareKeyListItem,
     SoftwareKeyOrigin, WalletStoreBlob,

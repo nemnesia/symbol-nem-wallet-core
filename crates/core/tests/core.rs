@@ -11,8 +11,8 @@ use symbol_nem_wallet_core::{
     get_public_account, import_software_key, list_profiles, list_software_keys,
     prepare_generated_profile, restore_profile, sign, AccountContext, Chain, ErrorCode,
     ExportApplicationConfirmation, ExportApplicationConfirmationStatus, ExportRequest,
-    ExportTarget, ExportUserRequest, ExportUserRequestStatus, HandoffConfirmation,
-    HandoffConfirmationStatus, Network, SigningApproval, SigningApprovalStatus, SigningRequest,
+    ExportTarget, ExportUserRequest, ExportUserRequestStatus, Network, SigningApproval,
+    SigningApprovalStatus, SigningRequest,
     SigningTarget, SoftwareKeyOrigin, WalletError,
 };
 
@@ -76,12 +76,6 @@ fn signing_request(
         approval: SigningApproval {
             status: SigningApprovalStatus::Approved,
         },
-    }
-}
-
-fn confirmed_handoff() -> HandoffConfirmation {
-    HandoffConfirmation {
-        status: HandoffConfirmationStatus::Confirmed,
     }
 }
 
@@ -468,7 +462,7 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     let mut invalid_version = prepared.value.pending_profile.clone();
     invalid_version[8] = 2;
     assert_eq!(
-        finalize_generated_profile(&store, &invalid_version, PASSWORD, confirmed_handoff())
+        finalize_generated_profile(&store, &invalid_version, PASSWORD)
             .unwrap_err()
             .code,
         ErrorCode::PendingProfileInvalid
@@ -476,7 +470,7 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     let mut invalid_network = prepared.value.pending_profile.clone();
     invalid_network[57] = 2;
     assert_eq!(
-        finalize_generated_profile(&store, &invalid_network, PASSWORD, confirmed_handoff())
+        finalize_generated_profile(&store, &invalid_network, PASSWORD)
             .unwrap_err()
             .code,
         ErrorCode::PendingProfileInvalid
@@ -486,7 +480,6 @@ fn generated_profile_requires_a_matching_pending_handoff() {
             &store,
             &prepared.value.pending_profile[..prepared.value.pending_profile.len() - 1],
             PASSWORD,
-            confirmed_handoff(),
         )
         .unwrap_err()
         .code,
@@ -498,7 +491,6 @@ fn generated_profile_requires_a_matching_pending_handoff() {
             &store,
             &prepared.value.pending_profile,
             b"wrong",
-            confirmed_handoff(),
         )
         .unwrap_err()
         .code,
@@ -510,7 +502,6 @@ fn generated_profile_requires_a_matching_pending_handoff() {
         &store,
         &prepared.value.pending_profile,
         PASSWORD,
-        confirmed_handoff(),
     )
     .unwrap();
     assert_eq!(finalized.value.network, Network::Testnet);
@@ -521,7 +512,6 @@ fn generated_profile_requires_a_matching_pending_handoff() {
         &finalized.store,
         &prepared.value.pending_profile,
         PASSWORD,
-        confirmed_handoff(),
     )
     .unwrap_err();
     assert_eq!(reused.code, ErrorCode::PendingProfileInvalid);
@@ -542,23 +532,6 @@ fn generated_profile_requires_a_matching_pending_handoff() {
 #[test]
 fn assertions_and_account_context_are_required_at_core_boundaries() {
     let store = create_empty_store().unwrap();
-    let prepared = prepare_generated_profile(&store, PASSWORD, Network::Mainnet).unwrap();
-    let unconfirmed = HandoffConfirmation {
-        status: HandoffConfirmationStatus::Unconfirmed,
-    };
-    assert_eq!(
-        finalize_generated_profile(
-            &store,
-            &prepared.value.pending_profile,
-            PASSWORD,
-            unconfirmed,
-        )
-        .unwrap_err()
-        .code,
-        ErrorCode::InvalidArgument
-    );
-    assert!(list_profiles(&store).unwrap().value.is_empty());
-
     let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
     let profile_id = restored.value.profile_id;
     let derived =

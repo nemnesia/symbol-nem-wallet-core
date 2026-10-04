@@ -480,47 +480,33 @@ function storeCorruption(api) {
   };
 }
 
-function confirmation(api) {
+function generatedProfileFinalize(api) {
   const emptyStore = api.create_empty_store();
   const prepared = api.prepare_generated_profile(emptyStore, PASSWORD, 0);
-  const preparedResult = assertReadResult(prepared, assertPreparedProfile, "confirmation prepare");
+  const preparedResult = assertReadResult(prepared, assertPreparedProfile, "generated profile prepare");
   const pending = prepared.value.pending_profile;
   const snapshot = cloneBytes(emptyStore, "confirmation empty store");
 
-  const unconfirmed = expectedError(api, "unconfirmed handoff", "InvalidArgument", () =>
-    api.finalize_generated_profile(emptyStore, pending, PASSWORD, { status: "unconfirmed" }),
-  );
-  const afterUnconfirmed = api.list_profiles(emptyStore);
-  const afterUnconfirmedResult = assertReadResult(afterUnconfirmed, (value, label) => {
-    ensure(Array.isArray(value) && value.length === 0, `${label} empty`);
-    return [];
-  }, "confirmation after unconfirmed");
-
-  const confirmed = api.finalize_generated_profile(emptyStore, pending, PASSWORD, { status: "confirmed" });
-  const confirmedResult = assertMutationResult(confirmed, assertProfileInfo, "confirmation confirmed", emptyStore);
-  ensure(confirmed.value.network === "testnet", "confirmed network");
-  ensure(confirmed.value.software_key_count === 0, "confirmed key count");
-  const afterConfirmed = api.list_profiles(confirmed.store);
-  const afterConfirmedResult = assertReadResult(afterConfirmed, (value, label) => {
+  // The Application calls finalize only after its UI has obtained explicit user acknowledgement.
+  const finalized = api.finalize_generated_profile(emptyStore, pending, PASSWORD);
+  const finalizedResult = assertMutationResult(finalized, assertProfileInfo, "generated profile finalize", emptyStore);
+  ensure(finalized.value.network === "testnet", "finalized network");
+  ensure(finalized.value.software_key_count === 0, "finalized key count");
+  ensure(sameBytes(emptyStore, snapshot), "prepare/finalize leave input store unchanged");
+  const afterFinalize = api.list_profiles(finalized.store);
+  const afterFinalizeResult = assertReadResult(afterFinalize, (value, label) => {
     ensure(Array.isArray(value) && value.length === 1, `${label} count`);
     return value.map((item, index) => assertProfileInfo(item, `${label}[${index}]`));
-  }, "confirmation after confirmed");
+  }, "profiles after finalize");
 
   return {
     prepared: preparedResult,
-    unconfirmed: {
-      error: unconfirmed,
-      profile_committed: false,
-      replacement_store_returned: false,
-      input_store_unchanged: sameBytes(emptyStore, snapshot),
-      after: afterUnconfirmedResult,
-    },
-    confirmed: {
+    finalized: {
       success: true,
       profile_committed: true,
-      replacement_store_returned: confirmedResult.returned_store,
-      result: confirmedResult.value,
-      after: afterConfirmedResult,
+      replacement_store_returned: finalizedResult.returned_store,
+      result: finalizedResult.value,
+      after: afterFinalizeResult,
     },
   };
 }
@@ -684,7 +670,7 @@ export function runParityScenarios(backend) {
   const basic = basicFlow(api, fixture);
   const wrongPasswordResult = wrongPassword(api, fixture);
   const corruption = storeCorruption(api);
-  const handoff = confirmation(api);
+  const generatedProfile = generatedProfileFinalize(api);
   const guards = exportGuards(api, fixture);
   const approval = signingApproval(api, fixture);
   const mismatch = chainNetworkMismatch(api, fixture);
@@ -695,7 +681,7 @@ export function runParityScenarios(backend) {
     basic,
     wrong_password: wrongPasswordResult,
     store_corruption: corruption,
-    handoff_confirmation: handoff,
+    generated_profile_finalize: generatedProfile,
     export_guard: guards,
     signing_approval: approval,
     chain_network_mismatch: mismatch,

@@ -318,23 +318,22 @@ prepare_generated_profile(...)
         ├─ mnemonic_utf8
         └─ PendingProfileBlob
 
-finalize_generated_profile(store, pending_blob, password, handoff_confirmation)
+finalize_generated_profile(store, pending_blob, password)
         │
-        ├─ handoff_confirmation: Confirmed
         └─ replacement store
 ```
 
-`prepare_generated_profile` は Store に Profile を追加しない。Application は初回 Mnemonic handoff を完了した後だけ、`handoff_confirmation.status = Confirmed` を持つ `finalize_generated_profile` を呼ぶ。
+`prepare_generated_profile` は Store に Profile を追加しない。Application は初回 Mnemonic handoff を完了した後だけ `finalize_generated_profile` を呼ぶ。`finalize_generated_profile` の呼び出し自体を、Application が確認成立後に行う確定要求として扱う。
 
-Application は `prepare_generated_profile` が返した正確な Mnemonic 全体を意図した利用者へ提示し、利用者が記録・受領済みであることを明示確認した後だけ、同じ `pending_profile` に対する `handoff_confirmation.status = Confirmed` を作成して `finalize_generated_profile` へ渡さなければならない。表示値の不一致、受渡し失敗・中断または確認未成立の場合は、`status = Unconfirmed` を持つ request として外部から区別できる。UI方式、提示画面、確認文言および利用者本人性の検証方式は Core の契約に含めない。Core は `Confirmed` が UI 操作の暗号学的証明であるとは扱わず、Application が確認成立の事実を正しく伝える責任を持つ。
+Application は `prepare_generated_profile` が返した正確な Mnemonic 全体を意図した利用者へ提示し、利用者が記録・受領済みであることを明示確認した後だけ、同じ `pending_profile` に対する `finalize_generated_profile` を呼ばなければならない。表示値の不一致、受渡し失敗・中断または確認未成立の場合は finalize を呼ばない。UI方式、提示画面、確認文言および利用者本人性の検証方式は Core の契約に含めない。Core は Application が UI 操作を実施したことを独立検証せず、Application が確認成立後に finalize を呼ぶ責任を持つ。
 
-`finalize_generated_profile` は `handoff_confirmation.status = Confirmed` の request だけを受理する。確認未成立、`Unconfirmed`、確認情報の欠落、対象 pending との対応不能またはその他の request 不正は `InvalidArgument` とし、新規 Profile を正常状態として残さず、replacement Store、Profile success、Mnemonic または中間秘密情報を返さない。`finalize_generated_profile` の成功は、確認済み request の検証、Pending / Store / password の検証および Profile 最終確定が成功し、replacement Store が返された場合だけ成立する。
+`finalize_generated_profile` は呼び出し時に Pending / Store / password を検証し、Profile の最終確定が成功して replacement Store が返された場合に限り成功する。handoff が未完了の場合に Application が finalize を呼ばないことは Application の責務である。Core は finalize 呼び出しから handoff の実施や freshness を独立証明しない。
 
 確認前、表示値不一致、受渡し失敗・中断、または `finalize_generated_profile` の失敗時は、新規 Profile を正常状態として残さず、replacement Store を返さず、Core / Binding が Mnemonic、Pending、または中間秘密情報を次の operation のために継続保持・cache・diagnostic output へ含めない。未確認 pending は committed Profile へ昇格させてはならない。
 
 `PendingProfileBlob` は Core 内部の versioned opaque blob とし、Wallet Store の wire-level 互換契約には含めない。外部契約として、format version を識別でき、`prepare_generated_profile` に渡した対象 Store と結び付き、Profile password で保護され、改ざん・破損を検知できることだけを要求する。具体的な CBOR key、内部 envelope schema、nonce構造、期限および再利用回数は公開契約に含めない。
 
-`finalize_generated_profile` は、確認済み request、同じ Profile password、Pending、対象 Store、Profile schema および既存 Profile との整合性を検証する。対象 Storeとの結合が一致しない、Pendingのversionが未対応、Pendingが改ざん・破損している、stale である、またはProfile作成条件を満たさない場合は `PendingProfileInvalid` とする。Pendingのpassword認証または保護データの認証に失敗した場合は、§6.4 に従い `AuthenticationFailed` とする。仕様の整合性を満たす対象 Storeで既存Profileと同一 Mnemonic + Network になる場合は `DuplicateProfile` とする。
+`finalize_generated_profile` は、同じ Profile password、Pending、対象 Store、Profile schema および既存 Profile との整合性を検証する。対象 Storeとの結合が一致しない、Pendingのversionが未対応、Pendingが改ざん・破損している、stale である、またはProfile作成条件を満たさない場合は `PendingProfileInvalid` とする。Pendingのpassword認証または保護データの認証に失敗した場合は、§6.4 に従い `AuthenticationFailed` とする。仕様の整合性を満たす対象 Storeで既存Profileと同一 Mnemonic + Network になる場合は `DuplicateProfile` とする。
 
 中断時は Core / Binding が保持する pending state を破棄する。Application が保持する `PendingProfileBlob` は opaque な外部値に過ぎず、restart または retry で自動復元・authorization 継承・Profile 昇格に使用してはならない。Application がそれを新しい operation に再提供する場合も、現在の Pending validation、confirmation および password 条件を改めて満たさなければならない。
 
@@ -392,17 +391,11 @@ MutationResult<T> {
 
 warning に Mnemonic、private key、Profile password、seed、ciphertext の内容などの秘密情報を含めてはならない。
 
-### 9.1.1 確認・承認リクエスト DTO
+### 9.1.1 Export / signing request DTO
 
-UI の方式を固定せずに、Core と Binding が確認・承認の有無を同じ request 条件として扱うため、次の既存 DTO を使用する。`status` は自由な真偽値や password の結果から暗黙に生成してはならない。これらの status は、各 current operation に対して Application が生成する、利用者との確認・承認を表す外部 assertion である。Application / UI は過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用してはならず、assertion の freshness を管理する。Core は status、target、payload および AccountContext 等の request 条件を検証するが、Application が UI を表示し利用者の確認・承認を取得したこと、または assertion が fresh であることを独立には証明しない。これらは新しい field、challenge または暗号学的 token を意味しない。
+UI の方式を固定せずに、Core と Binding が export / signing の確認・承認を同じ request 条件として扱うため、次の既存 DTO を使用する。`status` は自由な真偽値や password の結果から暗黙に生成してはならない。これらの status は、各 current operation に対して Application が生成する、利用者との確認・承認を表す外部 assertion である。Application / UI は過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用してはならず、assertion の freshness を管理する。Core は status、target、payload および AccountContext 等の request 条件を検証するが、Application が UI を表示し利用者の確認・承認を取得したこと、または assertion が fresh であることを独立には証明しない。Generated Profile handoff は DTO status を持たず、Application が確認成立後だけ finalize を呼ぶ。Core は finalize の呼び出しから handoff 確認を独立証明しない。
 
 ```text
-HandoffConfirmation {
-  status: HandoffConfirmationStatus
-}
-
-HandoffConfirmationStatus = Unconfirmed | Confirmed
-
 ExportTarget =
     MnemonicTarget { profile_id: ProfileId }
   | SoftwareKeyTarget { profile_id: ProfileId, key_id: SoftwareKeyId }
@@ -451,9 +444,7 @@ SigningRequest {
 }
 ```
 
-上記の `HandoffConfirmation`、`ExportRequest` および `SigningRequest` の DTO field 構造は v1 で維持し、新しい confirmation nonce、request ID、expiry、target またはその他の freshness 用 field を追加しない。
-
-`HandoffConfirmation.status = Confirmed` は、Application が同じ `pending_profile` から返された完全な Mnemonic を意図した利用者へ提示し、その利用者から明示的な受領確認を取得した後だけ設定する。表示値不一致、提示不能、受領未確認、確認伝達不能または中断時は `Unconfirmed` とするか request を送信しない。
+`ExportRequest` および `SigningRequest` の DTO field 構造は v1 で維持し、新しい confirmation nonce、request ID、expiry、target またはその他の freshness 用 field を追加しない。Generated Profile の handoff confirmation status は API input として渡さず、Application は確認成立後だけ `finalize_generated_profile` を呼ぶ。
 
 `ExportRequest` の成功条件は、`target`、`user_request.target` および `application_confirmation.target` が同じ構造・識別子として一致し、`user_request.status = Requested`、`application_confirmation.status = Confirmed` であることとする。Mnemonic export の target は `MnemonicTarget`、Software Key private key export の target は `SoftwareKeyTarget` でなければならない。Application / UI は対象を利用者へ提示して明示的な取得要求を確認した後だけ各 status を設定する。
 
@@ -481,8 +472,7 @@ prepare_generated_profile(
 finalize_generated_profile(
   store,
   pending_profile,
-  password_utf8: bytes,
-  handoff_confirmation: HandoffConfirmation
+  password_utf8: bytes
 ) -> MutationResult<ProfileInfo>
 
 restore_profile(
@@ -857,7 +847,7 @@ module-registry identity、platform artifact、Expo および RN-specific lifecy
 [`react-native.md`](react-native.md) を正式な下流仕様とする。本節の Core、Native C ABI、secret ownership、
 error、binary、zeroization の契約は RN 経路にも共通して適用し、RN Binding に別の security meaning を持たせない。
 
-Binding は、handoff / export / signing の status を生成せず、password の認証結果から補完せず、stale assertion を cache / retain して別 operation へ再利用せず、target、payload または AccountContext を書き換えない。Binding は Store history DB、rollback detector または current Store selector を持たず、Wallet Store を opaque のまま Application と Core の間で橋渡しする。current Store の選択、successful replacement の適用および stale / historical Store の再適用防止は Application / persistence layer の責任である。
+Binding は handoff 確認を生成せず、export / signing status を password の認証結果から補完せず、stale assertion を cache / retain して別 operation へ再利用せず、target、payload または AccountContext を書き換えない。Binding は Store history DB、rollback detector または current Store selector を持たず、Wallet Store を opaque のまま Application と Core の間で橋渡しする。current Store の選択、successful replacement の適用および stale / historical Store の再適用防止は Application / persistence layer の責任である。
 
 Binding に暗号化、password authentication、Mnemonic validation、key derivation、signing、duplicate detection を再実装しない。
 
@@ -907,7 +897,7 @@ Node-API の具体的な ABI、wrapper library、Node.js version、target matrix
 
 ### 13.3 WASM / JavaScript Binding
 
-WASM の各 public operation は §9.2 の Core operation と 1 対 1 に対応する。binary input / output は `Uint8Array` 相当、非秘密の UUID / address は JavaScript string 相当、enum / scalar は対応する number または enum 値、`ReadResult` / `MutationResult` は §9.1 の field と同じ意味を持つ JavaScript object とする。`ExportRequest`、`SigningRequest`、`HandoffConfirmation` および `AccountContext` の status、target、context field を省略・再命名して security meaning を変えてはならない。
+WASM の各 public operation は §9.2 の Core operation と 1 対 1 に対応する。binary input / output は `Uint8Array` 相当、非秘密の UUID / address は JavaScript string 相当、enum / scalar は対応する number または enum 値、`ReadResult` / `MutationResult` は §9.1 の field と同じ意味を持つ JavaScript object とする。`ExportRequest`、`SigningRequest` および `AccountContext` の status、target、context field を省略・再命名して security meaning を変えてはならない。
 
 - Wallet Store blob と `PendingProfileBlob` は opaque `Uint8Array` とし、WASM / JavaScript が内部 schema、version、AAD、confirmation または approval を解釈・補正しない。
 - 期待される Core failure と Binding failure は、成功値を返さない `Err { code, diagnostics }` 相当の result として返す。`null`、空の正常値、warning-only result または成功を示す例外へ変換してはならない。WASM representation への変換不能、detached / unreadable buffer、型不一致その他 Binding 自身の conversion / lifecycle failure は `BindingFailure` とし、Core error は §10 の code を維持する。
@@ -955,8 +945,7 @@ WASM の各 public operation は §9.2 の Core operation と 1 対 1 に対応�
 - 構造上有効な複数 Profile が同じ `profile_id` を持つ Store を `InvalidStore` として拒否し、どの Profile も選択しない
 - `software_key_index` または認証済み payload が、同一または異なる Chain で同じ `key_id` を複数持つ Profile を `InvalidStore` として拒否する
 - 異なる Profile に同じ `key_id` が 1 件ずつ存在する場合は、`profile_id + key_id` で各対象を一意に解決する
-- 初回 Mnemonic の `HandoffConfirmation.status = Unconfirmed`、confirmation 欠落、表示値不一致、確認伝達不能および `Confirmed` の各ケースで、finalize の error、Profile 非作成、replacement 非返却および secret 非開示が規則どおりであること
-- Core が Mnemonic を新規生成するすべての Profile creation が handoff confirmation 必須の二段階 lifecycle を通り、handoff なしの生成成功経路がないこと。既存 Mnemonic の restore は生成時 handoff confirmation を要求しないこと
+- Application が Mnemonic の提示と明示的な受領確認を完了するまで finalize を呼ばず、未確認・提示失敗・中断では新規 Profile を確定しないこと。Core は handoff confirmation status を API input として受け取らず、finalize が呼ばれたかどうかで Profile を確定すること。既存 Mnemonic の restore は生成時 handoff confirmation を要求しないこと
 - `registry_key` または `duplicate_tag` 改変後の認証失敗
 - 誤った `duplicate_tag` を AAD に含めて正常に暗号化した Profile は、AEAD認証成功後に Mnemonic entropy または Network との意味的不一致を `InvalidStore` として拒否する
 - `duplicate_tag` の意味的不一致時は秘密情報、正常な read 結果または replacement Store を返さず、input Store を変更しない
@@ -981,7 +970,7 @@ WASM の各 public operation は §9.2 の Core operation と 1 対 1 に対応�
 - 別 Profile へ mutation が越境しない
 - 正しい password だけ、`NotRequested`、`NotConfirmed`、target mismatch、対象不存在、復号失敗および処理失敗の各ケースで個別 export が成功せず、secret、normal result、replacement Store を返さないこと。`Requested`、target-specific `Confirmed` および正しい password がそろう場合だけ Mnemonic / Derived / Imported / Generated private key を個別エクスポートできる
 - `password authorization != export confirmation` および `password authorization != signing approval` を確認し、`SigningApproval.status = NotApproved` では署名を生成しない
-- `HandoffConfirmation`、`ExportRequest` および `SigningApproval` の必須 status 欠落、不成立または target 不一致を拒否し、Application が current operation のために生成した assertion と password authorization を別条件として扱うこと。Core の authorization、確認・承認、pending および secret-capable state が operation 間、retry 間または restart 後に暗黙継承されず、Application assertion の freshness 自体は Core の検証対象外であること
+- `ExportRequest` および `SigningApproval` の必須 status 欠落、不成立または target 不一致を拒否し、Application が current operation のために生成した assertion と password authorization を別条件として扱うこと。Generated Profile handoff の確認は Application が管理し、確認後だけ finalize を呼ぶこと。Core の authorization、確認・承認、pending および secret-capable state が operation 間、retry 間または restart 後に暗黙継承されず、Application assertion の freshness 自体は Core の検証対象外であること
 - `get_public_account` / `sign` の正しい context、unsupported context、Profile Network mismatch、Software Key fixed Chain mismatch、invalid Chain / Network combination および wrong Profile-Key combination の result / error / state を確認する
 - Native の NULL / length / fixed-length / malformed input、Core DTO conversion、allocation、ownership / lifecycle failure の error mapping、output zero-initialization、release、secret-containing output の解放を確認する
 - WASM の `Uint8Array` / object representation、malformed input、`Err` mapping、opaque Store / Pending、secret result の caller lifecycle および Native との同一 security meaning を確認する

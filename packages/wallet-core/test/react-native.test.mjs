@@ -251,6 +251,8 @@ test("React Native entryが非公開の同期TurboModuleを使い、facadeの出
     assert.deepEqual(api.list_profiles(new Uint8Array()).value, []);
     assert.equal(api.create_empty_store() instanceof Promise, false);
     assert.deepEqual(Object.keys(api).sort(), [
+      "Chain",
+      "Network",
       "change_profile_password",
       "create_empty_store",
       "delete_profile",

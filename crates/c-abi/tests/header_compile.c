@@ -20,7 +20,6 @@ int main(void) {
     SnwcSoftwareKeyListItem *keys = 0;
     size_t key_len = 0;
     SnwcPublicAccountInfo account = {0};
-    SnwcHandoffConfirmation handoff = {1};
     SnwcExportTarget mnemonic_target = {0};
     SnwcExportRequest export_request = {0};
     SnwcAccountContext context = {1, 1};
@@ -29,7 +28,7 @@ int main(void) {
     (void)snwc_create_empty_store(&owned);
     (void)snwc_prepare_generated_profile(bytes, bytes, 0, &owned, &owned, &warnings);
     (void)snwc_finalize_generated_profile(
-        bytes, bytes, bytes, handoff, &owned, &profile, &warnings);
+        bytes, bytes, bytes, &owned, &profile, &warnings);
     (void)snwc_restore_profile(bytes, bytes, bytes, 0, &owned, &profile, &warnings);
     mnemonic_target.profile_id = uuid;
     export_request.target = mnemonic_target;

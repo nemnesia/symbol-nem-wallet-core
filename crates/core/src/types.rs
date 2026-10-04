@@ -100,22 +100,6 @@ pub enum SoftwareKeyOrigin {
     Generated,
 }
 
-/// 初回Mnemonic handoffの確認状態。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum HandoffConfirmationStatus {
-    /// 利用者への提示・受領確認が成立していない。
-    Unconfirmed,
-    /// Applicationが利用者の受領確認を伝達した。
-    Confirmed,
-}
-
-/// 初回Mnemonic handoffのApplication assertion。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct HandoffConfirmation {
-    /// handoffの確認状態。
-    pub status: HandoffConfirmationStatus,
-}
-
 /// 明示的exportの対象。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExportTarget {

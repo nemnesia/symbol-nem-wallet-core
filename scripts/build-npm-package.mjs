@@ -163,9 +163,13 @@ function copyWasmGlue(sourceRoot, destinationRoot, outputName) {
 function inlineRuntime(entryPath, runtimePaths) {
   let source = readFileSync(entryPath, "utf8");
   for (const runtimePath of runtimePaths) {
-    const runtime = readFileSync(runtimePath, "utf8")
+    let runtime = readFileSync(runtimePath, "utf8")
       .replace(/^export \{[^;]+;\n?/gm, "")
       .replace(/^export /gm, "");
+    if (runtimePath.endsWith("facade-runtime.mjs")) {
+      // Keep runtime declarations separate from the entry point's public exports.
+      runtime = `const createFacade = (() => {\n${runtime}\nreturn createFacade;\n})();\n`;
+    }
     const marker = runtimePath.endsWith("manifest.mjs")
       ? "/* @snwc-manifest-runtime */"
       : "/* @snwc-facade-runtime */";
@@ -214,6 +218,13 @@ function build(options) {
     !reactNativeArtifacts.some((item) => REACT_NATIVE_TARGETS[item.targetId].platform === "ios")
   ) {
     throw new Error("React Native XCFramework was supplied without iOS artifacts");
+  }
+  if (options.wasm === undefined) {
+    execFileSync(
+      "cargo",
+      ["build", "--package", "symbol-nem-wallet-core-wasm", "--target", "wasm32-unknown-unknown", "--release", "--locked"],
+      { cwd: repositoryRoot, stdio: "inherit" },
+    );
   }
   rmSync(distRoot, { recursive: true, force: true });
   mkdirSync(resolve(distRoot, "node"), { recursive: true });
