@@ -39,17 +39,12 @@ on:
   workflow_dispatch:
     inputs:
       release_mode:
-        description: "candidate only unless a formal release is explicitly connected"
+        description: "Candidate validation only; formal release assets are built by the release workflow"
         required: false
         default: candidate
         type: choice
         options:
           - candidate
-          - release
-      release_tag:
-        description: "Formal v<SemVer> tag"
-        required: false
-        type: string
 
 concurrency:
   group: c-abi-release-${{ github.ref }}
