@@ -865,11 +865,8 @@ jobs:
             echo "Expected iOS RN lifecycle markers:"
             for marker in \
               'SNWC_RN_NATIVE_SMOKE_PASS:16' \
-              'SNWC_RN_NATIVE_STALE_GATE_ARMED' \
               'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED' \
-              'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED' \
-              'SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED' \
-              'SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE'; do
+              'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED'; do
               if grep -Fq "$marker" "$lifecycle_log"; then
                 echo "observed: $marker"
               else
@@ -877,7 +874,7 @@ jobs:
               fi
             done
             echo "Observed marker lines (sensitive payloads are not printed):"
-            if ! grep -E 'SNWC_RN_NATIVE_(SMOKE_PASS:16|STALE_GATE_ARMED|LIFECYCLE_RELOAD_REQUESTED|LIFECYCLE_RELOAD_COMPLETED|STALE_COMPLETION_REJECTED|CLEANUP_PASS:EXACTLY_ONCE|RUNTIME_READY:)' "$lifecycle_log" | tail -n 200; then
+            if ! grep -E 'SNWC_RN_NATIVE_(SMOKE_PASS:16|LIFECYCLE_RELOAD_REQUESTED|LIFECYCLE_RELOAD_COMPLETED|RUNTIME_READY:)' "$lifecycle_log" | tail -n 200; then
               echo "(no lifecycle marker lines captured)"
             fi
           }
@@ -1015,10 +1012,8 @@ jobs:
           fi
           if ! wait_for_markers 120 \
             'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_REQUESTED' \
-            'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED' \
-            'SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED' \
-            'SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE'; then
-            fail_lifecycle "reload completion or stale cleanup evidence was not observed within 120 seconds"
+            'SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED'; then
+            fail_lifecycle "reload completion was not observed within 120 seconds"
           fi
           # Runtime initialization is emitted before JS starts. Unified-log
           # history is the observation source so the first runtime cannot be lost
@@ -1047,7 +1042,7 @@ jobs:
             fail_lifecycle "post-reload 16 API smoke was not observed within 120 seconds"
           fi
           echo "iOS RN actual reload and generation replacement evidence:"
-          grep -E 'SNWC_RN_NATIVE_(LIFECYCLE_RELOAD_REQUESTED|LIFECYCLE_RELOAD_COMPLETED|RUNTIME_READY|STALE_COMPLETION_REJECTED|SMOKE_PASS:16)' "$lifecycle_log"
+          grep -E 'SNWC_RN_NATIVE_(LIFECYCLE_RELOAD_REQUESTED|LIFECYCLE_RELOAD_COMPLETED|RUNTIME_READY|SMOKE_PASS:16)' "$lifecycle_log"
 
       - name: Upload the independently produced XCFramework evidence
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

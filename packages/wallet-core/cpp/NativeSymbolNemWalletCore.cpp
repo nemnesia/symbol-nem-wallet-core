@@ -749,6 +749,11 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
         return result;
       });
     }
+    if (operation == "__snwc_test_request_reload") {
+      exactArgumentCount(runtime, args, 0);
+      if (!RnLifecycleCoordinator::shared().armIntegrationStaleGate()) fail(kBindingFailure);
+      return ticket.deliver([&]() { return Value::undefined(); });
+    }
     if (operation == "__snwc_test_stale_output") {
       exactArgumentCount(runtime, args, 0);
       integrationStaleOwnedBaseline.store(

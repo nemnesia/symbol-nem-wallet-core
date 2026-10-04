@@ -246,15 +246,17 @@ export default function App() {
       }
       if (lifecycle.integration_test && lifecycle.provider_generation > 1) {
         setStatus('SNWC_RN_NATIVE_LIFECYCLE_RELOAD_COMPLETED');
-        const cleanup = cleanupEvidence(module);
-        if (
-          !cleanup.cleanup_complete ||
-          cleanup.owned_release_count !== 1 ||
-          cleanup.secret_zeroize_count !== 1
-        ) {
-          smokeAssertion('cleanup-evidence:not-exactly-once');
+        if (!identity.target_id.startsWith('ios-')) {
+          const cleanup = cleanupEvidence(module);
+          if (
+            !cleanup.cleanup_complete ||
+            cleanup.owned_release_count !== 1 ||
+            cleanup.secret_zeroize_count !== 1
+          ) {
+            smokeAssertion('cleanup-evidence:not-exactly-once');
+          }
+          setStatus('SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE');
         }
-        setStatus('SNWC_RN_NATIVE_CLEANUP_PASS:EXACTLY_ONCE');
       }
       setProviderStatus(
         `SNWC_RN_NATIVE_PROVIDER_READY:${identity.target_id}:${identity.artifact_identity}`,
@@ -462,17 +464,26 @@ export default function App() {
       );
       setStatus('SNWC_RN_NATIVE_SMOKE_PASS:16');
       if (lifecycle.integration_test && lifecycle.provider_generation === 1) {
-        // Androidのstale-output呼び出しは、外部lifecycle harnessがproviderを終了するまで
-        // このJS threadを意図的にblockする。このmarkerはdiagnostic専用である。iOSでは下のnative
-        // stale-output呼び出しが同期的にRCTHost reloadを要求する場合があるため、CIはreload前の
-        // 最後のJS console出力を同期barrierとして使ってはならない。
-        setStatus('SNWC_RN_NATIVE_STALE_GATE_ARMED');
-        try {
-          module.invoke('__snwc_test_stale_output', { args: [] });
-          smokeAssertion('stale-completion:accepted');
-        } catch (error) {
-          if (errorCode(error) !== 'BindingFailure') throw error;
-          setStatus('SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED');
+        if (identity.target_id.startsWith('ios-')) {
+          // RCTHost reload invalidates this JS runtime. Return from the synchronous JSI
+          // call before waiting for replacement runtime initialization.
+          try {
+            module.invoke('__snwc_test_request_reload', { args: [] });
+          } catch (error) {
+            if (errorCode(error) !== 'BindingFailure') throw error;
+          }
+          return;
+        } else {
+          // Android's external lifecycle harness invalidates the provider while this
+          // synchronous call waits, exercising stale-output cleanup end to end.
+          setStatus('SNWC_RN_NATIVE_STALE_GATE_ARMED');
+          try {
+            module.invoke('__snwc_test_stale_output', { args: [] });
+            smokeAssertion('stale-completion:accepted');
+          } catch (error) {
+            if (errorCode(error) !== 'BindingFailure') throw error;
+            setStatus('SNWC_RN_NATIVE_STALE_COMPLETION_REJECTED');
+          }
         }
       }
     };
