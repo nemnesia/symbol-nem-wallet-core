@@ -8,6 +8,8 @@ The Japanese version is authoritative if there is any discrepancy.
 
 ## Install
 
+If upgrading from 0.1.0, read [Migration to 0.2.0](../../docs/migration/0.2.0.md) (Japanese).
+
 ```bash
 npm install @nemnesia/symbol-nem-wallet-core
 ```
@@ -28,6 +30,8 @@ The package root is the only public ESM entry point.
 
 ```ts
 import {
+  Chain,
+  Network,
   create_empty_store,
   restore_profile,
 } from "@nemnesia/symbol-nem-wallet-core";
@@ -79,10 +83,12 @@ derive_software_key
 get_public_account
 ```
 
-`prepare_generated_profile` returns a Mnemonic and Pending Profile but does not commit a Profile to the Store. Call `finalize_generated_profile(..., { status: "confirmed" })` only after the Application has presented the complete Mnemonic to the intended user and obtained explicit acknowledgement for the current operation.
+`prepare_generated_profile` returns a Mnemonic and Pending Profile but does not commit a Profile to the Store. Call `finalize_generated_profile` only after the Application has presented the complete Mnemonic to the intended user and obtained explicit acknowledgement for the current operation. Core does not independently verify that handoff occurred from the call.
 
 ```ts
 import {
+  Chain,
+  Network,
   create_empty_store,
   derive_software_key,
   finalize_generated_profile,
@@ -98,7 +104,7 @@ if (passwordText === undefined) {
 const password_utf8 = new TextEncoder().encode(passwordText);
 let store = create_empty_store();
 
-const prepared = prepare_generated_profile(store, password_utf8, 1);
+const prepared = prepare_generated_profile(store, password_utf8, Network.MAINNET);
 
 // Application responsibility:
 // 1. Present all prepared.value.mnemonic_utf8 to the intended user securely.
@@ -115,7 +121,6 @@ const finalized = finalize_generated_profile(
   store,
   prepared.value.pending_profile,
   password_utf8,
-  { status: "confirmed" },
 );
 store = finalized.store;
 
@@ -123,7 +128,7 @@ const derived = derive_software_key(
   store,
   finalized.value.profile_id,
   password_utf8,
-  1, // symbol
+  Chain.SYMBOL,
   0, // account index
 );
 store = derived.store;
@@ -139,7 +144,7 @@ const account = get_public_account(
 console.log(account.value.address);
 ```
 
-`presentMnemonicAndWaitForExplicitConfirmation` is an Application-implemented UI / handoff operation, not a Wallet Core function. Do not make it always return `true` merely to run the sample, and do not pass `confirmed` without acknowledgement. Do not write the Mnemonic to logs, analytics, or diagnostics.
+`presentMnemonicAndWaitForExplicitConfirmation` is an Application-implemented UI / handoff operation, not a Wallet Core function. Do not make it always return `true` merely to run the sample, and only request finalization after acknowledgement. Do not write the Mnemonic to logs, analytics, or diagnostics.
 
 ### 3. Restore an existing Wallet
 
@@ -147,6 +152,8 @@ If you already have a Mnemonic, use `restore_profile`. Generated-Mnemonic handof
 
 ```ts
 import {
+  Chain,
+  Network,
   create_empty_store,
   derive_software_key,
   get_public_account,
@@ -164,14 +171,14 @@ const mnemonic_utf8 = encoder.encode(mnemonicText);
 const password_utf8 = encoder.encode(passwordText);
 
 let store = create_empty_store();
-const restored = restore_profile(store, mnemonic_utf8, password_utf8, 1);
+const restored = restore_profile(store, mnemonic_utf8, password_utf8, Network.MAINNET);
 store = restored.store;
 
 const derived = derive_software_key(
   store,
   restored.value.profile_id,
   password_utf8,
-  1,
+  Chain.SYMBOL,
   0,
 );
 store = derived.store;
@@ -187,7 +194,7 @@ const account = get_public_account(
 console.log(account.value.address);
 ```
 
-Top-level `Network` / `Chain` inputs use `0 = testnet / nem` and `1 = mainnet / symbol`. Output DTOs use `"testnet" | "mainnet"` and `"nem" | "symbol"`.
+For top-level `Network` / `Chain` arguments, use the exported `Network.TESTNET` / `Network.MAINNET` and `Chain.NEM` / `Chain.SYMBOL` constants. Their values are `0` / `1`. Output DTOs continue to use the strings `"testnet" | "mainnet"` and `"nem" | "symbol"`.
 
 ### Always replace the Store after a mutation
 
@@ -195,13 +202,13 @@ The input `store` is never mutated in place. After each successful mutation, `re
 
 ## Public functions (16)
 
-The package root runtime export contains only these 16 functions. TypeScript `interface`s, `type` aliases, and error declarations are not runtime named exports. All functions are synchronous and do not return `Promise`s.
+The package root runtime exports these 16 functions and the `Network` / `Chain` constants. TypeScript `interface`s, `type` aliases, and error declarations are not runtime named exports. All functions are synchronous and do not return `Promise`s.
 
 | Function | Arguments | Return type | Mutation / Read | Purpose |
 | --- | --- | --- | --- | --- |
 | `create_empty_store` | none | `Uint8Array` | Factory | Create an empty Wallet Store |
 | `prepare_generated_profile` | `store`, `password_utf8`, `network` | `PreparedProfileResult` (`ReadResult<PreparedProfile>`) | Read / pending | Prepare a new Mnemonic and Pending Profile; no Profile is committed yet |
-| `finalize_generated_profile` | `store`, `pending_profile`, `password_utf8`, `handoff_confirmation` | `ProfileMutationResult` (`MutationResult<ProfileInfo>`) | Mutation | Commit a Pending Profile after confirmed handoff |
+| `finalize_generated_profile` | `store`, `pending_profile`, `password_utf8` | `ProfileMutationResult` (`MutationResult<ProfileInfo>`) | Mutation | Commit a Pending Profile; the Application calls only after confirming handoff |
 | `restore_profile` | `store`, `mnemonic_utf8`, `password_utf8`, `network` | `ProfileMutationResult` (`MutationResult<ProfileInfo>`) | Mutation | Restore a Profile from an existing Mnemonic |
 | `list_profiles` | `store` | `ProfileListResult` (`ReadResult<ProfileInfo[]>`) | Read | List the public Profile index |
 | `export_mnemonic` | `store`, `request`, `password_utf8` | `MnemonicExportResult` (`ReadResult<MnemonicExport>`) | Read / explicit export | Perform an explicit Mnemonic export when all conditions are satisfied |
@@ -224,8 +231,8 @@ Argument names correspond to the public declaration. `ProfileId` and `SoftwareKe
 
 | Type | TypeScript representation and meaning |
 | --- | --- |
-| `Network` | `0 \| 1`. Top-level input: `0 = testnet`, `1 = mainnet` |
-| `Chain` | `0 \| 1`. Top-level input: `0 = nem`, `1 = symbol` |
+| `Network` | `Network.TESTNET = 0`, `Network.MAINNET = 1`. Constants for top-level input |
+| `Chain` | `Chain.NEM = 0`, `Chain.SYMBOL = 1`. Constants for top-level input |
 | `NetworkName` | `"testnet" \| "mainnet"`. Output DTO representation |
 | `ChainName` | `"nem" \| "symbol"`. Output DTO representation |
 | `ProfileId` | `string`. Hyphenated UUID |
@@ -237,11 +244,6 @@ The numeric `Network` / `Chain` representation is used only by top-level operati
 ### Confirmations, requests, and context
 
 ```ts
-HandoffConfirmationStatus = "unconfirmed" | "confirmed";
-HandoffConfirmation = {
-  status: HandoffConfirmationStatus;
-}
-
 ExportTarget =
   | { kind: "mnemonic"; profile_id: ProfileId; key_id?: undefined }
   | { kind: "software_key"; profile_id: ProfileId; key_id: SoftwareKeyId };
@@ -367,12 +369,12 @@ Creating a new Profile takes two operations: `prepare_generated_profile` and `fi
 1. `prepare_generated_profile` returns the complete Mnemonic and opaque `pending_profile` in `PreparedProfile`.
 2. The Application presents the complete Mnemonic to the intended user.
 3. The Application obtains an explicit acknowledgement from the user.
-4. The Application calls `finalize_generated_profile` with the same Pending / Store / password and `{ status: "confirmed" }`.
+4. The Application calls `finalize_generated_profile` with the same Pending / Store / password.
 
-The confirmation is an assertion obtained by the Application from the current user. The Application must not invent the status for convenience or reuse a previous confirmation. If confirmation is unavailable, the Pending value is corrupted or for another Store, password authorization fails, or finalization fails, the Profile does not become successful.
+If the Application cannot confirm the Mnemonic handoff, it does not call finalization. Core treats the call itself as the commit request and does not independently verify that handoff occurred. If the Pending value is corrupted or for another Store, password authorization fails, or finalization fails, the Profile does not become successful.
 
 ```ts
-const prepared = prepare_generated_profile(store, password_utf8, 1);
+const prepared = prepare_generated_profile(store, password_utf8, Network.MAINNET);
 
 // Application-side placeholder:
 // present the complete mnemonic_utf8 to the intended user and obtain
@@ -387,12 +389,11 @@ const finalized = finalize_generated_profile(
   store,
   prepared.value.pending_profile,
   password_utf8,
-  { status: "confirmed" },
 );
 store = finalized.store;
 ```
 
-`presentMnemonicToIntendedUser` and `waitForExplicitUserHandoffConfirmation` are Application-side placeholders. Do not call with a fixed `confirmed` status without implementing the confirmation UI. Restoring an existing Mnemonic with `restore_profile` is outside generated handoff.
+`presentMnemonicToIntendedUser` and `waitForExplicitUserHandoffConfirmation` are Application-side placeholders. Do not call finalization unless the user confirms the handoff. Restoring an existing Mnemonic with `restore_profile` is outside generated handoff.
 
 ### Mnemonic / private-key export
 

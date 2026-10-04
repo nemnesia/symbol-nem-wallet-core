@@ -78,6 +78,8 @@ try {
 }
 
 export const {
+  Network,
+  Chain,
   create_empty_store,
   prepare_generated_profile,
   finalize_generated_profile,

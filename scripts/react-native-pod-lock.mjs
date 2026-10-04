@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 export const EXPECTED_COCOAPODS_VERSION = "1.16.2";
 export const EXPECTED_PODFILE_EXECUTABLE_SHA256 = "e540172fa71cb544c2745d90ecae710fb2a9a88464fac03424826dab20eec2eb";
-export const EXPECTED_PODFILE_LOCK_SHA256 = "59cf12cb2bef4812e055c01162f01f93d597e85cc1a598ecc33202b364c3767b";
+export const EXPECTED_PODFILE_LOCK_SHA256 = "def5953924bd18d6aade3d70b2e08d82f5895e2de7fcc60a1b0f4031a6c9c1a9";
 
 function fail(message) {
   throw new Error(`React Native Pod graph validation failed: ${message}`);
@@ -60,7 +60,7 @@ export function validatePodfileLock(root, options = {}) {
     !/^SPEC CHECKSUMS:\n/m.test(lockfile) ||
     !/^PODFILE CHECKSUM: [0-9a-f]{40}$/m.test(lockfile) ||
     !new RegExp(`^COCOAPODS: ${escapedCocoaPodsVersion}$`, "m").test(lockfile) ||
-    !/^\s*- SymbolNemWalletCoreRN \(0\.1\.0\):?$/m.test(lockfile) ||
+    !/^\s*- SymbolNemWalletCoreRN \(0\.2\.0\):?$/m.test(lockfile) ||
     !/^\s*- React-Core(?: \(= 0\.87\.0\))?$/m.test(lockfile) ||
     !/^\s*- React-RCTAppDelegate(?: \(= 0\.87\.0\))?$/m.test(lockfile) ||
     !/^\s*- ReactCodegen(?: \(= 0\.87\.0\))?$/m.test(lockfile) ||

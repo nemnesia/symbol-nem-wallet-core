@@ -65,12 +65,12 @@ function smoke(moduleSyntax) {
     : `const api = require(${JSON.stringify(packageName)});`;
   return `${importLine}
 const names = Object.keys(api).sort();
-const expected = ["change_profile_password", "create_empty_store", "delete_profile", "delete_software_key", "derive_software_key", "export_mnemonic", "export_private_key", "finalize_generated_profile", "generate_software_key", "get_public_account", "import_software_key", "list_profiles", "list_software_keys", "prepare_generated_profile", "restore_profile", "sign"].sort();
+const expected = ["Chain", "Network", "change_profile_password", "create_empty_store", "delete_profile", "delete_software_key", "derive_software_key", "export_mnemonic", "export_private_key", "finalize_generated_profile", "generate_software_key", "get_public_account", "import_software_key", "list_profiles", "list_software_keys", "prepare_generated_profile", "restore_profile", "sign"].sort();
 if (JSON.stringify(names) !== JSON.stringify(expected)) throw new Error("public surface mismatch");
 const store = api.create_empty_store();
 const password = new TextEncoder().encode("release clean consumer fixture password");
 const prepared = api.prepare_generated_profile(store, password, 1);
-const replacement = api.finalize_generated_profile(store, prepared.value.pending_profile, password, { status: "confirmed" });
+const replacement = api.finalize_generated_profile(store, prepared.value.pending_profile, password);
 let error;
 try { api.list_profiles(Uint8Array.of(0)); } catch (value) { error = value; }
 if (!(replacement.store instanceof Uint8Array) || replacement.store.length === 0) throw new Error("replacement Store missing");

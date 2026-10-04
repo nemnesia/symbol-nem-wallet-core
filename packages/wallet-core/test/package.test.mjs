@@ -109,7 +109,7 @@ test("package metadataがconditional exportの順序とpackage内許可一覧を
   );
 });
 
-test("公開declarationのbyte列がStage 7Aのdeclarationと一致する", () => {
+test("公開declarationがJSDocを除いて仕様のdeclarationと一致する", () => {
   const specification = readFileSync(
     resolve(packageRoot, "../../docs/specifications/npm-typescript-facade.md"),
     "utf8",
@@ -119,10 +119,16 @@ test("公開declarationのbyte列がStage 7Aのdeclarationと一致する", () =
   const section = specification.slice(sectionStart);
   const match = section.match(/```ts\n([\s\S]*?)\n```/);
   assert.ok(match);
-  assert.equal(readFileSync(resolve(packageRoot, "src/index.d.ts"), "utf8"), `${match[1]}\n`);
+  const sourceDeclaration = readFileSync(resolve(packageRoot, "src/index.d.ts"), "utf8");
+  // Remove documentation blocks only; keep declaration bytes and signatures exact.
+  const declarationWithoutJsDoc = sourceDeclaration.replace(
+    /^[ \t]*\/\*\*[\s\S]*?\*\/\r?\n/gm,
+    "",
+  );
+  assert.equal(declarationWithoutJsDoc, `${match[1]}\n`);
   assert.equal(
     readFileSync(resolve(packageRoot, "dist/index.d.ts"), "utf8"),
-    `${match[1]}\n`,
+    sourceDeclaration,
   );
 });
 

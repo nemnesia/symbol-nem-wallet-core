@@ -204,12 +204,12 @@ retry は新しい operation として Core へ橋渡しする。必要な入力
 2. Core が intended Application へ渡す。
 3. Application が intended user へ提示する。
 4. User が明示的に受領確認する。
-5. Application が確認成立を Core へ伝達する。
-6. Core が Profile success を最終確定する。
+5. Application が現在の handoff に対する確認成立後だけ、Core へ Profile の確定を要求する。
+6. Core がその要求を認証・検証し、Profile success を最終確定する。
 
-Binding は、この順序と責任を shortcut しない。Binding を通過したこと、Binding が Mnemonic を返したことまたは Application が値を受け取ったことだけでは handoff success または Profile success ではない。Binding は user confirmation を生成・推測せず、confirmation assertion の freshness を保証せず、Profile success を独自確定せず、unconfirmed / stale pending を committed state へ昇格させない。
+Binding は、この順序と責任を shortcut しない。Binding を通過したこと、Binding が Mnemonic を返したことまたは Application が値を受け取ったことだけでは handoff success または Profile success ではない。Binding は user confirmation を生成・推測せず、Application の確認成立を独立検証しない。確認後の確定要求を Core へ渡し、Profile success を独自確定せず、確定要求なしに pending を committed state へ昇格させない。
 
-提示不能、受領未確認、確認伝達不能、中断または Core の最終確定失敗時は、Binding が新規 Profile、partial state または secret output を成功として作らない。具体的な受渡し、確認表現、pending representation および Core への伝達契約は下流へ委譲する。
+Application は提示不能、受領未確認または中断時に確定要求を送らない。要求伝達不能または Core の最終確定失敗時は、Binding が新規 Profile、partial state または secret output を成功として作らない。具体的な受渡し、確認表現、pending representation および Core への伝達契約は下流へ委譲する。
 
 ### 6.4 明示的なエクスポート
 

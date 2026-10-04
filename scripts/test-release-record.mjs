@@ -31,7 +31,7 @@ import {
   validateThirdPartyLicenseEvidenceMetadata,
 } from "./third-party-license-evidence.mjs";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 const COMMIT = "a".repeat(40);
 const CARGO_LOCK = "b".repeat(64);
 const PNPM_LOCK = "c".repeat(64);
@@ -62,7 +62,7 @@ function write(path, value) {
 function fixture() {
   mkdirSync(npmDir, { recursive: true });
   mkdirSync(cAbiDir, { recursive: true });
-  const npmTarball = "nemnesia-symbol-nem-wallet-core-0.1.0.tgz";
+  const npmTarball = "nemnesia-symbol-nem-wallet-core-0.2.0.tgz";
   const npmManifest = {
     schema_version: 1,
     mode: "candidate",
@@ -240,7 +240,7 @@ try {
       sha512: "c".repeat(128),
       size: readFileSync(npmTarballPath).length,
       integrity: `sha512-${Buffer.from("c".repeat(128), "hex").toString("base64")}`,
-      tarball_url: "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/-/symbol-nem-wallet-core-0.1.0.tgz",
+      tarball_url: "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/-/symbol-nem-wallet-core-0.2.0.tgz",
     },
     verification: { status: "PASS" },
   });
@@ -329,12 +329,12 @@ try {
   execFileSync("tar", ["-czf", recoveryRegistryPath, "-C", recoveryArchiveRoot, "package"]);
   const publishedTarball = readFileSync(recoveryRegistryPath);
   const publishedTarballSha512 = createHash("sha512").update(publishedTarball).digest("hex");
-  const recoveryTarballUrl = "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/-/symbol-nem-wallet-core-0.1.0.tgz";
-  const recoveryMetadataUrl = "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/0.1.0";
-  const recoveryAttestationsUrl = "https://registry.npmjs.org/-/npm/v1/attestations/%40nemnesia%2Fsymbol-nem-wallet-core@0.1.0";
+  const recoveryTarballUrl = "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/-/symbol-nem-wallet-core-0.2.0.tgz";
+  const recoveryMetadataUrl = "https://registry.npmjs.org/%40nemnesia%2Fsymbol-nem-wallet-core/0.2.0";
+  const recoveryAttestationsUrl = "https://registry.npmjs.org/-/npm/v1/attestations/%40nemnesia%2Fsymbol-nem-wallet-core@0.2.0";
   const recoveryStatement = {
     predicateType: "https://slsa.dev/provenance/v1",
-    subject: [{ name: "pkg:npm/%40nemnesia/symbol-nem-wallet-core@0.1.0", digest: { sha512: publishedTarballSha512 } }],
+    subject: [{ name: "pkg:npm/%40nemnesia/symbol-nem-wallet-core@0.2.0", digest: { sha512: publishedTarballSha512 } }],
     predicate: {
       buildDefinition: {
         externalParameters: { workflow: { repository: "https://github.com/nemnesia/symbol-nem-wallet-core", path: ".github/workflows/release.yml", ref: `refs/tags/v${VERSION}` } },

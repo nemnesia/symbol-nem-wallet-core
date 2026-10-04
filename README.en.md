@@ -23,6 +23,8 @@ A Profile has one Mnemonic and Network, and its Network is fixed at creation. A 
 
 ## Use npm
 
+If upgrading from 0.1.0, read [Migration to 0.2.0](docs/migration/0.2.0.md) (Japanese).
+
 ### Install
 
 ```bash
@@ -61,11 +63,12 @@ After every successful mutation, use `result.store` as the next Store. Atomicall
 
 ## npm public API overview
 
-The package root runtime export contains only these 16 functions. A default export, class, backend-selection API, raw native API, raw WASM API, or internal manifest API is not public.
+The package root runtime exports these 16 functions and the `Network` / `Chain` constants. A default export, class, backend-selection API, raw native API, raw WASM API, or internal manifest API is not public.
 
 ```text
 create_empty_store                 prepare_generated_profile
 finalize_generated_profile         restore_profile
+Network                            Chain
 list_profiles                      export_mnemonic
 export_private_key                 list_software_keys
 derive_software_key                import_software_key
@@ -78,7 +81,7 @@ Public binary values are `Uint8Array`. The Store, Pending Profile, Mnemonic, pas
 
 ### Security-sensitive operations
 
-- A Generated Mnemonic is prepared with `prepare_generated_profile` and finalized with `finalize_generated_profile` only after the Application presents the complete Mnemonic to the intended user and obtains explicit acknowledgement. The Application must not infer, complete, or reuse confirmation status.
+- A Generated Mnemonic is prepared with `prepare_generated_profile`. The Application calls `finalize_generated_profile` only after presenting the complete Mnemonic to the intended user and obtaining explicit acknowledgement. Core does not independently verify that handoff occurred.
 - Mnemonic / private-key export requires the target, an explicit user request, Application confirmation, and correct Profile password authorization in the same operation. Knowing the password alone is not enough.
 - `sign` signs a raw payload and does not interpret or display Transactions. The Application must present the payload / Transaction contents to the user and obtain explicit approval for the current operation. Do not recommend blind signing for payloads that cannot be reviewed.
 
@@ -153,12 +156,12 @@ Environment variables are only an illustrative input path. In a real Application
 
 ### Rust handoff / confirmation
 
-Generated Mnemonic handoff uses the two operations `prepare_generated_profile` and `finalize_generated_profile`. Construct `HandoffConfirmationStatus::Confirmed` only after the Application presents the complete Mnemonic to the user and obtains explicit acknowledgement from the current user. Core does not obtain this confirmation automatically.
+Generated Mnemonic handoff uses the two operations `prepare_generated_profile` and `finalize_generated_profile`. The Application calls `finalize_generated_profile` only after presenting the complete Mnemonic to the user and obtaining explicit acknowledgement. Core does not obtain this confirmation automatically or independently verify that it occurred.
 
 ```rust
 use symbol_nem_wallet_core::{
     create_empty_store, finalize_generated_profile, prepare_generated_profile,
-    HandoffConfirmation, HandoffConfirmationStatus, Network,
+    Network,
 };
 
 fn obtain_explicit_handoff_confirmation(
@@ -181,9 +184,6 @@ fn create_generated_profile() -> Result<(), Box<dyn std::error::Error>> {
         &store,
         &prepared.value.pending_profile,
         password.as_bytes(),
-        HandoffConfirmation {
-            status: HandoffConfirmationStatus::Confirmed,
-        },
     )?;
     let _current_store = finalized.store;
     Ok(())

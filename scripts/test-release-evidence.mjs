@@ -58,7 +58,7 @@ function wasmBindgenVersion() {
   return matches[0][1];
 }
 
-function createTarball(root, metadata, name = "nemnesia-symbol-nem-wallet-core-0.1.0.tgz") {
+function createTarball(root, metadata, name = `nemnesia-symbol-nem-wallet-core-${metadata.version}.tgz`) {
   const archiveRoot = resolve(root, `archive-${name}`);
   mkdirSync(resolve(archiveRoot, "package"), { recursive: true });
   writeJson(resolve(archiveRoot, "package/package.json"), metadata);
@@ -415,10 +415,10 @@ try {
     packageRoot: fixtureData.packageRoot,
     tarballPath: fixtureData.tarballPath,
     mode: "release",
-    releaseTag: "v0.1.0",
+    releaseTag: `v${fixtureData.manifest.package_version}`,
     toolchains: fixtureData.toolchains,
   });
-  assert.equal(formal.release_tag, "v0.1.0");
+  assert.equal(formal.release_tag, `v${fixtureData.manifest.package_version}`);
 
   expectFailure(fixtureData, (manifest) => { manifest.native_artifacts[0].sha256 = "0".repeat(64); }, "native evidence mismatch");
   expectFailure(fixtureData, (manifest) => { manifest.native_artifacts[0].size += 1; }, "native evidence mismatch");

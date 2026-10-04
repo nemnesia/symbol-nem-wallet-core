@@ -13,17 +13,31 @@ install_root=${2:-}
 command -v cargo >/dev/null 2>&1 || { echo 'ERROR: cargo is required' >&2; exit 1; }
 command -v node >/dev/null 2>&1 || { echo 'ERROR: node is required' >&2; exit 1; }
 version=$(node scripts/wasm-bindgen-version.mjs)
-install_args=()
 if [[ -n "$install_root" ]]; then
-    install_args=(--root "$install_root")
     if [[ -n "${GITHUB_PATH:-}" ]]; then
         printf '%s/bin\n' "$install_root" >> "$GITHUB_PATH"
     fi
 fi
 
+install_wasm_bindgen() {
+    if [[ -n "$install_root" ]]; then
+        cargo install wasm-bindgen-cli --version "$version" --locked --root "$install_root"
+    else
+        cargo install wasm-bindgen-cli --version "$version" --locked
+    fi
+}
+
+install_wasm_pack() {
+    if [[ -n "$install_root" ]]; then
+        cargo install wasm-pack --version 0.15.0 --locked --root "$install_root"
+    else
+        cargo install wasm-pack --version 0.15.0 --locked
+    fi
+}
+
 case "$mode" in
     wasm-bindgen|all)
-        cargo install wasm-bindgen-cli --version "$version" --locked "${install_args[@]}"
+        install_wasm_bindgen
         ;;
     *)
         echo "ERROR: unsupported WASM tool group: $mode" >&2
@@ -31,5 +45,5 @@ case "$mode" in
         ;;
 esac
 if [[ "$mode" == all ]]; then
-    cargo install wasm-pack --version 0.15.0 --locked "${install_args[@]}"
+    install_wasm_pack
 fi

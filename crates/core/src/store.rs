@@ -16,10 +16,10 @@ use crate::{
     error::{ErrorCode, WalletError, WalletResult},
     types::{
         AccountContext, Chain, DecodeWarning, ExportApplicationConfirmationStatus, ExportRequest,
-        ExportTarget, ExportUserRequestStatus, HandoffConfirmation, HandoffConfirmationStatus,
-        MnemonicExport, MutationResult, Network, PreparedProfile, PrivateKeyExport, ProfileInfo,
-        PublicAccountInfo, ReadResult, Signature, SigningApprovalStatus, SigningRequest,
-        SoftwareKeyInfo, SoftwareKeyListItem, SoftwareKeyOrigin, WalletStoreBlob,
+        ExportTarget, ExportUserRequestStatus, MnemonicExport, MutationResult, Network,
+        PreparedProfile, PrivateKeyExport, ProfileInfo, PublicAccountInfo, ReadResult, Signature,
+        SigningApprovalStatus, SigningRequest, SoftwareKeyInfo, SoftwareKeyListItem,
+        SoftwareKeyOrigin, WalletStoreBlob,
     },
 };
 
@@ -213,6 +213,8 @@ pub fn prepare_generated_profile(
 /// 成功時だけ完全なreplacement Storeを返す。Pending Profileが作成時と異なる
 /// Storeへ渡された場合、または一度確定したPending Profileを再利用した場合は
 /// Profileを追加しない。
+/// 初回Mnemonic handoffの提示と利用者確認はApplicationの責務であり、Applicationは
+/// 確認成立後だけこの関数を呼び出す。Coreはその確認を独立検証しない。
 ///
 /// # エラー
 ///
@@ -223,11 +225,7 @@ pub fn finalize_generated_profile(
     store: &[u8],
     pending_profile: &[u8],
     password_utf8: &[u8],
-    handoff_confirmation: HandoffConfirmation,
 ) -> WalletResult<MutationResult<ProfileInfo>> {
-    if handoff_confirmation.status != HandoffConfirmationStatus::Confirmed {
-        return Err(WalletError::new(ErrorCode::InvalidArgument));
-    }
     crypto::validate_password(password_utf8)?;
     let (mut wallet, warnings) = decode_store(store)?;
     let pending = parse_pending(pending_profile)?;

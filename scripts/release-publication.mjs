@@ -59,7 +59,7 @@ export function assemblePublicationAssets({ npmDir, cAbiDir, recordDir, outputDi
     recovery,
   });
   const record = JSON.parse(readFileSync(resolve(recordRoot, "release-record.json"), "utf8"));
-  if (!isPlainObject(record) || record.mode !== "release" || record.package_name !== "@nemnesia/symbol-nem-wallet-core" || record.version !== "0.1.0" || record.tag !== tag || record.source_commit !== sourceCommit || record.npm?.provenance?.status !== "published") fail("published release record identity is invalid");
+  if (!isPlainObject(record) || record.mode !== "release" || record.package_name !== "@nemnesia/symbol-nem-wallet-core" || record.version !== "0.2.0" || record.tag !== tag || record.source_commit !== sourceCommit || record.npm?.provenance?.status !== "published") fail("published release record identity is invalid");
   const npmNames = record.durable_asset_list.npm.map((entry) => entry.filename);
   const cAbiNames = record.durable_asset_list.c_abi.map((entry) => entry.filename);
   assertNames(filesUnder(npmRoot), npmNames, "npm durable evidence set");

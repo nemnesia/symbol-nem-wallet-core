@@ -285,7 +285,6 @@ export default function App() {
             emptyStore,
             pendingProfile,
             password,
-            { status: 'confirmed' },
           ),
         ),
         'finalize_generated_profile',

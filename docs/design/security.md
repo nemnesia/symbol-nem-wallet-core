@@ -90,8 +90,8 @@ Desktop、React Native Android / iOS、Web、Node.js、Native C ABI、Node-API�
 - Application / Binding は input、初回 handoff または明示的 export の受渡しを一時的に mediation できるが、Core とは別の継続的な secret authority にならない。
 - Core 管理下の secret は通常処理の結果として返さない。初回 Mnemonic handoff と条件を満たす個別 export の成功結果だけが明示的な例外である。
 - Profile password authorization は Core が operation ごとに担う。Binding / Application は security decision、unlock session または authorization cache により代替しない。
-- Handoff confirmation、export confirmation および signing approval の freshness は Application / UI が担う。Core は Application が実際に表示・確認・承認を取得したこと、または assertion が fresh であることを独立には証明しない。
-- Core は過去の operation の authorization、pending または秘密情報を次の operation へ暗黙に持ち越さず、pending を confirmation なしに committed へ昇格させない。
+- Mnemonic handoff の確認と export / signing assertion の freshness は Application / UI が担う。Core は Application が実際に表示・確認・承認を取得したことを独立には証明しない。handoff confirmation status は API input ではなく、Application が確認後だけ finalize を呼ぶ。
+- Core は過去の operation の authorization、pending または秘密情報を次の operation へ暗黙に持ち越さず、Application から finalize が呼ばれた場合だけ Pending を committed Profile へ昇格させる。handoff confirmation は Application が finalize を呼ぶ条件であり、Core はその実施を検証しない。
 - Core は stateless な opaque Store processor として、現在の operation に入力された Store の validity、integrity、consistency および mutation を処理する。過去に返した Store を記憶せず、valid historical Store の freshness または rollback を単独では検出・拒否しない。
 - Application、Browser、OS、Node.js または host process の compromise 自体を Core が防止する保証はない。
 - host compromise を保証しない場合でも、Core / Binding の通常処理における非開示、authorization boundary、failure safety および non-authority の責任は弱まらない。
@@ -121,7 +121,7 @@ Application / UI は次を担う。
 - explicit export の対象表示、秘密情報取得要求の確認および確認済み request だけの送信
 - signing payload / Transaction 内容の提示、利用者が確認できる状態の提供、明示的な signing approval の取得および approved request だけの送信
 - Core が返す opaque Store の current Store としての選択、保存、replacement の適用、バックアップ、同期および端末間 transfer。stale / historical Store の再適用防止と最新版 snapshot の管理を含む
-- handoff、export および signing における現在の operation の利用者確認・承認 assertion の freshness 管理。過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用しない
+- handoff、export および signing における現在の operation の利用者確認・承認の freshness 管理。export / signing request の過去 status や過去の handoff 確認を新しい利用者意思として再利用しない
 - handoff / export により Core 外へ渡った秘密情報 copy の表示、保管、利用および紛失防止
 
 Application / UI は Core 管理下の secret、signing authority、Profile password authorization または Store の内部意味の正本にならない。Application が current Store の選択と freshness を担うことは、Core の Store validity 判断を代替することを意味しない。
@@ -177,7 +177,7 @@ Profile パスワード変更、Software Key 削除および Profile 削除も�
 - Software Key deletion
 - Profile deletion
 
-Core は operation ごとに Profile password を認証し、authorization をその operation だけに有効とする。次の operation へ持ち越さない。Core に継続 Unlocked state を持たせず、Binding は unlock session / authorization cache を作らず、Application は Core の代替 unlock session を保持しない。previous authentication result を次の operation の authorization として使わない。retry は再認証であり、restart 後に authorization state を継続しない。Handoff、export および signing の confirmation / approval assertion は現在の operation に結び付いたものを Application / UI が fresh に取得し、過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用しない。Core は assertion freshness を独立には証明しない。
+Core は operation ごとに Profile password を認証し、authorization をその operation だけに有効とする。次の operation へ持ち越さない。Core に継続 Unlocked state を持たせず、Binding は unlock session / authorization cache を作らず、Application は Core の代替 unlock session を保持しない。previous authentication result を次の operation の authorization として使わない。retry は再認証であり、restart 後に authorization state を継続しない。Handoff の利用者確認と export / signing の confirmation / approval は現在の operation に結び付くものとして Application / UI が freshness を管理し、過去に保存した request status または確認を新しい利用者意思として再利用しない。Core は利用者確認の実施や freshness を独立には証明しない。
 
 具体的な token、session API、password の memory representation は下流へ委譲する。authorization の責任主体と持続範囲は下流の方式によって変更できない。
 
@@ -189,14 +189,14 @@ Core は operation ごとに Profile password を認証し、authorization を�
 2. Core が意図された Application へ完全な Mnemonic を渡す。
 3. Application が意図した利用者へ Mnemonic を提示する。
 4. 利用者が Mnemonic を受領したことを明示的に確認する。
-5. Application が確認成立を Core へ伝える。
-6. Core がその後だけ Profile 作成を成功状態として最終確定する。
+5. Application が現在の handoff に対する確認成立後だけ、Core へ Profile の確定を要求する。
+6. Core がその要求を認証・検証し、Profile 作成を成功状態として最終確定する。
 
-Mnemonic の生成、Core 内での一時保持、Binding の通過、Application の受領または Application の呼出しだけでは Profile success にならない。利用者確認前は committed Profile ではなく、正常 Profile として利用できない。
+Mnemonic の生成・受渡しだけでは Core は Profile を確定しない。Application は利用者確認前に確定要求を送らず、未確定の状態を正常 Profile として扱わない。Core は受領確認を独立検証せず、明示的な確定要求の認証・整合性検証を担う。
 
-受領不能、提示不能、利用者の拒否・未確認、Application から Core への確認伝達不能、handoff の中断または最終確定失敗では、Core は partial Profile を成功状態として残さず、stale / unconfirmed state を自動昇格させず、Mnemonic を通常結果、失敗結果または診断へ漏らさない。既存の committed state は壊さない。
+Application は受領不能、提示不能、利用者の拒否・未確認または中断時に確定要求を送らない。Core は確定要求の認証・検証または最終確定の失敗時に partial Profile を成功状態として残さず、明示的な確定要求なしに自動昇格させず、Mnemonic を通常結果、失敗結果または診断へ漏らさない。既存の committed state は壊さない。
 
-Core は UI を担当せず、利用者が紙・外部媒体へ保存したことまたは将来紛失しないことを独立検証しない。handoff confirmation の freshness は Application / UI が管理し、過去に保存した確認済み assertion を新しい利用者意思として再利用しない。Core は Application が実際に Mnemonic を提示し、利用者が確認したこと、または assertion が fresh であることを独立には証明しない。handoff 後の Core 内 Mnemonic 原本は Core が継続管理し、Core 外 copy の表示・保管・紛失防止は Application / 利用者が担う。callback、ACK、Pending Profile、transport および具体的な確認表現は下流へ委譲する。
+Core は UI を担当せず、利用者が紙・外部媒体へ保存したことまたは将来紛失しないことを独立検証しない。handoff confirmation の freshness は Application / UI が管理し、過去の確認を根拠に新しい finalize 呼出しを行わない。Core は Application が実際に Mnemonic を提示し、利用者が確認したことを独立には証明しない。handoff 後の Core 内 Mnemonic 原本は Core が継続管理し、Core 外 copy の表示・保管・紛失防止は Application / 利用者が担う。finalize 呼出し、Pending Profile、transport および具体的な確認表現は下流へ委譲する。
 
 ### 6.3 明示的な秘密情報のエクスポート
 
@@ -267,7 +267,7 @@ failure または interruption の後は、次を維持する。
 
 retry は新しい operation とする。必要な Store、入力、現在の operation に対する fresh な利用者確認および Profile password authorization を再提供・再取得し、previous authentication result、stale pending または temporary secret を次 operation の authorization として再利用しない。Core は再提出された assertion の freshness を独立には証明せず、Application が過去に保存した確認・承認を新しい利用者意思として再利用しないことを要求する。
 
-脅威モデル上、悪意ある Application が過去 operation の `Approved`、`Confirmed` または `Requested` assertion を現在の operation のものとして再提出する replay を想定する。Core は UI 表示、実際の利用者操作または Application 内での保存・再利用を独立に証明しないため、この Application compromise を完全に防止する保証は持たない。Core が保証するのは、内部の authorization / pending state を operation 間で暗黙に持ち越さないこと、request の target / payload / AccountContext と渡された assertion を仕様どおり検証すること、および confirmation なしで pending を committed に昇格させないことである。
+脅威モデル上、悪意ある Application が過去 operation の `Approved`、`Confirmed` または `Requested` assertion を現在の export / signing operation のものとして再提出する replay を想定する。Core は UI 表示、実際の利用者操作または Application 内での保存・再利用を独立に証明しないため、この Application compromise を完全に防止する保証は持たない。Core が保証するのは、内部の authorization / pending state を operation 間で暗黙に持ち越さないこと、export / signing request の target / payload / AccountContext と渡された assertion を仕様どおり検証すること、および finalize が呼ばれた場合だけ Pending を committed にすることである。Core は呼び出し元 Application が handoff を確認したかは検証しない。
 
 restart 後は unlocked state、authorization state または未確認 pending を復元しない。pending の具体的な形式、timeout、rollback、再利用条件および memory lifetime は下流へ委譲する。
 

@@ -31,11 +31,10 @@ use symbol_nem_wallet_core::{
     prepare_generated_profile as core_prepare_generated_profile,
     restore_profile as core_restore_profile, sign as core_sign, AccountContext, Chain,
     DecodeWarning, ErrorCode, ExportApplicationConfirmation, ExportApplicationConfirmationStatus,
-    ExportRequest, ExportTarget, ExportUserRequest, ExportUserRequestStatus, HandoffConfirmation,
-    HandoffConfirmationStatus, MnemonicExport, MutationResult, Network, PreparedProfile,
-    PrivateKeyExport, ProfileInfo, PublicAccountInfo, Signature, SigningApproval,
-    SigningApprovalStatus, SigningRequest, SigningTarget, SoftwareKeyInfo, SoftwareKeyListItem,
-    SoftwareKeyOrigin, WalletError,
+    ExportRequest, ExportTarget, ExportUserRequest, ExportUserRequestStatus, MnemonicExport,
+    MutationResult, Network, PreparedProfile, PrivateKeyExport, ProfileInfo, PublicAccountInfo,
+    Signature, SigningApproval, SigningApprovalStatus, SigningRequest, SigningTarget,
+    SoftwareKeyInfo, SoftwareKeyListItem, SoftwareKeyOrigin, WalletError,
 };
 const MAX_MNEMONIC_INPUT_BYTES: usize = 1024 * 1024;
 const MAX_SIGNING_PAYLOAD_BYTES: usize = 1024 * 1024;
@@ -362,15 +361,6 @@ fn parse_uuid(value: &str) -> Result<Uuid, WalletError> {
     })
 }
 
-fn parse_handoff_confirmation(value: &JsValue) -> Result<HandoffConfirmation, JsValue> {
-    let status = match string_field(value, "status")?.as_str() {
-        "unconfirmed" => HandoffConfirmationStatus::Unconfirmed,
-        "confirmed" => HandoffConfirmationStatus::Confirmed,
-        _ => return Err(invalid_argument()),
-    };
-    Ok(HandoffConfirmation { status })
-}
-
 fn parse_export_target(value: &JsValue) -> Result<ExportTarget, JsValue> {
     let profile_id = parse_uuid(&string_field(value, "profile_id")?).map_err(binding_error)?;
     match string_field(value, "kind")?.as_str() {
@@ -666,19 +656,12 @@ pub fn finalize_generated_profile(
     store: &Uint8Array,
     pending_profile: &Uint8Array,
     password_utf8: &Uint8Array,
-    handoff_confirmation: &JsValue,
 ) -> Result<JsValue, JsValue> {
     let store_bytes = store_bytes(store)?;
     let pending_bytes = fixed_bytes(pending_profile, 134)?;
     let password = bytes(password_utf8)?;
-    let handoff_confirmation = parse_handoff_confirmation(handoff_confirmation)?;
-    let result = core_finalize_generated_profile(
-        &store_bytes,
-        &pending_bytes,
-        &password,
-        handoff_confirmation,
-    )
-    .map_err(binding_error)?;
+    let result = core_finalize_generated_profile(&store_bytes, &pending_bytes, &password)
+        .map_err(binding_error)?;
     let value = profile_info(&result.value)?;
     mutation_result(result, value)
 }

@@ -146,7 +146,7 @@ Application / UI は次を担う。
 - explicit secret export における対象の表示、利用者の取得要求の確認および確認済み要求だけの送信
 - signing における Account の選択、payload / Transaction 内容の提示、利用者が確認できる状態の提供、明示的な署名承認の取得および承認済み要求だけの送信
 - Core が返す opaque Store の current Store としての保存、置換、バックアップ、同期または端末間転送。これらは Store schema / version migration とは別の外部責任であり、stale / historical Store の再適用防止を含む
-- handoff、export および signing における現在の操作に対する利用者の確認・承認 assertion の freshness を管理し、過去に保存した `Approved`、`Confirmed` または `Requested` を新しい利用者意思として再利用しないこと
+- handoff、export および signing における現在の操作に対する利用者の確認・承認 freshness を管理し、export / signing request の過去 status や過去の handoff 確認を新しい利用者意思として再利用しないこと
 - Core 外へ明示的に渡された秘密情報コピーの表示、保管、利用および紛失防止
 
 Application は、Core 管理下の Mnemonic / Software Key 原本、Core の signing authority または Profile password authorization の正本にならない。
@@ -234,14 +234,14 @@ Core が Profile または Software Key の論理的な成功状態を最終確�
 2. Core がその完全な Mnemonic を意図された呼出し元 Application へ渡す。
 3. Application が完全な Mnemonic を意図された利用者へ提示する。
 4. 利用者が Mnemonic を受領したことを明示的に確認する。
-5. Application が利用者の確認成立を Core へ伝える。
-6. Core がその確認を受けた後だけ、Profile 作成を成功状態として最終確定する。
+5. Application が現在の handoff に対する利用者の確認成立後だけ、Core へ Profile の確定を要求する。
+6. Core がその要求を認証・検証し、Profile 作成を成功状態として最終確定する。
 
-Application が利用者から確認を得て、その事実を Core へ伝えることが、この handoff の trust boundary である。Core は UI を提供せず、利用者が紙や外部媒体へ正しく記録したこと、または将来紛失しないことを独立検証しない。handoff confirmation の freshness は Application / UI が管理し、過去に保存した確認済み状態を新しい利用者意思として再利用しない。handoff 後に Core 外へ渡された Mnemonic の表示、保管および紛失防止は Application / 利用者の責任である。
+Application が利用者から確認を得た後に `finalize_generated_profile` を呼び、その呼び出しで確定を要求することが、この handoff の trust boundary である。Core は UI を提供せず、利用者が紙や外部媒体へ正しく記録したこと、または将来紛失しないことを独立検証しない。handoff confirmation の freshness は Application / UI が管理し、過去の確認を新しい利用者意思として再利用しない。handoff 後に Core 外へ渡された Mnemonic の表示、保管および紛失防止は Application / 利用者の責任である。
 
-Mnemonic を生成したこと、Core 内で一時保持したこと、Binding を通過したこと、Application が受け取ったこと、または Application が Core を呼び出したことだけでは Profile 作成成功にならない。確認前の状態は正常な Profile として扱わない。受領不能、提示不能、利用者の拒否・確認未成立、Application から Core への確認伝達不能、handoff 中断または Core の最終確定失敗では、新規 Profile または部分状態を成功状態として残さず、stale / unconfirmed state から通常 Profile へ自動昇格させず、Mnemonic を通常結果・失敗結果・診断へ漏らさない。
+生成・受渡しだけでは Core は Profile を確定しない。Application は受領不能、提示不能、利用者の拒否・確認未成立または中断時に確定要求を送らず、未確定の状態を正常な Profile として扱わない。Core は受領確認を独立検証せず、確定要求の認証・検証または最終確定の失敗時に新規 Profile または部分状態を成功状態として残さない。明示的な確定要求なしに自動昇格させず、Mnemonic を通常結果・失敗結果・診断へ漏らさない。
 
-pending / partial state が存在する場合も、それは Core が管理する未確定状態であり、Application は committed Profile として扱わない。pending state の具体的形式や handoff の具体的な受渡し方式は下流へ委譲する。Application が確認済み assertion を保存して再利用しても、その freshness を Core が独立に証明する設計にはしない。
+pending / partial state が存在する場合も、それは Core が管理する未確定状態であり、Application は committed Profile として扱わない。pending state の具体的形式や handoff の具体的な受渡し方式は下流へ委譲する。Application が過去の確認を根拠に新しい finalize 呼出しを行っても、その freshness を Core が独立に証明する設計にはしない。
 
 ### 6.2 秘密情報を扱う状態変更の共通規則
 

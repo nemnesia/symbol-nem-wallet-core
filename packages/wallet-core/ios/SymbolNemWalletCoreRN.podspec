@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = "SymbolNemWalletCoreRN"
-  s.version          = "0.1.0"
+  s.version          = "0.2.0"
   s.summary          = "Private React Native binding for Symbol and NEM Wallet Core"
   s.homepage         = "https://github.com/nemnesia/symbol-nem-wallet-core"
   s.license          = { :type => "MIT" }

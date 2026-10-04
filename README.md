@@ -23,6 +23,8 @@ Profile は1つの Mnemonic と Network を持ち、Network は作成時に固�
 
 ## npm を使う
 
+0.1.0 から更新する場合は [0.2.0 への移行](docs/migration/0.2.0.md) を確認してください。
+
 ### インストール
 
 ```bash
@@ -61,11 +63,12 @@ console.log(list_profiles(store).value); // []
 
 ## npm 公開 API の概要
 
-package root が実行時に公開するのは、次の16関数だけです。default export、class、backend 選択 API、raw Native API、raw WASM API、内部 manifest API は公開 API ではありません。
+package root は次の16関数と `Network` / `Chain` 定数を実行時に公開します。default export、class、backend 選択 API、raw Native API、raw WASM API、内部 manifest API は公開 API ではありません。
 
 ```text
 create_empty_store                 prepare_generated_profile
 finalize_generated_profile         restore_profile
+Network                            Chain
 list_profiles                      export_mnemonic
 export_private_key                 list_software_keys
 derive_software_key                import_software_key
@@ -78,7 +81,7 @@ delete_software_key                delete_profile
 
 ### 安全上重要な操作
 
-- Generated Mnemonic は `prepare_generated_profile` で準備し、Application が Mnemonic 全体を intended user に提示して明示的な受領確認を取得した後だけ、`finalize_generated_profile` で確定します。Application は確認 status を推測・補完・過去から再利用しません。
+- Generated Mnemonic は `prepare_generated_profile` で準備し、Application が Mnemonic 全体を intended user に提示して明示的な受領確認を取得した後だけ、`finalize_generated_profile` を呼びます。Core は handoff を独立検証しません。
 - Mnemonic / private key export は、対象、利用者の明示的要求、Application confirmation、正しい Profile password authorization を同じ operation で満たす必要があります。password を知っているだけでは export できません。
 - `sign` は raw payload の署名だけを行い、Transaction の解釈や表示をしません。Application は payload / transaction contents を利用者へ表示し、現在の operation の明示的 approval を得てください。確認できない payload の blind signing を推奨しません。
 
@@ -153,12 +156,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Rust の handoff / confirmation
 
-新規 Mnemonic の handoff は `prepare_generated_profile` と `finalize_generated_profile` の2段階です。Application が Mnemonic 全体を利用者へ提示し、現在の利用者から明示的な受領確認を取得した後だけ `HandoffConfirmationStatus::Confirmed` を構築してください。確認処理は Core が自動取得しません。
+新規 Mnemonic の handoff は `prepare_generated_profile` と `finalize_generated_profile` の2段階です。Application が Mnemonic 全体を利用者へ提示し、現在の利用者から明示的な受領確認を取得した後だけ `finalize_generated_profile` を呼んでください。確認処理は Core が自動取得せず、finalize 呼び出しから確認の実施を独立検証もしません。
 
 ```rust
 use symbol_nem_wallet_core::{
     create_empty_store, finalize_generated_profile, prepare_generated_profile,
-    HandoffConfirmation, HandoffConfirmationStatus, Network,
+    Network,
 };
 
 fn obtain_explicit_handoff_confirmation(
@@ -181,9 +184,6 @@ fn create_generated_profile() -> Result<(), Box<dyn std::error::Error>> {
         &store,
         &prepared.value.pending_profile,
         password.as_bytes(),
-        HandoffConfirmation {
-            status: HandoffConfirmationStatus::Confirmed,
-        },
     )?;
     let _current_store = finalized.store;
     Ok(())

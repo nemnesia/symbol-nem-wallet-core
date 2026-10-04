@@ -50,6 +50,9 @@ const OPERATION_NAMES = [
   "delete_profile",
 ];
 
+export const Network = Object.freeze({ TESTNET: 0, MAINNET: 1 });
+export const Chain = Object.freeze({ NEM: 0, SYMBOL: 1 });
+
 class WalletCoreError extends Error {
   constructor(code) {
     super(code);
@@ -388,15 +391,6 @@ function validateDirectId(value) {
   validateUuidValue(value);
 }
 
-function snapshotHandoffConfirmation(value) {
-  requiredObject(value);
-  const status = dtoFieldString(value, "status");
-  if (status !== "unconfirmed" && status !== "confirmed") invalidArgument();
-  const snapshot = dtoObject();
-  snapshot.status = status;
-  return snapshot;
-}
-
 function snapshotExportTarget(value) {
   requiredObject(value);
   const kind = dtoFieldString(value, "kind");
@@ -541,6 +535,8 @@ export function createFacade(backend) {
   }
 
   return {
+    Network,
+    Chain,
     create_empty_store: () => invoke(backend, "create_empty_store", [], (value) => outputBytes(value)),
 
     prepare_generated_profile: (store, passwordUtf8, network) => {
@@ -553,12 +549,11 @@ export function createFacade(backend) {
       );
     },
 
-    finalize_generated_profile: (store, pendingProfile, passwordUtf8, handoffConfirmation) => {
-      const handoffSnapshot = snapshotHandoffConfirmation(handoffConfirmation);
+    finalize_generated_profile: (store, pendingProfile, passwordUtf8) => {
       return invoke(
         backend,
         "finalize_generated_profile",
-        [store, pendingProfile, passwordUtf8, handoffSnapshot],
+        [store, pendingProfile, passwordUtf8],
         (value) => outputMutationResult(value, outputProfileInfo),
       );
     },

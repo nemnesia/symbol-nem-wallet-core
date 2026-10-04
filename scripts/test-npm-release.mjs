@@ -185,6 +185,7 @@ function smokeSource(moduleSyntax) {
     : `const api = require(${JSON.stringify(packageName)});`;
   return `${importLine}
 const expectedNames = [
+  "Chain", "Network",
   "change_profile_password", "create_empty_store", "delete_profile", "delete_software_key",
   "derive_software_key", "export_mnemonic", "export_private_key", "finalize_generated_profile",
   "generate_software_key", "get_public_account", "import_software_key", "list_profiles",
@@ -202,7 +203,6 @@ const restored = api.finalize_generated_profile(
   store,
   prepared.value.pending_profile,
   password,
-  { status: "confirmed" },
 );
 if (!(restored.store instanceof Uint8Array) || restored.store.length === 0) throw new Error("replacement Store missing");
 let error;

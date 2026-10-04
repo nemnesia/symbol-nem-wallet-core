@@ -6,19 +6,12 @@
 use super::*;
 use crate::{
     AccountContext, ExportApplicationConfirmation, ExportApplicationConfirmationStatus,
-    ExportRequest, ExportTarget, ExportUserRequest, ExportUserRequestStatus, HandoffConfirmation,
-    HandoffConfirmationStatus, SigningApproval, SigningApprovalStatus, SigningRequest,
-    SigningTarget,
+    ExportRequest, ExportTarget, ExportUserRequest, ExportUserRequestStatus, SigningApproval,
+    SigningApprovalStatus, SigningRequest, SigningTarget,
 };
 
 const MNEMONIC: &[u8] = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
 const PASSWORD: &[u8] = b"correct horse battery staple";
-
-fn confirmed_handoff() -> HandoffConfirmation {
-    HandoffConfirmation {
-        status: HandoffConfirmationStatus::Confirmed,
-    }
-}
 
 fn mnemonic_export_request(profile_id: Uuid) -> ExportRequest {
     let target = ExportTarget::MnemonicTarget { profile_id };
@@ -608,13 +601,8 @@ fn public_store_paths_are_exercised_in_unit_build() {
     let empty = create_empty_store().unwrap();
     let prepared = prepare_generated_profile(&empty, PASSWORD, Network::Testnet).unwrap();
     assert!(!prepared.value.mnemonic_utf8.is_empty());
-    let finalized = finalize_generated_profile(
-        &empty,
-        &prepared.value.pending_profile,
-        PASSWORD,
-        confirmed_handoff(),
-    )
-    .unwrap();
+    let finalized =
+        finalize_generated_profile(&empty, &prepared.value.pending_profile, PASSWORD).unwrap();
     assert_eq!(list_profiles(&finalized.store).unwrap().value.len(), 1);
 
     let (store, profile_id) = wallet_with_one_profile();
@@ -1102,8 +1090,7 @@ fn authenticated_pending_profile_id_collision_is_pending_invalid() {
     .unwrap();
     let before = store.clone();
 
-    let error =
-        finalize_generated_profile(&store, &pending, PASSWORD, confirmed_handoff()).unwrap_err();
+    let error = finalize_generated_profile(&store, &pending, PASSWORD).unwrap_err();
     assert_eq!(error.code, ErrorCode::PendingProfileInvalid);
     assert_eq!(store, before);
 }

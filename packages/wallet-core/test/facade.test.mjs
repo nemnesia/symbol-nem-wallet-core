@@ -52,7 +52,7 @@ test("過大MnemonicとUnicode正規化の結果がnativeとWASMで一致する"
     canonical.fill(0);
   }
 });
-const expectedExports = [
+const expectedOperations = [
   "create_empty_store",
   "prepare_generated_profile",
   "finalize_generated_profile",
@@ -70,6 +70,8 @@ const expectedExports = [
   "delete_software_key",
   "delete_profile",
 ];
+
+const expectedExports = ["Network", "Chain", ...expectedOperations];
 
 function sorted(value) {
   return [...value].sort();
@@ -154,23 +156,6 @@ function malformedRepresentationCases(api) {
   };
 
   return [
-    ["null HandoffConfirmation", () => api.finalize_generated_profile(store, store, store, null), "BindingFailure"],
-    ["primitive HandoffConfirmation", () => api.finalize_generated_profile(store, store, store, 1), "BindingFailure"],
-    ["missing HandoffConfirmation.status", () => api.finalize_generated_profile(store, store, store, {}), "InvalidArgument"],
-    ["unknown HandoffConfirmation.status", () => api.finalize_generated_profile(store, store, store, { status: "future" }), "InvalidArgument"],
-    [
-      "unreadable HandoffConfirmation",
-      () =>
-        api.finalize_generated_profile(
-          store,
-          store,
-          store,
-          new Proxy({ status: "confirmed" }, {
-            getOwnPropertyDescriptor() { throw new Error("unreadable"); },
-          }),
-        ),
-      "BindingFailure",
-    ],
     ["null ExportRequest", () => api.export_mnemonic(store, null, store), "BindingFailure"],
     ["primitive ExportRequest", () => api.export_mnemonic(store, 1, store), "BindingFailure"],
     ["missing ExportRequest field", () => api.export_mnemonic(store, {}, store), "InvalidArgument"],
@@ -299,13 +284,44 @@ function malformedRepresentationCases(api) {
   ];
 }
 
-test("root ESM exportが16個の同期operationだけで構成される", () => {
+test("root ESM exportが16個の同期operationとNetwork / Chain定数で構成される", () => {
   assert.deepEqual(sorted(Object.keys(facade)), sorted(expectedExports));
+  for (const api of [facade, wasmFacade]) {
+    assert.deepEqual(api.Network, { TESTNET: 0, MAINNET: 1 });
+    assert.deepEqual(api.Chain, { NEM: 0, SYMBOL: 1 });
+    assert.equal(Object.isFrozen(api.Network), true);
+    assert.equal(Object.isFrozen(api.Chain), true);
+  }
   assert.equal("default" in facade, false);
   assert.equal("WalletCoreError" in facade, false);
   assert.equal(facade.create_empty_store() instanceof Uint8Array, true);
   assert.equal(facade.list_profiles(facade.create_empty_store()).value.length, 0);
   assert.equal(facade.list_profiles(facade.create_empty_store()).warnings.length, 0);
+});
+
+test("生成済みentryが3引数のPending Profile確定とKey導出を実行する", () => {
+  for (const api of [facade, wasmFacade]) {
+    const password = new TextEncoder().encode("generated profile test fixture");
+    const store = api.create_empty_store();
+    const prepared = api.prepare_generated_profile(store, password, api.Network.MAINNET);
+    try {
+      // This generated mnemonic is a disposable test fixture, not a user wallet.
+      const finalized = api.finalize_generated_profile(store, prepared.value.pending_profile, password);
+      const derived = api.derive_software_key(
+        finalized.store, finalized.value.profile_id, password, api.Chain.SYMBOL, 0,
+      );
+      const account = api.get_public_account(
+        derived.store, finalized.value.profile_id, derived.value.key_id,
+        { chain: "symbol", network: "mainnet" }, password,
+      );
+      assert.equal(typeof account.value.address, "string");
+      assert.equal(account.value.public_key.length, 32);
+    } finally {
+      password.fill(0);
+      prepared.value.mnemonic_utf8.fill(0);
+      prepared.value.pending_profile.fill(0);
+    }
+  }
 });
 
 test("Node nativeとdirect WASMのoperationがCore errorを同じ形式へ正規化する", () => {
@@ -394,7 +410,7 @@ test("--no-addonsのWASM digest mismatchはESM/CJS共通でgeneric errorにし�
 test("facadeがrepresentation、unitのnull、UUID error、Core errorを正規化する", () => {
   let called = false;
   const backend = Object.fromEntries(
-    expectedExports.map((name) => [
+    expectedOperations.map((name) => [
       name,
       () => {
         throw new Error("unexpected operation");
@@ -490,7 +506,7 @@ test("nativeとdirect WASM entryが不正DTOに同じerror形式を返す", () =
   }
 });
 
-test("facadeはDTOをown data propertyからsnapshotして転送する", () => {
+test("facadeはsecurity DTOをown data propertyからsnapshotして転送する", () => {
   const profileId = "11111111-1111-4111-8111-111111111111";
   const keyId = "22222222-2222-4222-8222-222222222222";
   const target = { kind: "software_key", profile_id: profileId, key_id: keyId };
@@ -506,7 +522,7 @@ test("facadeはDTOをown data propertyからsnapshotして転送する", () => {
     approval: { status: "approved" },
   };
   const captured = {};
-  const backend = Object.fromEntries(expectedExports.map((name) => [name, () => new Uint8Array()]));
+  const backend = Object.fromEntries(expectedOperations.map((name) => [name, () => new Uint8Array()]));
   backend.finalize_generated_profile = (...args) => {
     captured.finalize = args;
     return {
@@ -547,15 +563,12 @@ test("facadeはDTOをown data propertyからsnapshotして転送する", () => {
 
   const api = createFacade(backend);
   const store = new Uint8Array();
-  const handoff = { status: "confirmed" };
-  api.finalize_generated_profile(store, store, store, handoff);
+  api.finalize_generated_profile(store, store, store);
   api.export_mnemonic(store, exportRequest, store);
   api.get_public_account(store, profileId, keyId, context, store);
   api.sign(store, signingRequest, store);
 
-  assert.notEqual(captured.finalize[3], handoff);
-  assert.equal(Object.getPrototypeOf(captured.finalize[3]), null);
-  assert.equal(captured.finalize[3].status, "confirmed");
+  assert.deepEqual(captured.finalize, [store, store, store]);
   assert.notEqual(captured.export[1], exportRequest);
   assert.notEqual(captured.export[1].target, target);
   assert.equal(Object.getPrototypeOf(captured.export[1]), null);
@@ -571,7 +584,7 @@ test("DTO snapshotは継承field、getter、prototype pollutionを承認条件�
   const profileId = "11111111-1111-4111-8111-111111111111";
   const keyId = "22222222-2222-4222-8222-222222222222";
   let backendCalls = 0;
-  const backend = Object.fromEntries(expectedExports.map((name) => [name, () => {
+  const backend = Object.fromEntries(expectedOperations.map((name) => [name, () => {
     backendCalls += 1;
     return { store: new Uint8Array(), value: null, warnings: [] };
   }]));
@@ -589,21 +602,6 @@ test("DTO snapshotは継承field、getter、prototype pollutionを承認条件�
   };
   const api = createFacade(backend);
   const store = new Uint8Array();
-  assert.throws(
-    () => api.finalize_generated_profile(store, store, store, Object.create({ status: "confirmed" })),
-    (error) => error.code === "InvalidArgument",
-  );
-  let getterReads = 0;
-  const getterConfirmation = Object.defineProperty({}, "status", {
-    enumerable: true,
-    get() { getterReads += 1; return getterReads === 1 ? "confirmed" : "unconfirmed"; },
-  });
-  assert.throws(
-    () => api.finalize_generated_profile(store, store, store, getterConfirmation),
-    (error) => error.code === "InvalidArgument",
-  );
-  assert.equal(getterReads, 0);
-
   const polluted = Object.getOwnPropertyDescriptor(Object.prototype, "status");
   try {
     Object.defineProperty(Object.prototype, "status", {
@@ -634,7 +632,7 @@ test("backendはvalidation後のcaller mutationではなくnested snapshotとpay
     approval: { status: "approved" },
   };
   let observed;
-  const backend = Object.fromEntries(expectedExports.map((name) => [name, () => new Uint8Array()]));
+  const backend = Object.fromEntries(expectedOperations.map((name) => [name, () => new Uint8Array()]));
   backend.sign = (_store, snapshot) => {
     request.target.context.chain = "symbol";
     request.target.context.network = "mainnet";
@@ -662,7 +660,7 @@ test("SigningRequest snapshot途中のapproval failureでfacade payload copyを�
   const profileId = "11111111-1111-4111-8111-111111111111";
   const keyId = "22222222-2222-4222-8222-222222222222";
   const OriginalUint8Array = globalThis.Uint8Array;
-  const backend = Object.fromEntries(expectedExports.map((name) => [name, () => new OriginalUint8Array()]));
+  const backend = Object.fromEntries(expectedOperations.map((name) => [name, () => new OriginalUint8Array()]));
   let backendCalls = 0;
   backend.sign = () => {
     backendCalls += 1;

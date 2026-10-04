@@ -93,15 +93,6 @@ expectCode("PendingProfileInvalid", () =>
     emptyStore,
     new Uint8Array(1024 * 1024),
     PASSWORD,
-    { status: "confirmed" },
-  ),
-);
-expectCode("BindingFailure", () =>
-  addon.finalize_generated_profile(
-    emptyStore,
-    new Uint8Array(1024 * 1024),
-    PASSWORD,
-    null,
   ),
 );
 expectCode("PendingProfileInvalid", () =>
@@ -109,32 +100,12 @@ expectCode("PendingProfileInvalid", () =>
     emptyStore,
     new Uint8Array(133),
     PASSWORD,
-    { status: "confirmed" },
-  ),
-);
-// DTO representation failures are owned by the binding, while a well-formed DTO with an
-// invalid status remains a Core-level InvalidArgument.
-expectCode("BindingFailure", () =>
-  addon.finalize_generated_profile(
-    emptyStore,
-    prepared.value.pending_profile,
-    PASSWORD,
-    null,
-  ),
-);
-expectCode("InvalidArgument", () =>
-  addon.finalize_generated_profile(
-    emptyStore,
-    prepared.value.pending_profile,
-    PASSWORD,
-    { status: "unconfirmed" },
   ),
 );
 const finalized = addon.finalize_generated_profile(
   emptyStore,
   prepared.value.pending_profile,
   PASSWORD,
-  { status: "confirmed" },
 );
 assert.equal(finalized.value.network, "mainnet");
 assert.notDeepEqual(Uint8Array.from(finalized.store), emptyStoreSnapshot);

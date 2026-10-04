@@ -1,6 +1,6 @@
 {
   "name": "@nemnesia/symbol-nem-wallet-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Synchronous Symbol and NEM wallet core facade",
   "author": "ccHarvestasya",
   "homepage": "https://github.com/nemnesia/symbol-nem-wallet-core#readme",

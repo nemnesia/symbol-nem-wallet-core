@@ -799,7 +799,7 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
     }
 
     if (operation == "finalize_generated_profile" || operation == "restore_profile") {
-      exactArgumentCount(runtime, args, 4);
+      exactArgumentCount(runtime, args, operation == "finalize_generated_profile" ? 3 : 4);
       SecretBytes store(bytesValue(runtime, arrayItem(runtime, args, 0)));
       SecretBytes second(operation == "finalize_generated_profile"
               ? bytesValue(runtime, arrayItem(runtime, args, 1), 134)
@@ -811,10 +811,8 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
       Warnings warnings;
       const char *error = nullptr;
       if (operation == "finalize_generated_profile") {
-        SnwcHandoffConfirmation handoff{
-            exportStatus(runtime, arrayItem(runtime, args, 3), "unconfirmed", "confirmed")};
         error = snwc_finalize_generated_profile(
-            store.cBytes(), second.cBytes(), password.cBytes(), handoff, &replacement.value, &profile, &warnings.value);
+            store.cBytes(), second.cBytes(), password.cBytes(), &replacement.value, &profile, &warnings.value);
       } else {
         const uint8_t network = binaryEnum(runtime, arrayItem(runtime, args, 3));
         error = snwc_restore_profile(

@@ -122,7 +122,6 @@ const replacement = api.finalize_generated_profile(
   store,
   prepared.value.pending_profile,
   password,
-  { status: "confirmed" },
 );
 let error;
 try { api.list_profiles(Uint8Array.of(0)); } catch (value) { error = value; }
@@ -338,7 +337,7 @@ function mv3Source() {
 const store = api.create_empty_store();
 const password = new TextEncoder().encode("release MV3 fixture password");
 const prepared = api.prepare_generated_profile(store, password, 1);
-const replacement = api.finalize_generated_profile(store, prepared.value.pending_profile, password, { status: "confirmed" });
+const replacement = api.finalize_generated_profile(store, prepared.value.pending_profile, password);
 let error;
 try { api.list_profiles(Uint8Array.of(0)); } catch (value) { error = value; }
 globalThis.__snwc_mv3_report = {

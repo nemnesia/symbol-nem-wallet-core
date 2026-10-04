@@ -31,10 +31,10 @@ use symbol_nem_wallet_core::{
     generate_software_key, get_public_account, import_software_key, list_profiles,
     list_software_keys, prepare_generated_profile, restore_profile, sign, AccountContext, Chain,
     DecodeWarning, ErrorCode, ExportApplicationConfirmation, ExportApplicationConfirmationStatus,
-    ExportRequest, ExportTarget, ExportUserRequest, ExportUserRequestStatus, HandoffConfirmation,
-    HandoffConfirmationStatus, MutationResult, Network, ProfileInfo, PublicAccountInfo, ReadResult,
-    SigningApproval, SigningApprovalStatus, SigningRequest, SigningTarget, SoftwareKeyInfo,
-    SoftwareKeyListItem, SoftwareKeyOrigin, WalletError,
+    ExportRequest, ExportTarget, ExportUserRequest, ExportUserRequestStatus, MutationResult,
+    Network, ProfileInfo, PublicAccountInfo, ReadResult, SigningApproval, SigningApprovalStatus,
+    SigningRequest, SigningTarget, SoftwareKeyInfo, SoftwareKeyListItem, SoftwareKeyOrigin,
+    WalletError,
 };
 
 /// C callerから借用するbyte slice。Bindingは所有権を取得しない。
@@ -99,14 +99,6 @@ impl Default for SnwcWarnings {
             len: 0,
         }
     }
-}
-
-/// 初回Mnemonic handoff confirmationのC表現。`0`=Unconfirmed、`1`=Confirmed。
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct SnwcHandoffConfirmation {
-    /// `0`は未確認、`1`は確認済み。
-    pub status: u8,
 }
 
 /// Export targetのC表現。`0`=Mnemonic、`1`=Software Key。
@@ -713,7 +705,6 @@ pub unsafe extern "C" fn snwc_finalize_generated_profile(
     store: SnwcBytes,
     pending_profile: SnwcBytes,
     password_utf8: SnwcBytes,
-    handoff_confirmation: SnwcHandoffConfirmation,
     out_store: *mut SnwcOwnedBytes,
     out_profile: *mut SnwcProfileInfo,
     out_warnings: *mut SnwcWarnings,
@@ -729,7 +720,6 @@ pub unsafe extern "C" fn snwc_finalize_generated_profile(
             input(store)?,
             input(pending_profile)?,
             input(password_utf8)?,
-            parse_handoff_confirmation(handoff_confirmation)?,
         )?;
         let (store, profile_value, warnings_value) = mutation_warnings(value)?;
         // conversion / allocationを先に済ませてからoutput全体を公開する。
@@ -937,21 +927,6 @@ fn parse_network_value(value: u8) -> Result<Network, WalletError> {
             code: ErrorCode::InvalidArgument,
         }),
     }
-}
-
-fn parse_handoff_confirmation(
-    value: SnwcHandoffConfirmation,
-) -> Result<HandoffConfirmation, WalletError> {
-    let status = match value.status {
-        0 => HandoffConfirmationStatus::Unconfirmed,
-        1 => HandoffConfirmationStatus::Confirmed,
-        _ => {
-            return Err(WalletError {
-                code: ErrorCode::InvalidArgument,
-            })
-        }
-    };
-    Ok(HandoffConfirmation { status })
 }
 
 fn parse_export_target(value: SnwcExportTarget) -> Result<ExportTarget, WalletError> {
