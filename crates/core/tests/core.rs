@@ -3,6 +3,7 @@
 //! 状態変更APIが入力Storeを直接変更せず、成功時にreplacement Storeを返すこと、
 //! Symbol/NEMのChain境界、認証失敗・不正入力時のエラー分類を確認する。
 
+use std::sync::OnceLock;
 use uuid::Uuid;
 
 use symbol_nem_wallet_core::{
@@ -16,8 +17,25 @@ use symbol_nem_wallet_core::{
 };
 
 const MNEMONIC: &[u8] = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
-const PASSWORD: &[u8] = b"correct horse battery staple";
-const NEW_PASSWORD: &[u8] = b"new correct horse battery staple";
+fn password() -> &'static [u8] {
+    static PASSWORD: OnceLock<String> = OnceLock::new();
+    PASSWORD
+        .get_or_init(|| Uuid::new_v4().to_string())
+        .as_bytes()
+}
+
+fn new_password() -> &'static [u8] {
+    static NEW_PASSWORD: OnceLock<String> = OnceLock::new();
+    NEW_PASSWORD
+        .get_or_init(|| Uuid::new_v4().to_string())
+        .as_bytes()
+}
+
+fn wrong_password() -> Vec<u8> {
+    let mut password = password().to_vec();
+    password.push(b'!');
+    password
+}
 
 fn array32(hex_value: &str) -> [u8; 32] {
     // 公開APIが返すraw 32 byte値をfixtureのhex表記と比較するための補助関数。
@@ -201,11 +219,11 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     // Profile作成から鍵の導出・import・署名・password変更・削除までを通し、
     // 各mutationが次の入力に渡せる完全なStoreを返すことを確認する。
     let store = create_empty_store().unwrap();
-    let created = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
+    let created = restore_profile(&store, MNEMONIC, password(), Network::Mainnet).unwrap();
     let profile_id = created.value.profile_id;
     assert_eq!(list_profiles(&created.store).unwrap().value.len(), 1);
     let prepared_with_existing_profile =
-        prepare_generated_profile(&created.store, PASSWORD, Network::Testnet).unwrap();
+        prepare_generated_profile(&created.store, password(), Network::Testnet).unwrap();
     assert!(!prepared_with_existing_profile
         .value
         .pending_profile
@@ -214,7 +232,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     let exported = export_mnemonic(
         &created.store,
         mnemonic_export_request(profile_id),
-        PASSWORD,
+        password(),
     )
     .unwrap();
     assert!(exported.value.mnemonic_utf8 == MNEMONIC);
@@ -226,7 +244,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         export_mnemonic(
             &created.store,
             mnemonic_export_request(profile_id),
-            b"wrong"
+            &wrong_password()
         )
         .unwrap_err()
         .code,
@@ -234,11 +252,11 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     );
 
     let symbol =
-        derive_software_key(&created.store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
+        derive_software_key(&created.store, profile_id, password(), Chain::Symbol, 0).unwrap();
     let exported_private = export_private_key(
         &symbol.store,
         private_key_export_request(profile_id, symbol.value.key_id),
-        PASSWORD,
+        password(),
     )
     .unwrap();
     assert_eq!(
@@ -251,7 +269,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         export_private_key(
             &symbol.store,
             private_key_export_request(profile_id, missing_key_id),
-            PASSWORD,
+            password(),
         )
         .unwrap_err()
         .code,
@@ -263,7 +281,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
             profile_id,
             missing_key_id,
             account_context(Chain::Symbol, Network::Mainnet),
-            PASSWORD,
+            password(),
         )
         .unwrap_err()
         .code,
@@ -279,7 +297,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
                 Network::Mainnet,
                 b"missing key",
             ),
-            PASSWORD,
+            password(),
         )
         .unwrap_err()
         .code,
@@ -291,7 +309,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
             profile_id,
             symbol.value.key_id,
             account_context(Chain::Symbol, Network::Mainnet),
-            PASSWORD,
+            password(),
         )
         .unwrap()
         .value
@@ -299,7 +317,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         array32("54ADC79E3BEE5D0EF899832172C3CCF29DC5F5F3BC0E0D5FD06E3E64D8DB51D2")
     );
 
-    let nem = derive_software_key(&symbol.store, profile_id, PASSWORD, Chain::Nem, 0).unwrap();
+    let nem = derive_software_key(&symbol.store, profile_id, password(), Chain::Nem, 0).unwrap();
     assert_eq!(
         list_software_keys(&nem.store, profile_id)
             .unwrap()
@@ -313,7 +331,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
             profile_id,
             nem.value.key_id,
             account_context(Chain::Nem, Network::Mainnet),
-            PASSWORD,
+            password(),
         )
         .unwrap()
         .value
@@ -324,7 +342,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     let cross_chain = import_software_key(
         &nem.store,
         profile_id,
-        PASSWORD,
+        password(),
         Chain::Nem,
         &symbol_private,
     )
@@ -341,7 +359,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     let duplicate = import_software_key(
         &cross_chain.store,
         profile_id,
-        PASSWORD,
+        password(),
         Chain::Symbol,
         &symbol_private,
     )
@@ -352,7 +370,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         export_private_key(
             &nem.store,
             private_key_export_request(profile_id, symbol.value.key_id),
-            PASSWORD,
+            password(),
         )
         .unwrap()
         .value
@@ -369,7 +387,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
             Network::Mainnet,
             b"payload",
         ),
-        PASSWORD,
+        password(),
     )
     .unwrap();
     assert_eq!(signature.value.signature.len(), 64);
@@ -379,7 +397,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     );
 
     let password_changed =
-        change_profile_password(&nem.store, profile_id, PASSWORD, NEW_PASSWORD).unwrap();
+        change_profile_password(&nem.store, profile_id, password(), new_password()).unwrap();
     assert_eq!(
         list_software_keys(&password_changed.store, profile_id)
             .unwrap()
@@ -391,7 +409,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         export_mnemonic(
             &password_changed.store,
             mnemonic_export_request(profile_id),
-            PASSWORD,
+            password(),
         )
         .unwrap_err()
         .code,
@@ -400,7 +418,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
     let after_password = export_mnemonic(
         &password_changed.store,
         mnemonic_export_request(profile_id),
-        NEW_PASSWORD,
+        new_password(),
     )
     .unwrap();
     assert!(after_password.value.mnemonic_utf8 == MNEMONIC);
@@ -409,7 +427,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         &password_changed.store,
         profile_id,
         symbol.value.key_id,
-        NEW_PASSWORD,
+        new_password(),
     )
     .unwrap();
     assert_eq!(
@@ -423,14 +441,14 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         export_private_key(
             &deleted_key.store,
             private_key_export_request(profile_id, symbol.value.key_id),
-            NEW_PASSWORD,
+            new_password(),
         )
         .unwrap_err()
         .code,
         ErrorCode::SoftwareKeyNotFound
     );
 
-    let deleted_profile = delete_profile(&deleted_key.store, profile_id, NEW_PASSWORD).unwrap();
+    let deleted_profile = delete_profile(&deleted_key.store, profile_id, new_password()).unwrap();
     assert!(list_profiles(&deleted_profile.store)
         .unwrap()
         .value
@@ -439,7 +457,7 @@ fn profile_and_software_key_lifecycle_is_atomic() {
         export_mnemonic(
             &deleted_profile.store,
             mnemonic_export_request(profile_id),
-            NEW_PASSWORD,
+            new_password(),
         )
         .unwrap_err()
         .code,
@@ -453,7 +471,7 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     // prepareだけではStoreを変更せず、passwordと対象Storeが一致するfinalizeだけが
     // Profileを追加できること、およびPendingの再利用を拒否することを確認する。
     let store = create_empty_store().unwrap();
-    let prepared = prepare_generated_profile(&store, PASSWORD, Network::Testnet).unwrap();
+    let prepared = prepare_generated_profile(&store, password(), Network::Testnet).unwrap();
     assert_eq!(
         format!("{:?}", prepared.value),
         r#"PreparedProfile { mnemonic_utf8: "[redacted]", pending_profile: "[redacted]" }"#
@@ -461,7 +479,7 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     let mut invalid_version = prepared.value.pending_profile.clone();
     invalid_version[8] = 2;
     assert_eq!(
-        finalize_generated_profile(&store, &invalid_version, PASSWORD)
+        finalize_generated_profile(&store, &invalid_version, password())
             .unwrap_err()
             .code,
         ErrorCode::PendingProfileInvalid
@@ -469,7 +487,7 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     let mut invalid_network = prepared.value.pending_profile.clone();
     invalid_network[57] = 2;
     assert_eq!(
-        finalize_generated_profile(&store, &invalid_network, PASSWORD)
+        finalize_generated_profile(&store, &invalid_network, password())
             .unwrap_err()
             .code,
         ErrorCode::PendingProfileInvalid
@@ -478,7 +496,7 @@ fn generated_profile_requires_a_matching_pending_handoff() {
         finalize_generated_profile(
             &store,
             &prepared.value.pending_profile[..prepared.value.pending_profile.len() - 1],
-            PASSWORD,
+            password(),
         )
         .unwrap_err()
         .code,
@@ -486,7 +504,7 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     );
     assert!(list_profiles(&store).unwrap().value.is_empty());
     assert_eq!(
-        finalize_generated_profile(&store, &prepared.value.pending_profile, b"wrong",)
+        finalize_generated_profile(&store, &prepared.value.pending_profile, &wrong_password(),)
             .unwrap_err()
             .code,
         ErrorCode::AuthenticationFailed
@@ -494,20 +512,23 @@ fn generated_profile_requires_a_matching_pending_handoff() {
     assert!(list_profiles(&store).unwrap().value.is_empty());
 
     let finalized =
-        finalize_generated_profile(&store, &prepared.value.pending_profile, PASSWORD).unwrap();
+        finalize_generated_profile(&store, &prepared.value.pending_profile, password()).unwrap();
     assert_eq!(finalized.value.network, Network::Testnet);
     assert_eq!(finalized.value.software_key_count, 0);
     assert_eq!(list_profiles(&finalized.store).unwrap().value.len(), 1);
 
-    let reused =
-        finalize_generated_profile(&finalized.store, &prepared.value.pending_profile, PASSWORD)
-            .unwrap_err();
+    let reused = finalize_generated_profile(
+        &finalized.store,
+        &prepared.value.pending_profile,
+        password(),
+    )
+    .unwrap_err();
     assert_eq!(reused.code, ErrorCode::PendingProfileInvalid);
     assert_eq!(
         restore_profile(
             &finalized.store,
             &prepared.value.mnemonic_utf8,
-            PASSWORD,
+            password(),
             Network::Testnet,
         )
         .unwrap_err()
@@ -520,15 +541,15 @@ fn generated_profile_requires_a_matching_pending_handoff() {
 #[test]
 fn assertions_and_account_context_are_required_at_core_boundaries() {
     let store = create_empty_store().unwrap();
-    let restored = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
+    let restored = restore_profile(&store, MNEMONIC, password(), Network::Mainnet).unwrap();
     let profile_id = restored.value.profile_id;
     let derived =
-        derive_software_key(&restored.store, profile_id, PASSWORD, Chain::Symbol, 0).unwrap();
+        derive_software_key(&restored.store, profile_id, password(), Chain::Symbol, 0).unwrap();
 
     let mut not_requested = mnemonic_export_request(profile_id);
     not_requested.user_request.status = ExportUserRequestStatus::NotRequested;
     assert_eq!(
-        export_mnemonic(&derived.store, not_requested, PASSWORD)
+        export_mnemonic(&derived.store, not_requested, password())
             .unwrap_err()
             .code,
         ErrorCode::InvalidArgument
@@ -537,7 +558,7 @@ fn assertions_and_account_context_are_required_at_core_boundaries() {
     not_confirmed.application_confirmation.status =
         ExportApplicationConfirmationStatus::NotConfirmed;
     assert_eq!(
-        export_mnemonic(&derived.store, not_confirmed, PASSWORD)
+        export_mnemonic(&derived.store, not_confirmed, password())
             .unwrap_err()
             .code,
         ErrorCode::InvalidArgument
@@ -547,7 +568,7 @@ fn assertions_and_account_context_are_required_at_core_boundaries() {
         profile_id: Uuid::from_bytes([0xA5; 16]),
     };
     assert_eq!(
-        export_mnemonic(&derived.store, wrong_target, PASSWORD)
+        export_mnemonic(&derived.store, wrong_target, password())
             .unwrap_err()
             .code,
         ErrorCode::InvalidArgument
@@ -556,7 +577,7 @@ fn assertions_and_account_context_are_required_at_core_boundaries() {
         export_mnemonic(
             &derived.store,
             mnemonic_export_request(profile_id),
-            b"wrong"
+            &wrong_password()
         )
         .unwrap_err()
         .code,
@@ -573,7 +594,7 @@ fn assertions_and_account_context_are_required_at_core_boundaries() {
                 chain: context.chain,
                 network: Network::Testnet,
             },
-            PASSWORD,
+            password(),
         )
         .unwrap_err()
         .code,
@@ -588,7 +609,7 @@ fn assertions_and_account_context_are_required_at_core_boundaries() {
                 chain: Chain::Nem,
                 network: context.network,
             },
-            PASSWORD,
+            password(),
         )
         .unwrap_err()
         .code,
@@ -604,7 +625,7 @@ fn assertions_and_account_context_are_required_at_core_boundaries() {
     );
     not_approved.approval.status = SigningApprovalStatus::NotApproved;
     assert_eq!(
-        sign(&derived.store, not_approved, PASSWORD)
+        sign(&derived.store, not_approved, password())
             .unwrap_err()
             .code,
         ErrorCode::InvalidArgument
@@ -619,7 +640,7 @@ fn assertions_and_account_context_are_required_at_core_boundaries() {
                 Network::Mainnet,
                 b"exact payload",
             ),
-            b"wrong",
+            &wrong_password(),
         )
         .unwrap_err()
         .code,
@@ -634,7 +655,7 @@ fn assertions_and_account_context_are_required_at_core_boundaries() {
     );
     wrong_signing_context.target.context.network = Network::Testnet;
     assert_eq!(
-        sign(&derived.store, wrong_signing_context, PASSWORD)
+        sign(&derived.store, wrong_signing_context, password())
             .unwrap_err()
             .code,
         ErrorCode::NetworkMismatch
@@ -648,7 +669,7 @@ fn assertions_and_account_context_are_required_at_core_boundaries() {
     );
     wrong_signing_chain.target.context.chain = Chain::Nem;
     assert_eq!(
-        sign(&derived.store, wrong_signing_chain, PASSWORD)
+        sign(&derived.store, wrong_signing_chain, password())
             .unwrap_err()
             .code,
         ErrorCode::NetworkMismatch
@@ -769,11 +790,11 @@ fn malformed_public_store_envelopes_are_rejected_before_authentication() {
 #[test]
 fn generated_software_key_and_error_strings_are_public_contracts() {
     let store = create_empty_store().unwrap();
-    let created = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
+    let created = restore_profile(&store, MNEMONIC, password(), Network::Mainnet).unwrap();
     let generated = symbol_nem_wallet_core::generate_software_key(
         &created.store,
         created.value.profile_id,
-        PASSWORD,
+        password(),
         Chain::Symbol,
     )
     .unwrap();
@@ -818,18 +839,18 @@ fn invalid_secret_inputs_are_rejected_without_mutating_the_store() {
     // 入力Storeを変更しないことを確認する。
     let store = create_empty_store().unwrap();
     assert_eq!(
-        restore_profile(&store, b"not a mnemonic", PASSWORD, Network::Mainnet)
+        restore_profile(&store, b"not a mnemonic", password(), Network::Mainnet)
             .unwrap_err()
             .code,
         ErrorCode::InvalidMnemonic
     );
     assert_eq!(
-        restore_profile(&store, &[0xff], PASSWORD, Network::Mainnet)
+        restore_profile(&store, &[0xff], password(), Network::Mainnet)
             .unwrap_err()
             .code,
         ErrorCode::InvalidMnemonic
     );
-    let created = restore_profile(&store, MNEMONIC, PASSWORD, Network::Mainnet).unwrap();
+    let created = restore_profile(&store, MNEMONIC, password(), Network::Mainnet).unwrap();
     let before = created.store.clone();
     let missing_profile_id = Uuid::from_bytes([0; 16]);
     assert_eq!(
@@ -839,7 +860,7 @@ fn invalid_secret_inputs_are_rejected_without_mutating_the_store() {
         ErrorCode::ProfileNotFound
     );
     assert_eq!(
-        delete_profile(&created.store, missing_profile_id, PASSWORD)
+        delete_profile(&created.store, missing_profile_id, password())
             .unwrap_err()
             .code,
         ErrorCode::ProfileNotFound
@@ -848,7 +869,7 @@ fn invalid_secret_inputs_are_rejected_without_mutating_the_store() {
         import_software_key(
             &created.store,
             created.value.profile_id,
-            PASSWORD,
+            password(),
             Chain::Symbol,
             &[0u8; 31],
         )
@@ -861,7 +882,7 @@ fn invalid_secret_inputs_are_rejected_without_mutating_the_store() {
         derive_software_key(
             &created.store,
             created.value.profile_id,
-            PASSWORD,
+            password(),
             Chain::Symbol,
             u32::MAX,
         )
