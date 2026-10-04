@@ -19,16 +19,18 @@ use symbol_nem_wallet_core::{
 const MNEMONIC: &[u8] = b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
 fn password() -> &'static [u8] {
     static PASSWORD: OnceLock<String> = OnceLock::new();
-    PASSWORD
-        .get_or_init(|| Uuid::new_v4().to_string())
-        .as_bytes()
+    PASSWORD.get_or_init(random_test_password).as_bytes()
 }
 
 fn new_password() -> &'static [u8] {
     static NEW_PASSWORD: OnceLock<String> = OnceLock::new();
-    NEW_PASSWORD
-        .get_or_init(|| Uuid::new_v4().to_string())
-        .as_bytes()
+    NEW_PASSWORD.get_or_init(random_test_password).as_bytes()
+}
+
+fn random_test_password() -> String {
+    let mut bytes = [0; 32];
+    getrandom::fill(&mut bytes).expect("test password generation requires an OS random source");
+    hex::encode(bytes)
 }
 
 fn wrong_password() -> Vec<u8> {
