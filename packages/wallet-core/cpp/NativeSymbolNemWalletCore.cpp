@@ -752,7 +752,7 @@ jsi::Object NativeSymbolNemWalletCore::invoke(
     if (operation == "__snwc_test_request_reload") {
       exactArgumentCount(runtime, args, 0);
       if (!RnLifecycleCoordinator::shared().armIntegrationStaleGate()) fail(kBindingFailure);
-      return ticket.deliver([&]() { return Value::undefined(); });
+      return ticket.deliver([&]() { return Object(runtime); });
     }
     if (operation == "__snwc_test_stale_output") {
       exactArgumentCount(runtime, args, 0);
