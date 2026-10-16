@@ -84,3 +84,66 @@ test("invalid private key output length is rejected and cleared", () => {
     (error) => error.code === "BindingFailure");
   assert.ok(source.every((byte) => byte === 0));
 });
+
+test("export status validation preserves each assertion's own literals and snapshots once", () => {
+  for (const [field, accepted] of [
+    ["user_request", ["not_requested", "requested"]],
+    ["application_confirmation", ["not_confirmed", "confirmed"]],
+  ]) {
+    for (const status of ["not_requested", "requested", "not_confirmed", "confirmed", "approved", "future", undefined, 0, null]) {
+      const request = exportRequest("mnemonic");
+      request[field].status = status;
+      let calls = 0;
+      const descriptorReads = [];
+      request[field] = new Proxy(request[field], {
+        getOwnPropertyDescriptor(target, name) {
+          descriptorReads.push(name);
+          return Reflect.getOwnPropertyDescriptor(target, name);
+        },
+        get() { throw new Error("caller property read"); },
+      });
+      const backend = Object.fromEntries(operationNames.map((name) => [name, () => {}]));
+      backend.export_mnemonic = (_store, snapshot) => {
+        calls += 1;
+        assert.equal(Object.getPrototypeOf(snapshot[field]), null);
+        assert.equal(snapshot[field].status, status);
+        return { value: { mnemonic_utf8: new Uint8Array() }, warnings: [] };
+      };
+      const call = () => createFacade(backend).export_mnemonic(new Uint8Array(), request, new Uint8Array());
+      if (accepted.includes(status)) call();
+      else assert.throws(call, error => error.code === (status === 0 || status === null ? "BindingFailure" : "InvalidArgument"));
+      assert.equal(calls, accepted.includes(status) ? 1 : 0);
+      assert.deepEqual(descriptorReads, ["target", "status"]);
+    }
+  }
+});
+
+test("numeric boundary validation rejects invalid values before backend invocation", () => {
+  let calls = 0;
+  const backend = Object.fromEntries(operationNames.map(name => [name, () => {
+    calls += 1;
+    throw "CryptoFailure";
+  }]));
+  const api = createFacade(backend);
+  const bytes = new Uint8Array();
+  for (const value of [NaN, Infinity, -Infinity, -1, 0.5, 2, Number.MAX_VALUE]) {
+    assert.throws(() => api.prepare_generated_profile(bytes, bytes, value), error => error.code === "InvalidArgument");
+    assert.throws(() => api.derive_software_key(bytes, profileId, bytes, value, 0), error => error.code === "InvalidArgument");
+  }
+  for (const value of [NaN, Infinity, -Infinity, -1, 0.5, 2_147_483_648]) {
+    assert.throws(() => api.derive_software_key(bytes, profileId, bytes, 0, value), error => error.code === "InvalidAccountIndex");
+  }
+  for (const value of [undefined, null, "0", 0n, {}]) {
+    assert.throws(() => api.prepare_generated_profile(bytes, bytes, value), error => error.code === "BindingFailure");
+    assert.throws(() => api.derive_software_key(bytes, profileId, bytes, 0, value), error => error.code === "BindingFailure");
+  }
+  assert.equal(calls, 0);
+  // Valid endpoints must still reach Core, whose error remains unchanged.
+  for (const value of [0, -0, 1]) {
+    assert.throws(() => api.prepare_generated_profile(bytes, bytes, value), error => error.code === "CryptoFailure");
+  }
+  for (const value of [0, 2_147_483_647]) {
+    assert.throws(() => api.derive_software_key(bytes, profileId, bytes, 1, value), error => error.code === "CryptoFailure");
+  }
+  assert.equal(calls, 5);
+});

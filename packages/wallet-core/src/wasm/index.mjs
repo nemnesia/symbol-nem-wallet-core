@@ -13,6 +13,7 @@ const isNode =
   typeof process.versions?.node === "string" &&
   process.versions.node.length > 0;
 
+let facade;
 try {
   let wasmArtifactManifest;
   let nodeReadFileSync;
@@ -46,12 +47,6 @@ try {
     await verifyWasmAsset(bytes, wasmArtifactManifest.sha256);
     await generated.default(bytes);
   }
-} catch {
-  throw backendInitializationError();
-}
-
-let facade;
-try {
   facade = createFacade(generated);
 } catch {
   throw backendInitializationError();

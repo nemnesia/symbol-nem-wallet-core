@@ -1,8 +1,7 @@
 /* @snwc-facade-runtime */
 
-let generated;
 try {
-  generated = require("./generated.cjs");
+  const generated = require("./generated.cjs");
   const { createHash } = require("node:crypto");
   const { readFileSync } = require("node:fs");
   const artifactManifest = JSON.parse(readFileSync(`${__dirname}/artifact-manifest.json`, "utf8"));
@@ -19,13 +18,6 @@ try {
   const actualSha256 = createHash("sha256").update(bytes).digest("hex");
   if (actualSha256 !== artifactManifest.sha256) throw new Error("integrity mismatch");
   generated.__snwcInitializeWasm(bytes);
-} catch {
-  const error = new Error("backend initialization failed");
-  error.name = "WalletCoreBackendInitializationError";
-  throw error;
-}
-
-try {
   module.exports = createFacade(generated);
 } catch {
   const error = new Error("backend initialization failed");
