@@ -395,10 +395,10 @@ function snapshotExportTarget(value) {
   return snapshot;
 }
 
-function snapshotExportConfirmation(value, statuses) {
+function snapshotExportConfirmation(value, inactiveStatus, activeStatus) {
   const target = snapshotExportTarget(dtoField(value, "target"));
   const status = dtoFieldString(value, "status");
-  if (!statuses.includes(status)) invalidArgument();
+  if (status !== inactiveStatus && status !== activeStatus) invalidArgument();
   const snapshot = dtoObject();
   snapshot.target = target;
   snapshot.status = status;
@@ -408,10 +408,10 @@ function snapshotExportConfirmation(value, statuses) {
 function snapshotExportRequest(value) {
   const target = snapshotExportTarget(dtoField(value, "target"));
   const userRequest = snapshotExportConfirmation(
-    dtoField(value, "user_request"), ["not_requested", "requested"],
+    dtoField(value, "user_request"), "not_requested", "requested",
   );
   const confirmation = snapshotExportConfirmation(
-    dtoField(value, "application_confirmation"), ["not_confirmed", "confirmed"],
+    dtoField(value, "application_confirmation"), "not_confirmed", "confirmed",
   );
   const snapshot = dtoObject();
   snapshot.target = target;

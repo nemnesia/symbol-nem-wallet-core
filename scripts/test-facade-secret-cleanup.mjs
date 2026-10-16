@@ -147,3 +147,43 @@ test("numeric boundary validation rejects invalid values before backend invocati
   }
   assert.equal(calls, 5);
 });
+
+test("export status checks ignore includes replacement during descriptor inspection", () => {
+  for (const field of ["user_request", "application_confirmation"]) {
+    for (const replacement of [() => true, () => { throw new Error("private prototype detail"); }]) {
+      for (const valid of [false, true]) {
+        const request = exportRequest("mnemonic");
+        if (!valid) request[field].status = "future";
+        request[field] = new Proxy(request[field], {
+          getOwnPropertyDescriptor(target, name) {
+            if (name === "status") Array.prototype.includes = replacement;
+            return Reflect.getOwnPropertyDescriptor(target, name);
+          },
+        });
+        let calls = 0;
+        const backend = Object.fromEntries(operationNames.map(name => [name, () => {}]));
+        backend.export_mnemonic = () => {
+          calls += 1;
+          return { value: { mnemonic_utf8: new Uint8Array() }, warnings: [] };
+        };
+        const api = createFacade(backend);
+        const original = Object.getOwnPropertyDescriptor(Array.prototype, "includes");
+        let failure;
+        try {
+          api.export_mnemonic(new Uint8Array(), request, new Uint8Array());
+        } catch (error) {
+          failure = error;
+        } finally {
+          Object.defineProperty(Array.prototype, "includes", original);
+        }
+        assert.equal(calls, valid ? 1 : 0);
+        if (valid) assert.equal(failure, undefined);
+        else {
+          assert.equal(failure?.name, "WalletCoreError");
+          assert.equal(failure?.code, "InvalidArgument");
+          assert.equal(failure?.message, "InvalidArgument");
+        }
+      }
+    }
+  }
+});
