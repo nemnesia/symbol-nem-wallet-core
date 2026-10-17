@@ -1,6 +1,3 @@
-[submodule "_nem"]
-	path = _nem
-	url = https://github.com/NemProject/nem.git
-[submodule "_symbol"]
-	path = _symbol
-	url = https://github.com/symbol/symbol.git
+[submodule "docs"]
+	path = docs
+	url = https://github.com/nemnesia/symbol-nem-wallet-core-doc.git
