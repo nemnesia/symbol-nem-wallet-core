@@ -83,9 +83,7 @@ function isObject(value) {
 }
 
 function property(value, name) {
-  if (!isObject(value)) {
-    throw bindingFailure();
-  }
+  requiredObject(value);
   try {
     return value[name];
   } catch {
@@ -94,9 +92,7 @@ function property(value, name) {
 }
 
 function dtoField(value, name, required = true) {
-  if (!isObject(value)) {
-    throw bindingFailure();
-  }
+  requiredObject(value);
   let descriptor;
   try {
     descriptor = getOwnPropertyDescriptor(value, name);
@@ -199,7 +195,6 @@ function outputWarnings(value) {
     throw bindingFailure();
   }
   return value.map((warning) => {
-    requiredObject(warning);
     const code = requiredString(property(warning, "code"));
     const objectType = requiredString(property(warning, "object_type"));
     const objectId = property(warning, "object_id");
@@ -220,7 +215,6 @@ function outputWarnings(value) {
 }
 
 function outputProfileInfo(value) {
-  requiredObject(value);
   const profileId = requiredString(property(value, "profile_id"));
   const network = outputNetwork(property(value, "network"));
   const count = requiredNumber(property(value, "software_key_count"));
@@ -231,7 +225,6 @@ function outputProfileInfo(value) {
 }
 
 function outputSoftwareKeyOrigin(value) {
-  requiredObject(value);
   const kind = requiredString(property(value, "kind"));
   const accountIndex = property(value, "account_index");
   if (kind === "derived") {
@@ -251,7 +244,6 @@ function outputSoftwareKeyOrigin(value) {
 }
 
 function outputSoftwareKeyInfo(value) {
-  requiredObject(value);
   return {
     key_id: requiredString(property(value, "key_id")),
     chain: outputChain(property(value, "chain")),
@@ -260,7 +252,6 @@ function outputSoftwareKeyInfo(value) {
 }
 
 function outputSoftwareKeyListItem(value) {
-  requiredObject(value);
   return {
     key_id: requiredString(property(value, "key_id")),
     chain: outputChain(property(value, "chain")),
@@ -268,7 +259,6 @@ function outputSoftwareKeyListItem(value) {
 }
 
 function outputPublicAccount(value) {
-  requiredObject(value);
   return {
     key_id: requiredString(property(value, "key_id")),
     chain: outputChain(property(value, "chain")),
@@ -294,7 +284,6 @@ function outputSecretReadResult(value, fields) {
   const sources = [];
   const copies = [];
   try {
-    requiredObject(value);
     const secret = requiredObject(property(value, "value"));
     // 後続fieldやwarningsの変換が失敗しても、取得済みsecretをfinallyで消去する。
     for (const [name] of fields) {
@@ -318,12 +307,10 @@ function outputSecretReadResult(value, fields) {
 }
 
 function outputSignature(value) {
-  requiredObject(value);
   return { signature: outputBytes(property(value, "signature"), 64) };
 }
 
 function outputReadResult(value, valueNormalizer) {
-  requiredObject(value);
   return {
     value: valueNormalizer(property(value, "value")),
     warnings: outputWarnings(property(value, "warnings")),
@@ -331,7 +318,6 @@ function outputReadResult(value, valueNormalizer) {
 }
 
 function outputMutationResult(value, valueNormalizer) {
-  requiredObject(value);
   return {
     store: outputBytes(property(value, "store")),
     value: valueNormalizer(property(value, "value")),
@@ -375,7 +361,7 @@ function normalizeOperationError(error) {
     }
   }
   const candidate = candidates.find((value) => CORE_ERROR_CODES.has(value));
-  return CORE_ERROR_CODES.has(candidate) ? walletError(candidate) : bindingFailure();
+  return candidate === undefined ? bindingFailure() : walletError(candidate);
 }
 
 function validateUuidValue(value) {
@@ -387,12 +373,7 @@ function validateUuidValue(value) {
   }
 }
 
-function validateDirectId(value) {
-  validateUuidValue(value);
-}
-
 function snapshotExportTarget(value) {
-  requiredObject(value);
   const kind = dtoFieldString(value, "kind");
   if (kind !== "mnemonic" && kind !== "software_key") invalidArgument();
   const profileId = dtoFieldString(value, "profile_id");
@@ -414,22 +395,10 @@ function snapshotExportTarget(value) {
   return snapshot;
 }
 
-function snapshotExportUserRequest(value) {
-  requiredObject(value);
+function snapshotExportConfirmation(value, inactiveStatus, activeStatus) {
   const target = snapshotExportTarget(dtoField(value, "target"));
   const status = dtoFieldString(value, "status");
-  if (status !== "not_requested" && status !== "requested") invalidArgument();
-  const snapshot = dtoObject();
-  snapshot.target = target;
-  snapshot.status = status;
-  return snapshot;
-}
-
-function snapshotExportApplicationConfirmation(value) {
-  requiredObject(value);
-  const target = snapshotExportTarget(dtoField(value, "target"));
-  const status = dtoFieldString(value, "status");
-  if (status !== "not_confirmed" && status !== "confirmed") invalidArgument();
+  if (status !== inactiveStatus && status !== activeStatus) invalidArgument();
   const snapshot = dtoObject();
   snapshot.target = target;
   snapshot.status = status;
@@ -437,11 +406,12 @@ function snapshotExportApplicationConfirmation(value) {
 }
 
 function snapshotExportRequest(value) {
-  requiredObject(value);
   const target = snapshotExportTarget(dtoField(value, "target"));
-  const userRequest = snapshotExportUserRequest(dtoField(value, "user_request"));
-  const confirmation = snapshotExportApplicationConfirmation(
-    dtoField(value, "application_confirmation"),
+  const userRequest = snapshotExportConfirmation(
+    dtoField(value, "user_request"), "not_requested", "requested",
+  );
+  const confirmation = snapshotExportConfirmation(
+    dtoField(value, "application_confirmation"), "not_confirmed", "confirmed",
   );
   const snapshot = dtoObject();
   snapshot.target = target;
@@ -451,7 +421,6 @@ function snapshotExportRequest(value) {
 }
 
 function snapshotAccountContext(value) {
-  requiredObject(value);
   const chain = dtoFieldString(value, "chain");
   const network = dtoFieldString(value, "network");
   if (chain !== "nem" && chain !== "symbol") invalidArgument();
@@ -463,7 +432,6 @@ function snapshotAccountContext(value) {
 }
 
 function snapshotSigningTarget(value) {
-  requiredObject(value);
   const profileId = dtoFieldString(value, "profile_id");
   const keyId = dtoFieldString(value, "key_id");
   validateUuidValue(profileId);
@@ -477,7 +445,6 @@ function snapshotSigningTarget(value) {
 }
 
 function snapshotSigningApproval(value) {
-  requiredObject(value);
   const status = dtoFieldString(value, "status");
   if (status !== "not_approved" && status !== "approved") invalidArgument();
   const snapshot = dtoObject();
@@ -486,7 +453,6 @@ function snapshotSigningApproval(value) {
 }
 
 function snapshotSigningRequest(value) {
-  requiredObject(value);
   let payload;
   try {
     const target = snapshotSigningTarget(dtoField(value, "target"));
@@ -507,7 +473,7 @@ function validateNetworkOrChain(value) {
   if (typeof value !== "number") {
     throw bindingFailure();
   }
-  if (!Number.isFinite(value) || !Number.isInteger(value) || (value !== 0 && value !== 1)) {
+  if (value !== 0 && value !== 1) {
     invalidArgument();
   }
 }
@@ -516,7 +482,7 @@ function validateAccountIndex(value) {
   if (typeof value !== "number") {
     throw bindingFailure();
   }
-  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0 || value > 2_147_483_647) {
+  if (!Number.isInteger(value) || value < 0 || value > 2_147_483_647) {
     invalidAccountIndex();
   }
 }
@@ -592,7 +558,7 @@ export function createFacade(backend) {
     },
 
     list_software_keys: (store, profileId) => {
-      validateDirectId(profileId);
+      validateUuidValue(profileId);
       return invoke(
         backend,
         "list_software_keys",
@@ -602,7 +568,7 @@ export function createFacade(backend) {
     },
 
     derive_software_key: (store, profileId, passwordUtf8, chain, accountIndex) => {
-      validateDirectId(profileId);
+      validateUuidValue(profileId);
       validateNetworkOrChain(chain);
       validateAccountIndex(accountIndex);
       return invoke(
@@ -614,7 +580,7 @@ export function createFacade(backend) {
     },
 
     import_software_key: (store, profileId, passwordUtf8, chain, privateKey) => {
-      validateDirectId(profileId);
+      validateUuidValue(profileId);
       validateNetworkOrChain(chain);
       return invoke(
         backend,
@@ -625,7 +591,7 @@ export function createFacade(backend) {
     },
 
     generate_software_key: (store, profileId, passwordUtf8, chain) => {
-      validateDirectId(profileId);
+      validateUuidValue(profileId);
       validateNetworkOrChain(chain);
       return invoke(
         backend,
@@ -636,8 +602,8 @@ export function createFacade(backend) {
     },
 
     get_public_account: (store, profileId, keyId, requestedContext, passwordUtf8) => {
-      validateDirectId(profileId);
-      validateDirectId(keyId);
+      validateUuidValue(profileId);
+      validateUuidValue(keyId);
       const contextSnapshot = snapshotAccountContext(requestedContext);
       return invoke(
         backend,
@@ -662,7 +628,7 @@ export function createFacade(backend) {
     },
 
     change_profile_password: (store, profileId, currentPasswordUtf8, newPasswordUtf8) => {
-      validateDirectId(profileId);
+      validateUuidValue(profileId);
       return invoke(
         backend,
         "change_profile_password",
@@ -672,8 +638,8 @@ export function createFacade(backend) {
     },
 
     delete_software_key: (store, profileId, keyId, passwordUtf8) => {
-      validateDirectId(profileId);
-      validateDirectId(keyId);
+      validateUuidValue(profileId);
+      validateUuidValue(keyId);
       return invoke(
         backend,
         "delete_software_key",
@@ -683,7 +649,7 @@ export function createFacade(backend) {
     },
 
     delete_profile: (store, profileId, passwordUtf8) => {
-      validateDirectId(profileId);
+      validateUuidValue(profileId);
       return invoke(
         backend,
         "delete_profile",

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -109,23 +109,32 @@ test("package metadataがconditional exportの順序とpackage内許可一覧を
   );
 });
 
-test("公開declarationがJSDocを除いて仕様のdeclarationと一致する", () => {
-  const specification = readFileSync(
-    resolve(packageRoot, "../../docs/specifications/npm-typescript-facade.md"),
-    "utf8",
-  );
-  const sectionStart = specification.indexOf("## 5. TypeScript 宣言");
-  assert.ok(sectionStart >= 0, "TypeScript declaration section must exist");
-  const section = specification.slice(sectionStart);
-  const match = section.match(/```ts\n([\s\S]*?)\n```/);
-  assert.ok(match);
+test("公開declarationがJSDocを除いて承認済みの仕様と一致する", () => {
   const sourceDeclaration = readFileSync(resolve(packageRoot, "src/index.d.ts"), "utf8");
   // Remove documentation blocks only; keep declaration bytes and signatures exact.
   const declarationWithoutJsDoc = sourceDeclaration.replace(
     /^[ \t]*\/\*\*[\s\S]*?\*\/\r?\n/gm,
     "",
   );
-  assert.equal(declarationWithoutJsDoc, `${match[1]}\n`);
+  // SHA-256 of section 5's TypeScript code block (including the trailing newline)
+  // in the approved docs submodule: 325f851bfdbec239de3e8e71600fb0be75cccf0d.
+  // The private docs submodule is not available in public CI.
+  assert.equal(
+    createHash("sha256").update(declarationWithoutJsDoc).digest("hex"),
+    "e7ff395e5b7ebbffef0b7c3bc659c9c448e348658afb8859e0048d5e55640fbc",
+  );
+
+  // Also check the actual specification when the docs submodule is initialized locally.
+  const specificationPath = resolve(packageRoot, "../../docs/docs/specifications/npm-typescript-facade.md");
+  if (existsSync(specificationPath)) {
+    const specification = readFileSync(specificationPath, "utf8");
+    const sectionStart = specification.indexOf("## 5. TypeScript 宣言");
+    assert.ok(sectionStart >= 0, "TypeScript declaration section must exist");
+    const section = specification.slice(sectionStart);
+    const match = section.match(/```ts\n([\s\S]*?)\n```/);
+    assert.ok(match);
+    assert.equal(declarationWithoutJsDoc, `${match[1]}\n`);
+  }
   assert.equal(
     readFileSync(resolve(packageRoot, "dist/index.d.ts"), "utf8"),
     sourceDeclaration,

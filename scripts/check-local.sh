@@ -22,9 +22,7 @@ run() {
 }
 
 check_rust() {
-    run python3 scripts/check-invisible-characters.py
-    run cargo fmt --all -- --check
-    run cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+    check_rust_fast
     run cargo check --manifest-path fuzz/Cargo.toml --locked --bin wallet_store_decode
     run cargo test --workspace --all-features --locked
 }
