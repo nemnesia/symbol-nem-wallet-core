@@ -271,23 +271,14 @@ pub(crate) fn sign(chain: Chain, private_key: &[u8; 32], message: &[u8]) -> Wall
     // Ed25519のnonce/challengeをChain固有hashで計算し、messageへ暗黙のprefixを追加しない。
     // 署名はR || Sのraw 64 bytesで返し、payloadの意味はこの層で解釈しない。
     let (public_key, mut prefix) = key_material(chain, private_key)?;
-    let mut nonce_data = Vec::with_capacity(prefix.len() + message.len());
-    nonce_data.extend_from_slice(&prefix);
-    nonce_data.extend_from_slice(message);
-    let mut nonce_hash = hash_512(chain, &nonce_data);
-    nonce_data.zeroize();
+    let mut nonce_hash = hash_512(chain, &[&prefix, message]);
     prefix.zeroize();
     let mut nonce = Scalar::from_bytes_mod_order_wide(&nonce_hash);
     nonce_hash.zeroize();
     // 参照を受け取る固定basepoint APIを使い、Copy型のScalarをowned引数へ渡さない。
     let encoded_r = EdwardsPoint::mul_base(&nonce).compress().to_bytes();
 
-    let mut challenge_data = Vec::with_capacity(32 + 32 + message.len());
-    challenge_data.extend_from_slice(&encoded_r);
-    challenge_data.extend_from_slice(&public_key);
-    challenge_data.extend_from_slice(message);
-    let mut challenge_hash = hash_512(chain, &challenge_data);
-    challenge_data.zeroize();
+    let mut challenge_hash = hash_512(chain, &[&encoded_r, &public_key, message]);
     let mut challenge = Scalar::from_bytes_mod_order_wide(&challenge_hash);
     challenge_hash.zeroize();
 
@@ -382,7 +373,7 @@ fn key_material(chain: Chain, private_key: &[u8; 32]) -> WalletResult<([u8; 32],
     if matches!(chain, Chain::Nem) {
         seed.reverse();
     }
-    let mut digest = hash_512(chain, &seed);
+    let mut digest = hash_512(chain, &[&seed]);
     let mut prefix = [0u8; 32];
     prefix.copy_from_slice(&digest[32..]);
     digest.zeroize();
@@ -399,7 +390,7 @@ fn private_scalar(chain: Chain, private_key: &[u8; 32]) -> WalletResult<Scalar> 
     if matches!(chain, Chain::Nem) {
         seed.reverse();
     }
-    let mut digest = hash_512(chain, &seed);
+    let mut digest = hash_512(chain, &[&seed]);
     seed.zeroize();
     let mut scalar_bytes = [0u8; 32];
     scalar_bytes.copy_from_slice(&digest[..32]);
@@ -412,11 +403,24 @@ fn private_scalar(chain: Chain, private_key: &[u8; 32]) -> WalletResult<Scalar> 
     Ok(scalar)
 }
 
-fn hash_512(chain: Chain, data: &[u8]) -> [u8; 64] {
+fn hash_512(chain: Chain, parts: &[&[u8]]) -> [u8; 64] {
     // SymbolはSHA-512、NEMはKeccak-512を使用する。ここがChain分岐の境界である。
+    // 連結用bufferを作らず、各部分を同じ順序でhashへ渡す。
     match chain {
-        Chain::Symbol => Sha512::digest(data).into(),
-        Chain::Nem => Keccak512::digest(data).into(),
+        Chain::Symbol => {
+            let mut hasher = Sha512::new();
+            for part in parts {
+                hasher.update(part);
+            }
+            hasher.finalize().into()
+        }
+        Chain::Nem => {
+            let mut hasher = Keccak512::new();
+            for part in parts {
+                hasher.update(part);
+            }
+            hasher.finalize().into()
+        }
     }
 }
 
@@ -428,19 +432,16 @@ pub(crate) fn address(chain: Chain, network: Network, public_key: &[u8; 32]) -> 
         Chain::Nem => Keccak256::digest(public_key),
     };
     let ripemd = Ripemd160::digest(digest);
-    let mut address = Vec::with_capacity(if matches!(chain, Chain::Symbol) {
-        24
-    } else {
-        25
-    });
-    address.push(network.network_identifier());
-    address.extend_from_slice(&ripemd);
+    let mut address = [0u8; 25];
+    address[0] = network.network_identifier();
+    address[1..21].copy_from_slice(&ripemd);
     let checksum = match chain {
-        Chain::Symbol => Sha3_256::digest(&address),
-        Chain::Nem => Keccak256::digest(&address),
+        Chain::Symbol => Sha3_256::digest(&address[..21]),
+        Chain::Nem => Keccak256::digest(&address[..21]),
     };
-    address.extend_from_slice(&checksum[..if matches!(chain, Chain::Symbol) { 3 } else { 4 }]);
-    base32_encode(&address)
+    let checksum_length = if matches!(chain, Chain::Symbol) { 3 } else { 4 };
+    address[21..21 + checksum_length].copy_from_slice(&checksum[..checksum_length]);
+    base32_encode(&address[..21 + checksum_length])
 }
 
 pub(crate) fn derive_encryption_key(
@@ -517,21 +518,12 @@ pub(crate) fn duplicate_tag(
     // registry keyはStore blobにも保存されるdomain-separation / integrity-context値であり、
     // Store blobから秘匿される秘密ではない。tagは暗号化payloadの代替ではなく、認証後の
     // Mnemonic+Networkの意味的一致検証に使う。
-    let mut input = Vec::with_capacity(DUPLICATE_DOMAIN.len() + 33);
-    input.extend_from_slice(DUPLICATE_DOMAIN);
-    input.push(network.wire() as u8);
-    input.extend_from_slice(entropy);
-    let mut mac = match <HmacSha256 as Mac>::new_from_slice(registry_key) {
-        Ok(mac) => mac,
-        Err(_) => {
-            input.zeroize();
-            return Err(WalletError::new(ErrorCode::CryptoFailure));
-        }
-    };
-    mac.update(&input);
-    let tag = mac.finalize().into_bytes().into();
-    input.zeroize();
-    Ok(tag)
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(registry_key)
+        .map_err(|_| WalletError::new(ErrorCode::CryptoFailure))?;
+    mac.update(DUPLICATE_DOMAIN);
+    mac.update(&[network.wire() as u8]);
+    mac.update(entropy);
+    Ok(mac.finalize().into_bytes().into())
 }
 
 pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {

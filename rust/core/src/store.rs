@@ -411,19 +411,15 @@ pub fn export_mnemonic(
     request: ExportRequest,
     password_utf8: &[u8],
 ) -> WalletResult<ReadResult<MnemonicExport>> {
-    let profile_id = match validate_export_request(&request, false)? {
+    let profile_id = match validate_export_request(&request)? {
         ExportTarget::MnemonicTarget { profile_id } => profile_id,
         ExportTarget::SoftwareKeyTarget { .. } => {
             return Err(WalletError::new(ErrorCode::InvalidArgument))
         }
     };
-    let (wallet, mut warnings) = decode_store(store)?;
-    let payload = authenticate_profile(
-        &wallet,
-        &profile_id.into_bytes(),
-        password_utf8,
-        &mut warnings,
-    )?;
+    let (wallet, warnings) = decode_store(store)?;
+    let profile = find_profile(&wallet, &profile_id.into_bytes())?;
+    let payload = authenticate_profile(&wallet, profile, password_utf8)?;
     let mnemonic_utf8 = crypto::mnemonic_from_entropy(&payload.mnemonic_entropy)?;
     Ok(ReadResult {
         value: MnemonicExport { mnemonic_utf8 },
@@ -446,19 +442,15 @@ pub fn export_private_key(
     request: ExportRequest,
     password_utf8: &[u8],
 ) -> WalletResult<ReadResult<PrivateKeyExport>> {
-    let (profile_id, key_id) = match validate_export_request(&request, true)? {
+    let (profile_id, key_id) = match validate_export_request(&request)? {
         ExportTarget::SoftwareKeyTarget { profile_id, key_id } => (profile_id, key_id),
         ExportTarget::MnemonicTarget { .. } => {
             return Err(WalletError::new(ErrorCode::InvalidArgument))
         }
     };
-    let (wallet, mut warnings) = decode_store(store)?;
-    let payload = authenticate_profile(
-        &wallet,
-        &profile_id.into_bytes(),
-        password_utf8,
-        &mut warnings,
-    )?;
+    let (wallet, warnings) = decode_store(store)?;
+    let profile = find_profile(&wallet, &profile_id.into_bytes())?;
+    let payload = authenticate_profile(&wallet, profile, password_utf8)?;
     let key = payload
         .software_keys
         .iter()
@@ -493,14 +485,9 @@ pub fn derive_software_key(
     chain: Chain,
     account_index: u32,
 ) -> WalletResult<MutationResult<SoftwareKeyInfo>> {
-    let (mut wallet, mut warnings) = decode_store(store)?;
+    let (mut wallet, warnings) = decode_store(store)?;
     let profile_index = profile_index(&wallet, &profile_id.into_bytes())?;
-    let payload = authenticate_profile(
-        &wallet,
-        &profile_id.into_bytes(),
-        password_utf8,
-        &mut warnings,
-    )?;
+    let payload = authenticate_profile(&wallet, &wallet.profiles[profile_index], password_utf8)?;
     let private_key = zeroize::Zeroizing::new(crypto::derive_private_key(
         &payload.mnemonic_entropy,
         chain,
@@ -548,14 +535,9 @@ pub fn import_software_key(
     chain: Chain,
     private_key: &[u8],
 ) -> WalletResult<MutationResult<SoftwareKeyInfo>> {
-    let (mut wallet, mut warnings) = decode_store(store)?;
+    let (mut wallet, warnings) = decode_store(store)?;
     let profile_index = profile_index(&wallet, &profile_id.into_bytes())?;
-    let payload = authenticate_profile(
-        &wallet,
-        &profile_id.into_bytes(),
-        password_utf8,
-        &mut warnings,
-    )?;
+    let payload = authenticate_profile(&wallet, &wallet.profiles[profile_index], password_utf8)?;
     let private_key = crypto::validate_private_key(chain, private_key)?;
     ensure_not_duplicate(&payload, chain, &private_key)?;
     let key_id = new_key_id(&payload)?;
@@ -618,14 +600,9 @@ where
     F: FnMut(Chain) -> WalletResult<[u8; 32]>,
     G: Fn(&WalletStore) -> WalletResult<Vec<u8>>,
 {
-    let (mut wallet, mut warnings) = decode_store(store)?;
+    let (mut wallet, warnings) = decode_store(store)?;
     let profile_index = profile_index(&wallet, &profile_id.into_bytes())?;
-    let payload = authenticate_profile(
-        &wallet,
-        &profile_id.into_bytes(),
-        password_utf8,
-        &mut warnings,
-    )?;
+    let payload = authenticate_profile(&wallet, &wallet.profiles[profile_index], password_utf8)?;
     let private_key = zeroize::Zeroizing::new(generate_private_key(chain)?);
     ensure_not_duplicate(&payload, chain, &private_key)?;
     let key_id = new_key_id(&payload)?;
@@ -713,9 +690,9 @@ pub fn get_public_account(
     requested_context: AccountContext,
     password_utf8: &[u8],
 ) -> WalletResult<ReadResult<PublicAccountInfo>> {
-    let (wallet, mut warnings) = decode_store(store)?;
+    let (wallet, warnings) = decode_store(store)?;
     let profile = find_profile(&wallet, &profile_id.into_bytes())?;
-    let payload = authenticate_profile(&wallet, &profile.profile_id, password_utf8, &mut warnings)?;
+    let payload = authenticate_profile(&wallet, profile, password_utf8)?;
     let key = payload
         .software_keys
         .iter()
@@ -759,14 +736,9 @@ pub fn sign(
     }
     let profile_id = request.target.profile_id;
     let key_id = request.target.key_id;
-    let (wallet, mut warnings) = decode_store(store)?;
+    let (wallet, warnings) = decode_store(store)?;
     let profile = find_profile(&wallet, &profile_id.into_bytes())?;
-    let payload = authenticate_profile(
-        &wallet,
-        &profile_id.into_bytes(),
-        password_utf8,
-        &mut warnings,
-    )?;
+    let payload = authenticate_profile(&wallet, profile, password_utf8)?;
     let key = payload
         .software_keys
         .iter()
@@ -798,13 +770,12 @@ pub fn change_profile_password(
     new_password_utf8: &[u8],
 ) -> WalletResult<MutationResult<()>> {
     crypto::validate_password(new_password_utf8)?;
-    let (mut wallet, mut warnings) = decode_store(store)?;
+    let (mut wallet, warnings) = decode_store(store)?;
     let profile_index = profile_index(&wallet, &profile_id.into_bytes())?;
     let payload = authenticate_profile(
         &wallet,
-        &profile_id.into_bytes(),
+        &wallet.profiles[profile_index],
         current_password_utf8,
-        &mut warnings,
     )?;
     reencrypt_profile(
         &mut wallet,
@@ -835,14 +806,9 @@ pub fn delete_software_key(
     key_id: Uuid,
     password_utf8: &[u8],
 ) -> WalletResult<MutationResult<()>> {
-    let (mut wallet, mut warnings) = decode_store(store)?;
+    let (mut wallet, warnings) = decode_store(store)?;
     let profile_index = profile_index(&wallet, &profile_id.into_bytes())?;
-    let payload = authenticate_profile(
-        &wallet,
-        &profile_id.into_bytes(),
-        password_utf8,
-        &mut warnings,
-    )?;
+    let payload = authenticate_profile(&wallet, &wallet.profiles[profile_index], password_utf8)?;
     let mut updated = payload;
     let before = updated.software_keys.len();
     updated
@@ -873,10 +839,10 @@ pub fn delete_profile(
     profile_id: Uuid,
     password_utf8: &[u8],
 ) -> WalletResult<MutationResult<()>> {
-    let (mut wallet, mut warnings) = decode_store(store)?;
+    let (mut wallet, warnings) = decode_store(store)?;
     let profile_id = profile_id.into_bytes();
     let profile_index = profile_index(&wallet, &profile_id)?;
-    let _payload = authenticate_profile(&wallet, &profile_id, password_utf8, &mut warnings)?;
+    let _payload = authenticate_profile(&wallet, &wallet.profiles[profile_index], password_utf8)?;
     wallet.profiles.remove(profile_index);
     Ok(MutationResult {
         store: encode_store(&wallet)?,
@@ -1141,11 +1107,9 @@ fn parse_key_record(value: &Value) -> WalletResult<KeyRecord> {
 // index整合性検証、private key妥当性検証の順に固定する。
 fn authenticate_profile(
     wallet: &WalletStore,
-    profile_id: &[u8; 16],
+    profile: &ProfileEnvelope,
     password_utf8: &[u8],
-    _warnings: &mut Vec<DecodeWarning>,
 ) -> WalletResult<ProfilePayload> {
-    let profile = find_profile(wallet, profile_id)?;
     // AADにはStore registry key、Profile識別子、Network、duplicate tag、indexが含まれる。
     let aad = profile_aad(wallet, profile)?;
     let mut key = crypto::derive_encryption_key(password_utf8, &profile.kdf.salt)?;
@@ -1213,7 +1177,7 @@ fn reencrypt_profile(
     let software_key_index = index_from_payload(payload);
     let profile = &mut wallet.profiles[profile_index];
     profile.aad_software_key_index =
-        index_values_from_payload(&software_key_index, &profile.aad_software_key_index)?;
+        index_values_from_payload(&software_key_index, &profile.aad_software_key_index);
     profile.software_key_index = software_key_index;
     if change_password {
         // password変更時だけKDF saltも更新する。通常のkey追加・削除ではsaltを維持する。
@@ -1359,7 +1323,6 @@ fn encode_payload(payload: &ProfilePayload) -> WalletResult<Vec<u8>> {
     if payload.software_keys.len() > MAX_SOFTWARE_KEYS_PER_PROFILE {
         return Err(WalletError::new(ErrorCode::SerializationFailure));
     }
-    // KeyRecord本体はcloneせず、参照の並べ替えだけでdeterministicな配列を作る。
     // 秘密鍵を含むKeyRecord自体はcloneせず、参照だけを保存順に並べ替える。
     let mut keys = payload.software_keys.iter().collect::<Vec<_>>();
     keys.sort_unstable_by_key(|key| key.key_id);
@@ -1451,12 +1414,9 @@ fn index_to_values(entries: &[IndexEntry]) -> Vec<Value> {
 }
 
 // 既存indexのunknown fieldをkey_idで引き継ぎ、既知fieldだけを更新する。
-fn index_values_from_payload(
-    software_key_index: &[IndexEntry],
-    existing: &[Value],
-) -> WalletResult<Vec<Value>> {
+fn index_values_from_payload(software_key_index: &[IndexEntry], existing: &[Value]) -> Vec<Value> {
     let mut existing = existing.iter().peekable();
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(software_key_index.len());
     for entry in software_key_index {
         // 既存wire indexと新indexはいずれもkey_id昇順。現在のentryより
         // 小さい既存要素を一度だけ消費し、全体をO(n)でmergeする。
@@ -1490,7 +1450,7 @@ fn index_values_from_payload(
         fields.extend(unknown);
         entries.push(Value::Map(fields));
     }
-    Ok(entries)
+    entries
 }
 
 fn index_from_payload(payload: &ProfilePayload) -> Vec<IndexEntry> {
@@ -1502,7 +1462,7 @@ fn index_from_payload(payload: &ProfilePayload) -> Vec<IndexEntry> {
             chain: key.chain,
         })
         .collect::<Vec<_>>();
-    index.sort_by_key(|entry| entry.key_id);
+    index.sort_unstable_by_key(|entry| entry.key_id);
     index
 }
 
@@ -1514,10 +1474,7 @@ fn profile_info(profile: &ProfileEnvelope) -> ProfileInfo {
     }
 }
 
-fn validate_export_request(
-    request: &ExportRequest,
-    private_key: bool,
-) -> WalletResult<ExportTarget> {
+fn validate_export_request(request: &ExportRequest) -> WalletResult<ExportTarget> {
     if request.user_request.status != ExportUserRequestStatus::Requested
         || request.application_confirmation.status != ExportApplicationConfirmationStatus::Confirmed
         || request.target != request.user_request.target
@@ -1525,11 +1482,7 @@ fn validate_export_request(
     {
         return Err(WalletError::new(ErrorCode::InvalidArgument));
     }
-    match (private_key, request.target) {
-        (false, ExportTarget::MnemonicTarget { .. })
-        | (true, ExportTarget::SoftwareKeyTarget { .. }) => Ok(request.target),
-        _ => Err(WalletError::new(ErrorCode::InvalidArgument)),
-    }
+    Ok(request.target)
 }
 
 fn validate_account_context(

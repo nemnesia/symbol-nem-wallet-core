@@ -150,7 +150,7 @@ fn write_value(value: &Value, output: &mut Vec<u8>) -> Result<(), CborError> {
         Value::Map(entries) => {
             // CBOR map keyをunsigned integerの昇順へ正規化してdeterministicにする。
             let mut entries = entries.iter().collect::<Vec<_>>();
-            entries.sort_by_key(|(key, _)| *key);
+            entries.sort_unstable_by_key(|(key, _)| *key);
             if entries.windows(2).any(|pair| pair[0].0 == pair[1].0) {
                 return Err(CborError);
             }

@@ -3,6 +3,39 @@
 use super::*;
 
 #[test]
+fn segmented_hash_matches_one_shot_at_block_boundaries() {
+    // 分割位置をSHA-512 / Keccak-512のblock境界の前後へ動かし、
+    // 空の部分を挟んでも連結した入力のone-shot hashと一致することを確認する。
+    for length in [
+        0,
+        1,
+        64,
+        71,
+        72,
+        73,
+        127,
+        128,
+        129,
+        MAX_SIGNING_PAYLOAD_BYTES,
+    ] {
+        let input: Vec<u8> = (0..length).map(|index| index as u8).collect();
+        for chain in [Chain::Symbol, Chain::Nem] {
+            let expected: [u8; 64] = match chain {
+                Chain::Symbol => Sha512::digest(&input).into(),
+                Chain::Nem => Keccak512::digest(&input).into(),
+            };
+            for split in [0, 32, 64, 71, 72, 73, 127, 128, 129, length] {
+                let split = split.min(length);
+                assert_eq!(
+                    hash_512(chain, &[&input[..split], &[], &input[split..]]),
+                    expected,
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn mnemonic_normalization_has_bounded_storage_and_preserves_compatibility() {
     assert_eq!(
         Language::English
