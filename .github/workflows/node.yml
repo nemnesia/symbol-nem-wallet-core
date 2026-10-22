@@ -20,10 +20,12 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "crates/**"
+      - "rust/core/**"
       - "fuzz/**"
       - "packages/wallet-core/**"
       - "scripts/**"
       - "package.json"
+      - "mise.toml"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/node.yml"
@@ -34,10 +36,12 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "crates/**"
+      - "rust/core/**"
       - "fuzz/**"
       - "packages/wallet-core/**"
       - "scripts/**"
       - "package.json"
+      - "mise.toml"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/node.yml"
@@ -67,10 +71,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      - name: Install Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
+      - name: Install Node.js and pnpm with mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
 
       - name: Verify checked out source commit
         shell: bash
@@ -104,10 +106,8 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
 
-      - name: Install Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
+      - name: Install Node.js and pnpm with mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
 
       - name: Install pnpm workspace dependencies
         run: bash scripts/ci/install-workspace.sh
@@ -162,10 +162,8 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
 
-      - name: Install Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
+      - name: Install Node.js and pnpm with mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
 
       - name: Verify checked out source commit
         shell: bash
@@ -316,10 +314,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      - name: Install Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
+      - name: Install Node.js and pnpm with mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
 
       - name: Install JDK 17 for the Android consumer
         if: matrix.platform == 'android'
@@ -1068,10 +1064,8 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
 
-      - name: Install Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
+      - name: Install Node.js and pnpm with mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
 
       - name: Install lockfile-matched wasm-bindgen CLI
         run: bash scripts/ci/install-wasm-tools.sh wasm-bindgen "$RUNNER_TEMP/snwc-wasm-bindgen"
@@ -1105,10 +1099,8 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
+      - name: Install Node.js and pnpm with mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
 
       - name: Set source-derived reproducibility epoch
         shell: bash
@@ -1507,28 +1499,28 @@ jobs:
         include:
           - platform: Windows x64
             runner: windows-2025-vs2026
-            node: "22.x"
+            node: "24.x"
           - platform: Windows x64
             runner: windows-2025-vs2026
-            node: "24.x"
-          - platform: macOS x64
-            runner: macos-15-intel
-            node: "22.x"
+            node: "26.x"
           - platform: macOS x64
             runner: macos-15-intel
             node: "24.x"
-          - platform: macOS arm64
-            runner: macos-15
-            node: "22.x"
+          - platform: macOS x64
+            runner: macos-15-intel
+            node: "26.x"
           - platform: macOS arm64
             runner: macos-15
             node: "24.x"
-          - platform: Linux x64 glibc
-            runner: ubuntu-24.04
-            node: "22.x"
+          - platform: macOS arm64
+            runner: macos-15
+            node: "26.x"
           - platform: Linux x64 glibc
             runner: ubuntu-24.04
             node: "24.x"
+          - platform: Linux x64 glibc
+            runner: ubuntu-24.04
+            node: "26.x"
     steps:
       - name: Check out release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1561,10 +1553,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      - name: Install Node.js 24
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
+      - name: Install Node.js and pnpm with mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
 
       - name: Install locked bundler fixtures
         run: bash scripts/ci/install-workspace.sh

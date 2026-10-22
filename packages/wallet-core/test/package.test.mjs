@@ -65,7 +65,7 @@ test("package metadataがconditional exportの順序とpackage内許可一覧を
   assert.deepEqual(Object.keys(packageJson.exports["."]["node-addons"]), ["import", "require"]);
   assert.deepEqual(Object.keys(packageJson.exports["."]["default"]), ["import", "require"]);
   assert.equal(packageJson.type, "module");
-  assert.equal(packageJson.engines.node, ">=22.0.0");
+  assert.equal(packageJson.engines.node, ">=24.0.0");
   assert.equal("postinstall" in (packageJson.scripts ?? {}), false);
 
   const files = allFiles(resolve(packageRoot, "dist")).sort();

@@ -14,7 +14,7 @@ const VERSION = "0.1.0";
 
 function fixtureVersionSources() {
   return {
-    core: { relative_path: "crates/core/Cargo.toml", package_name: "symbol-nem-wallet-core", version: VERSION },
+    core: { relative_path: "rust/core/Cargo.toml", package_name: "symbol-nem-wallet-core", version: VERSION },
     cAbi: { relative_path: "crates/c-abi/Cargo.toml", package_name: "symbol-nem-wallet-core-native", version: VERSION },
     node: { relative_path: "crates/node/Cargo.toml", package_name: "symbol-nem-wallet-core-node", version: VERSION },
     wasm: { relative_path: "crates/wasm/Cargo.toml", package_name: "symbol-nem-wallet-core-wasm", version: VERSION },
@@ -67,7 +67,7 @@ assert.deepEqual(
 );
 
 const cargoFixtures = {
-  "/fixture/crates/core/Cargo.toml": '[package]\nname = "symbol-nem-wallet-core"\nversion = "0.1.0"\n',
+  "/fixture/rust/core/Cargo.toml": '[package]\nname = "symbol-nem-wallet-core"\nversion = "0.1.0"\n',
   "/fixture/crates/c-abi/Cargo.toml": '[package]\nname = "symbol-nem-wallet-core-native"\nversion = "0.1.0"\n',
   "/fixture/crates/node/Cargo.toml": '[package]\nname = "symbol-nem-wallet-core-node"\nversion = "0.1.0"\n',
   "/fixture/crates/wasm/Cargo.toml": '[package]\nname = "symbol-nem-wallet-core-wasm"\nversion = "0.1.0"\n',

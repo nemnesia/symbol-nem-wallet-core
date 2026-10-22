@@ -45,7 +45,7 @@ try {
   mkdirSync(resolve(rootDir, "registry"), { recursive: true });
   writeFileSync(resolve(rootDir, "registry/LICENSE"), "MIT license\n");
   const root = component("symbol-nem-wallet-core-native", VERSION, "path:crates/c-abi", ["darwin-x64", "linux-x64-gnu"], "MIT", "SPDXRef-Package-root");
-  const core = component("symbol-nem-wallet-core", VERSION, "path:crates/core", ["darwin-x64", "linux-x64-gnu"], "MIT", "SPDXRef-Package-core");
+  const core = component("symbol-nem-wallet-core", VERSION, "path:rust/core", ["darwin-x64", "linux-x64-gnu"], "MIT", "SPDXRef-Package-core");
   const dependency = component("fixture-runtime", "1.2.3", REGISTRY, ["linux-x64-gnu"], "MIT OR Apache-2.0", "SPDXRef-Package-dependency");
   const devOnly = component("fixture-dev-only", "9.9.9", REGISTRY, [], "MIT", "SPDXRef-Package-dev");
   const context = {

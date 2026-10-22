@@ -8,7 +8,7 @@
 
 ## インストール
 
-0.1.0 から更新する場合は [0.2.0 への移行](../../docs/migration/0.2.0.md) を確認してください。
+0.1.0 から更新する場合は [0.2.0 への移行](../../../docs/docs/migration/0.2.0.md) を確認してください。
 
 ```bash
 npm install @nemnesia/symbol-nem-wallet-core
@@ -16,7 +16,7 @@ npm install @nemnesia/symbol-nem-wallet-core
 
 ## 動作要件と実行環境
 
-- Node.js `>=22.0.0`
+- Node.js `>=24.0.0`
 - Browser は ESM と WebAssembly をサポートする modern evergreen 環境を対象とします。Manifest V3 extension でも利用できます。
 - package-local の Node-API native artifact と canonical WASM artifact を使用します。
 - `postinstall` build、`node-gyp`、Cargo の install-time 実行はありません。

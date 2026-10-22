@@ -6,6 +6,14 @@
 
 `symbol-nem-wallet-core` は、Symbol / NEM の秘密情報を扱う Rust Wallet Core と、Native C ABI、WASM、Node.js / Browser / React Native 向け npm facade を含む monorepo です。主な配布経路は `@nemnesia/symbol-nem-wallet-core` です。
 
+## リポジトリ構成
+
+- `rust/core/`: Rust 本体 crate (`symbol-nem-wallet-core`)
+- `crates/`: Rust 本体を利用する C ABI、Node-API、WASM binding crate
+- `packages/wallet-core/`: npm package と各 runtime 向け facade
+- `integration/`: 実際の consumer を使った統合確認
+- ルート `Cargo.toml`: Rust workspace の定義
+
 ## プロジェクト概要
 
 Wallet Core は、Profile password による操作単位の認証、Mnemonic と Software Key の保護・導出・署名、Wallet Store の検証と状態変更を担当します。保存先、UI、Transaction の構築・解釈、ネットワーク通信は担当しません。
@@ -23,7 +31,7 @@ Profile は1つの Mnemonic と Network を持ち、Network は作成時に固�
 
 ## npm を使う
 
-0.1.0 から更新する場合は [0.2.0 への移行](docs/migration/0.2.0.md) を確認してください。
+0.1.0 から更新する場合は [0.2.0 への移行](../docs/docs/migration/0.2.0.md) を確認してください。
 
 ### インストール
 
@@ -35,7 +43,7 @@ npm install @nemnesia/symbol-nem-wallet-core
 
 | 環境 | 最初にすること |
 | --- | --- |
-| Node.js 22+ | package root を import してそのまま利用 |
+| Node.js 24+ | package root を import してそのまま利用 |
 | Browser | package root を import。package-local WASM を使用 |
 | React Native 0.87.x | npm install 後に native provider / lifecycle の接続が必要。[React Native 導入](packages/wallet-core/README.md#react-native-の導入)へ進む |
 
@@ -91,7 +99,7 @@ Core crate の package 名は `symbol-nem-wallet-core` です。repository check
 
 ```toml
 [dependencies]
-symbol-nem-wallet-core = { path = "../symbol-nem-wallet-core/crates/core" }
+symbol-nem-wallet-core = { path = "../symbol-nem-wallet-core/rust/core" }
 ```
 
 Rust API は opaque な `WalletStoreBlob` / `PendingProfileBlob` byte 列を使います。read operation は `ReadResult<T>`、状態変更 operation は `MutationResult<T>` を返します。
@@ -271,32 +279,33 @@ supported native target では、Node loader が load 前に package-local manif
 
 ## 開発資料
 
-設計・仕様・レビュー資料は [`docs/`](docs/) にあります。主に実装者・コントリビューター・レビュアー向けの資料です。
+設計・仕様・レビュー資料は [`docs/`](../docs/) にあります。主に実装者・コントリビューター・レビュアー向けの資料です。
 
 ## 開発と検証
 
 ### CI をローカルで実行
 
-Ubuntu 24.04 では、GitHub Actions と同じ検証 script を次の入口から実行できます。Node.js と Android 用 Java の version は [`.node-version`](.node-version) と [`.java-version`](.java-version)、pnpm はルート `package.json` の `packageManager` で管理します。
+Ubuntu 24.04 では、GitHub Actions と同じ検証 script を次の入口から実行できます。Node.js と pnpm の version は [`mise.toml`](mise.toml)、Android 用 Java の version は [`.java-version`](.java-version) で管理します。
 
 ```bash
-./scripts/ci/local-ci.sh quick
-./scripts/ci/local-ci.sh full
+mise install
+mise exec -- ./scripts/ci/local-ci.sh quick
+mise exec -- ./scripts/ci/local-ci.sh full
 ```
 
-`quick` は Rust format / clippy / tests、Node の deterministic checks、WASM からの package assembly、React Native consumer の `npm ci`・ESLint・TypeScript・Jest test discovery・dependency resolution を実行します。`full` はそれらに WASM、Native C ABI、sanitizer、glibc 2.28 Docker build、workspace install、npm package build → `npm pack` → clean tarball consumer、`cargo audit` を加えます。`quick` は Node.js 24、npm、Rust の `wasm32-unknown-unknown` target、Cargo.lock と一致する `wasm-bindgen` が必要です。`full` はさらに Docker、`wasm-pack`、C compiler、`cargo-audit` が必要です。
+`quick` は Rust format / clippy / tests、Node の deterministic checks、WASM からの package assembly、React Native consumer の `npm ci`・ESLint・TypeScript・Jest test discovery・dependency resolution を実行します。`full` はそれらに WASM、Native C ABI、sanitizer、glibc 2.28 Docker build、workspace install、npm package build → `npm pack` → clean tarball consumer、`cargo audit` を加えます。`quick` は mise で選択した Node.js、npm、Rust の `wasm32-unknown-unknown` target、Cargo.lock と一致する `wasm-bindgen` が必要です。`full` はさらに Docker、`wasm-pack`、C compiler、`cargo-audit` が必要です。
 
 Coverage、Browser bundler、Wallet Store fuzz、Android Gradle build は個別に実行できます。
 
 ```bash
-./scripts/ci/local-ci.sh coverage
-./scripts/ci/local-ci.sh browser
-./scripts/ci/local-ci.sh fuzz
-./scripts/ci/local-ci.sh android
-./scripts/ci/local-ci.sh linux-glibc
+mise exec -- ./scripts/ci/local-ci.sh coverage
+mise exec -- ./scripts/ci/local-ci.sh browser
+mise exec -- ./scripts/ci/local-ci.sh fuzz
+mise exec -- ./scripts/ci/local-ci.sh android
+mise exec -- ./scripts/ci/local-ci.sh linux-glibc
 ```
 
-Browser check は Chrome / Chromium、fuzz は nightly Rust と `cargo-fuzz`、Android は Java 17 と設定済み Android SDK / NDK が必要です。React Native consumer の Jest 設定と test discovery は quick で検証します。唯一の Jest App test は TurboModule provider を必要とする native runtime smoke のため、アプリは Android emulator / iOS simulator で実行します。iOS、macOS、Windows の native build / simulator、GitHub Dependency Review、artifact handoff、CodeQL upload、release / npm publish は GitHub または各 platform runner でのみ実行します。workflow ごとの分類と parity gap は [`docs/development/local-ci.md`](docs/development/local-ci.md) を参照してください。
+Browser check は Chrome / Chromium、fuzz は nightly Rust と `cargo-fuzz`、Android は Java 17 と設定済み Android SDK / NDK が必要です。React Native consumer の Jest 設定と test discovery は quick で検証します。唯一の Jest App test は TurboModule provider を必要とする native runtime smoke のため、アプリは Android emulator / iOS simulator で実行します。iOS、macOS、Windows の native build / simulator、GitHub Dependency Review、artifact handoff、CodeQL upload、release / npm publish は GitHub または各 platform runner でのみ実行します。workflow ごとの分類と parity gap は [`docs/development/local-ci.md`](../docs/docs/development/local-ci.md) を参照してください。
 
 README-only の変更では実装テストを自動的に意味しません。実装変更を含む場合は、対象に応じて次の入口を使用します。
 
@@ -324,13 +333,13 @@ Cargo の依存解決を行うコマンドは `--locked` を指定し、不整�
 | `dependencies` | pnpm workspace と React Native consumer のロック済み依存インストール（install scripts 無効） |
 | `all` | 上記すべて |
 
-WASM / 依存関係まで確認する場合は、Node.js 24、Corepack、npm を用意し、追加ツールを準備します。
+WASM / 依存関係まで確認する場合は、mise で選択した Node.js、Corepack、npm を用意し、追加ツールを準備します。
 wasm-bindgen CLI のバージョンはルート `Cargo.lock` から取得します。
 
 ```bash
 rustup target add wasm32-unknown-unknown
 bash scripts/ci/install-wasm-tools.sh all
-bash scripts/check-local.sh all
+mise exec -- bash scripts/check-local.sh all
 ```
 
 `all` は Linux 上の検証です。coverage gate、npm 成果物の組立・consumer tests、

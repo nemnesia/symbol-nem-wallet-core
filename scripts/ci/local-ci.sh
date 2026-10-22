@@ -25,10 +25,11 @@ require_tools() {
 
 check_node_version() {
     local expected actual
-    expected=$(tr -d '[:space:]' < .node-version)
+    require_tools mise
+    expected=$(mise config get tools.node)
     actual=$(node -p 'process.versions.node.split(".")[0]')
     [[ "$actual" == "$expected" ]] || {
-        printf 'ERROR: Node.js %s.x is required by .node-version (found %s)\n' "$expected" "$(node --version)" >&2
+        printf 'ERROR: Node.js %s.x is required by mise.toml (found %s); run this command through `mise exec`\n' "$expected" "$(node --version)" >&2
         exit 1
     }
 }

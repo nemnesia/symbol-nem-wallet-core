@@ -86,7 +86,7 @@ function releaseIdentityFixture(overrides = {}) {
     mainAncestry: true,
     clean: true,
     versionSources: {
-      core: { relative_path: "crates/core/Cargo.toml", package_name: "symbol-nem-wallet-core", version: VERSION },
+      core: { relative_path: "rust/core/Cargo.toml", package_name: "symbol-nem-wallet-core", version: VERSION },
       cAbi: { relative_path: "crates/c-abi/Cargo.toml", package_name: "symbol-nem-wallet-core-native", version: VERSION },
       node: { relative_path: "crates/node/Cargo.toml", package_name: "symbol-nem-wallet-core-node", version: VERSION },
       wasm: { relative_path: "crates/wasm/Cargo.toml", package_name: "symbol-nem-wallet-core-wasm", version: VERSION },

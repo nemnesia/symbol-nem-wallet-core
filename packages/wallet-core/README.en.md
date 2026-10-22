@@ -8,7 +8,7 @@ The Japanese version is authoritative if there is any discrepancy.
 
 ## Install
 
-If upgrading from 0.1.0, read [Migration to 0.2.0](../../docs/migration/0.2.0.md) (Japanese).
+If upgrading from 0.1.0, read [Migration to 0.2.0](../../../docs/docs/migration/0.2.0.md) (Japanese).
 
 ```bash
 npm install @nemnesia/symbol-nem-wallet-core
@@ -16,7 +16,7 @@ npm install @nemnesia/symbol-nem-wallet-core
 
 ## Requirements and runtime
 
-- Node.js `>=22.0.0`
+- Node.js `>=24.0.0`
 - Browsers must be modern evergreen environments that support ESM and WebAssembly. Manifest V3 extensions are supported as well.
 - The package uses package-local Node-API native artifacts and one canonical WASM artifact.
 - There is no `postinstall` build, `node-gyp`, or install-time Cargo execution.

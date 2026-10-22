@@ -43,12 +43,12 @@ jobs:
           git diff --name-only --no-renames -z "$BASE_SHA" HEAD > "$RUNNER_TEMP/pr-paths"
           while IFS= read -r -d '' path; do
             case "$path" in
-              Cargo.toml|Cargo.lock|crates/core/*|scripts/*|.github/workflows/*)
+              Cargo.toml|Cargo.lock|rust/core/*|scripts/*|.github/workflows/*)
                 rust=true; wasm=true; native=true ;;
               crates/wasm/*) rust=true; wasm=true ;;
               crates/c-abi/*) rust=true; native=true ;;
               crates/*|fuzz/*) rust=true ;;
-              .node-version|package.json|pnpm-lock.yaml|pnpm-workspace.yaml)
+              mise.toml|package.json|pnpm-lock.yaml|pnpm-workspace.yaml)
                 wasm=true ;;
             esac
           done < "$RUNNER_TEMP/pr-paths"
@@ -64,11 +64,9 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      - name: Install Node.js 24
+      - name: Install Node.js and pnpm with mise
         if: github.event_name != 'pull_request' || steps.changes.outputs.wasm == 'true'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
 
       - name: Install wasm32 target
         if: github.event_name != 'pull_request' || steps.changes.outputs.wasm == 'true'

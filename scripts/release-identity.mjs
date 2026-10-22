@@ -18,7 +18,7 @@ export const RELEASE_VERSION_SOURCES = Object.freeze([
   Object.freeze({
     id: "core",
     kind: "cargo",
-    relativePath: "crates/core/Cargo.toml",
+    relativePath: "rust/core/Cargo.toml",
     packageName: "symbol-nem-wallet-core",
   }),
   Object.freeze({

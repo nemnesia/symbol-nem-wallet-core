@@ -12,8 +12,8 @@
 対象作業に対応するドキュメントを確認すること。
 
 `AGENTS.md` にプロジェクト固有の詳細仕様や設計判断を蓄積しない。
-それらは `docs/requirements/`、`docs/design/`、
-`docs/specifications/` などの適切な正本へ記録する。
+それらは `../docs/docs/requirements/`、`../docs/docs/design/`、
+`../docs/docs/specifications/` などの適切な正本へ記録する。
 
 ---
 
@@ -32,6 +32,14 @@ Symbol、NEM および関連技術に関する仕様、実装、テスト、レ�
 
 ## Repository Map
 
+### Implementation layout
+
+- `rust/core/`: Rust implementation crate (`symbol-nem-wallet-core`)
+- `crates/`: C ABI, Node-API, and WASM binding crates
+- `packages/wallet-core/`: npm package and runtime facades
+- `integration/`: consumer projects for integration checks
+- Root `Cargo.toml`: Rust workspace definition
+
 ### プロジェクト概要
 
 - `README.md`
@@ -43,7 +51,7 @@ Symbol、NEM および関連技術に関する仕様、実装、テスト、レ�
 
 ### コンセプト資料
 
-- `docs/consept/`
+- `../docs/docs/consept/`
   - プロジェクトの目的
   - 解決対象
   - スコープ
@@ -54,7 +62,7 @@ Symbol、NEM および関連技術に関する仕様、実装、テスト、レ�
 
 ### 要件資料
 
-- `docs/requirements/`
+- `../docs/docs/requirements/`
   - 承認済み要件
   - 外部から観測可能な要求
   - セキュリティ要求
@@ -65,7 +73,7 @@ Symbol、NEM および関連技術に関する仕様、実装、テスト、レ�
 
 ### 仕様書
 
-- `docs/specifications/`
+- `../docs/docs/specifications/`
   - 実装対象となる規範仕様
   - データフォーマット
   - API 契約
@@ -78,19 +86,19 @@ Symbol、NEM および関連技術に関する仕様、実装、テスト、レ�
 
 ### 設計資料
 
-- `docs/design/`
+- `../docs/docs/design/`
   - 基本設計
   - 承認済み設計判断
   - 責務境界、依存方向、trust boundary
   - 設計上の未決定事項と仕様への引継ぎ
 
-設計と設計判断は `docs/design/` を現行正本とする。
+設計と設計判断は `../docs/docs/design/` を現行正本とする。
 
 対象機能に関連する設計判断が存在する場合は確認する。
 
 新たな重要な設計判断を行う必要がある場合は、
 既存の要件・仕様との整合を確認し、
-必要に応じて `docs/design/` に記録する。
+必要に応じて `../docs/docs/design/` に記録する。
 
 開発フェーズは次の順序で扱う。
 
@@ -100,7 +108,7 @@ Symbol、NEM および関連技術に関する仕様、実装、テスト、レ�
 
 ### 技術知識ベース
 
-- `docs/knowledge/`
+- `../docs/docs/knowledge/`
   - Symbol
   - NEM
   - Catapult
@@ -115,12 +123,12 @@ Symbol、NEM および関連技術に関する仕様、実装、テスト、レ�
 
 すべての資料を一括で読み込まない。
 
-`docs/knowledge/` はプロジェクト固有の要求や仕様を
+`../docs/docs/knowledge/` はプロジェクト固有の要求や仕様を
 上書きするものではない。
 
 ### レビュー記録
 
-- `docs/reviews/`
+- `../docs/docs/reviews/`
   - コンセプトレビュー
   - 要件レビュー
   - 仕様レビュー
@@ -135,7 +143,7 @@ Symbol、NEM および関連技術に関する仕様、実装、テスト、レ�
 
 ### Agent Skills
 
-- `.agents/skills/`
+- `../agents/skills/`
 
 作業内容に対応する Skill が存在する場合は、
 その Skill の `SKILL.md` を確認し、詳細な作業手順に従う。
@@ -177,7 +185,7 @@ Context と正式資料が競合した場合は、必ず正式資料を優先す
 
 ```text
 Phase Contexts:
-- Design: docs/context/design-context.md
+- Design: ../docs/docs/context/design-context.md
 ```
 
 `Phase Contexts` セクションまたは対象フェーズの登録がない場合、
@@ -191,10 +199,10 @@ Phase Contexts:
 作業を開始する前に、次の順序で対象範囲を確認する。
 
 1. ユーザーから与えられた依頼と変更範囲
-2. 対象作業に対応する `.agents/skills/` の Skill
+2. 対象作業に対応する `../agents/skills/` の Skill
 3. 対象フェーズの上流資料と、同一フェーズの既存成果物
 4. 下流資料、コード、テスト、fixture は、対象 Skill が条件付き参照を定める場合またはユーザーが明示した場合だけ確認する
-5. 必要な場合のみ `docs/knowledge/`
+5. 必要な場合のみ `../docs/docs/knowledge/`
 6. 必要な場合のみ外部の公式資料または公式実装
 
 対象作業に必要のない文書やコードを、
@@ -231,7 +239,7 @@ Reviewer は対象フェーズの責務を越える下流の詳細不足を、�
 Symbol、NEM または関連プロトコルの技術的事実を確認する場合は、
 原則として次の情報を使用する。
 
-1. `docs/knowledge/` の対象機能に関連する資料
+1. `../docs/docs/knowledge/` の対象機能に関連する資料
 2. 対象バージョンの公式プロトコル仕様
 3. Catapult、NIS、Catbuffer 等の公式実装またはスキーマ
 4. 公式 SDK
@@ -249,7 +257,7 @@ SDK の利便 API が存在することだけを理由として、
 次は技術仕様の正本ではなく、作業方法を定義する。
 
 - `AGENTS.md`
-- `.agents/skills/`
+- `../agents/skills/`
 
 これらを Symbol、NEM、Wallet Core の技術仕様の根拠として扱わない。
 
@@ -503,7 +511,7 @@ base や対象範囲が指定されている場合は、その指定を優先す
 
 #### docs-only
 
-変更が `docs/**`、`README.md` 等の文書ファイルだけで、Rust / Binding / WASM /
+変更が `../docs/docs/**`、`README.md` 等の文書ファイルだけで、Rust / Binding / WASM /
 Native / Node の source、manifest、dependency、build configuration、test、fixture に
 変更がない場合、Rust / Binding / WASM / Native / Node の実装テストを実行しない。
 Concept / Requirements / Design / Specification が外部契約を記述していても、
@@ -516,7 +524,7 @@ build・test・fixture 検証を追加する。
 
 #### agent / skill-only
 
-変更が `AGENTS.md` と `.agents/**` だけの場合、Rust / WASM / Native / Node の
+変更が `AGENTS.md` と `../agents/**` だけの場合、Rust / WASM / Native / Node の
 実装テストを実行しない。Skill の構造、参照、Markdown、および必要な validator、
 `git diff`、`git status` だけを対象にする。agent / skill の変更と文書変更だけが混在する
 場合も、コード変更がない限り実装テストを追加しない。
@@ -566,7 +574,7 @@ Rust、WASM、Native、Node の具体的な formatter、lint、test、build、fi
 - Native C ABI: `bash scripts/check-local.sh native`、必要な sanitizer は
   `bash scripts/check-local.sh native-sanitizers`。
 - npm / React Native の依存・lockfile: `bash scripts/check-local.sh dependencies`。
-  Node.js 24、Corepack、npm が必要で、install scripts は無効にする。
+  mise で選択した Node.js、Corepack、npm が必要で、install scripts は無効にする。
 
 これらは CI と共通の入口である。変更分類に該当するグループを選ぶ。
 `all` は上記の Linux 検証をまとめた入口であり、coverage、npm 成果物検証、他 OS / mobile
@@ -630,7 +638,7 @@ matrix、release gate の代替ではない。準備方法は README の「開�
 ### 設計と設計判断の記録
 
 複数の合理的な選択肢から、
-プロジェクトとして一つを選択した理由を `docs/design/` に記録する。
+プロジェクトとして一つを選択した理由を `../docs/docs/design/` に記録する。
 
 単なる実装メモを ADR として乱立させない。
 
@@ -805,7 +813,7 @@ Mainnet と Testnet を分離する。
 
 ## コミットメッセージ規約
 
-変更があるコミットを作成する場合は、タイトルだけのコミットを作成しない。タイトルおよび本文の説明は日本語で記述する。プレフィックス、対象コンポーネント／領域のパス、API名、固有名詞、技術用語、コマンド名などは必要な範囲で原表記を使用してよい。対象領域をパスで示す場合は、`[.agents/skills]`、`[docs/requirements]`、`[bindings/native]` のように `[]` で囲み、リポジトリルート相対のディレクトリ単位で記載し、個別のファイル名や拡張子は含めない。タイトルの後に空行を置き、`-` で始まる変更内容の箇条書きを最低1項目続ける。変更が1点だけでも本文を省略しない。
+変更があるコミットを作成する場合は、タイトルだけのコミットを作成しない。タイトルおよび本文の説明は日本語で記述する。プレフィックス、対象コンポーネント／領域のパス、API名、固有名詞、技術用語、コマンド名などは必要な範囲で原表記を使用してよい。対象領域をパスで示す場合は、`[rust/core]`、`[crates/node]`、`[packages/wallet-core]` のように `[]` で囲み、リポジトリルート相対のディレクトリ単位で記載し、個別のファイル名や拡張子は含めない。タイトルの後に空行を置き、`-` で始まる変更内容の箇条書きを最低1項目続ける。変更が1点だけでも本文を省略しない。
 
 例えば、タイトルと本文を別引数で渡す。
 

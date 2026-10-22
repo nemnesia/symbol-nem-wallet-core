@@ -79,7 +79,7 @@ function fixtureContext() {
     ecosystem: "cargo",
     name: "symbol-nem-wallet-core",
     version: "0.1.0",
-    source: "path:crates/core",
+    source: "path:rust/core",
     license_expression: "MIT",
     license_text_files: [{ path: "LICENSE", sha256: "e".repeat(64) }],
     artifact_roles: ["native", "wasm"],

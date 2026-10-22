@@ -6,6 +6,14 @@ The Japanese version is authoritative if there is any discrepancy.
 
 `symbol-nem-wallet-core` is a monorepo containing a Rust Wallet Core for Symbol / NEM secrets, its Native C ABI and WASM bindings, and the Node.js / Browser / React Native npm facade. The main distribution path is `@nemnesia/symbol-nem-wallet-core`.
 
+## Repository layout
+
+- `rust/core/`: the Rust implementation crate (`symbol-nem-wallet-core`)
+- `crates/`: C ABI, Node-API, and WASM binding crates that use the core
+- `packages/wallet-core/`: the npm package and runtime facades
+- `integration/`: consumer projects used for integration checks
+- Root `Cargo.toml`: the Rust workspace definition
+
 ## Project overview
 
 Wallet Core provides per-operation Profile password authorization, Mnemonic and Software Key protection / derivation / signing, and Wallet Store validation and state changes. It does not own persistence, UI, Transaction construction or interpretation, or network communication.
@@ -23,7 +31,7 @@ A Profile has one Mnemonic and Network, and its Network is fixed at creation. A 
 
 ## Use npm
 
-If upgrading from 0.1.0, read [Migration to 0.2.0](docs/migration/0.2.0.md) (Japanese).
+If upgrading from 0.1.0, read [Migration to 0.2.0](../docs/docs/migration/0.2.0.md) (Japanese).
 
 ### Install
 
@@ -35,7 +43,7 @@ npm install @nemnesia/symbol-nem-wallet-core
 
 | Runtime | First step |
 | --- | --- |
-| Node.js 22+ | Import the package root and use it directly |
+| Node.js 24+ | Import the package root and use it directly |
 | Browser | Import the package root; package-local WASM is used |
 | React Native 0.87.x | Connect the native provider and lifecycle after npm install, then follow [React Native integration](packages/wallet-core/README.en.md#react-native-integration) |
 
@@ -91,7 +99,7 @@ The Core crate is named `symbol-nem-wallet-core`. The following is a path depend
 
 ```toml
 [dependencies]
-symbol-nem-wallet-core = { path = "../symbol-nem-wallet-core/crates/core" }
+symbol-nem-wallet-core = { path = "../symbol-nem-wallet-core/rust/core" }
 ```
 
 The Rust API uses opaque `WalletStoreBlob` / `PendingProfileBlob` byte sequences. Read operations return `ReadResult<T>`; state-changing operations return `MutationResult<T>`.
@@ -271,31 +279,32 @@ For a supported native target, the Node loader compares the package-local manife
 
 ## Development documentation
 
-Design, specification, and review materials are available under [`docs/`](docs/). They are primarily for implementers, contributors, and reviewers.
+Design, specification, and review materials are available under [`docs/`](../docs/). They are primarily for implementers, contributors, and reviewers.
 
 ## Development / validation
 
 ### Running CI locally
 
-On Ubuntu 24.04, run the same verification scripts used by GitHub Actions through these entry points. Node.js and Android Java versions are recorded in [`.node-version`](.node-version) and [`.java-version`](.java-version); the root `package.json` `packageManager` field pins pnpm.
+On Ubuntu 24.04, run the same verification scripts used by GitHub Actions through these entry points. Node.js and pnpm versions are managed in [`mise.toml`](mise.toml); Android Java is recorded in [`.java-version`](.java-version).
 
 ```bash
-./scripts/ci/local-ci.sh quick
-./scripts/ci/local-ci.sh full
+mise install
+mise exec -- ./scripts/ci/local-ci.sh quick
+mise exec -- ./scripts/ci/local-ci.sh full
 ```
 
-`quick` runs Rust formatting / Clippy / tests, deterministic Node checks, package assembly from WASM, and the React Native consumer's `npm ci`, ESLint, TypeScript, Jest test discovery, and dependency resolution checks. `full` adds WASM, Native C ABI, sanitizers, the glibc 2.28 Docker builds, workspace installation, npm package build → `npm pack` → clean tarball consumer, and `cargo audit`. `quick` needs Node.js 24, npm, the Rust `wasm32-unknown-unknown` target, and the `wasm-bindgen` CLI matching Cargo.lock. `full` additionally needs Docker, `wasm-pack`, a C compiler, and `cargo-audit`.
+`quick` runs Rust formatting / Clippy / tests, deterministic Node checks, package assembly from WASM, and the React Native consumer's `npm ci`, ESLint, TypeScript, Jest test discovery, and dependency resolution checks. `full` adds WASM, Native C ABI, sanitizers, the glibc 2.28 Docker builds, workspace installation, npm package build → `npm pack` → clean tarball consumer, and `cargo audit`. `quick` needs the Node.js version selected by mise, npm, the Rust `wasm32-unknown-unknown` target, and the `wasm-bindgen` CLI matching Cargo.lock. `full` additionally needs Docker, `wasm-pack`, a C compiler, and `cargo-audit`.
 
 Coverage, browser bundlers, Wallet Store fuzzing, and the Android Gradle build have separate commands:
 
 ```bash
-./scripts/ci/local-ci.sh coverage
-./scripts/ci/local-ci.sh browser
-./scripts/ci/local-ci.sh fuzz
-./scripts/ci/local-ci.sh android
+mise exec -- ./scripts/ci/local-ci.sh coverage
+mise exec -- ./scripts/ci/local-ci.sh browser
+mise exec -- ./scripts/ci/local-ci.sh fuzz
+mise exec -- ./scripts/ci/local-ci.sh android
 ```
 
-The browser check needs Chrome / Chromium; fuzzing needs nightly Rust and `cargo-fuzz`; Android needs Java 17 and a configured Android SDK / NDK. Quick checks Jest configuration and test discovery. The only Jest App test requires the native TurboModule provider, so the app itself runs in the Android emulator / iOS simulator. iOS, macOS, and Windows native builds / simulators, GitHub Dependency Review, artifact handoff, CodeQL upload, release, and npm publishing require GitHub or their platform runner. See [`docs/development/local-ci.md`](docs/development/local-ci.md) for the workflow inventory and remaining parity gaps.
+The browser check needs Chrome / Chromium; fuzzing needs nightly Rust and `cargo-fuzz`; Android needs Java 17 and a configured Android SDK / NDK. Quick checks Jest configuration and test discovery. The only Jest App test requires the native TurboModule provider, so the app itself runs in the Android emulator / iOS simulator. iOS, macOS, and Windows native builds / simulators, GitHub Dependency Review, artifact handoff, CodeQL upload, release, and npm publishing require GitHub or their platform runner. See [`docs/development/local-ci.md`](../docs/docs/development/local-ci.md) for the workflow inventory and remaining parity gaps.
 
 README-only changes do not automatically require implementation tests. For implementation changes, use the relevant entry points:
 
@@ -324,13 +333,13 @@ The script prints each command and stops on the first failure.
 | `dependencies` | Locked pnpm workspace and React Native consumer installs, without install scripts |
 | `all` | All groups above |
 
-For WASM and dependency checks, provide Node.js 24, Corepack and npm, then install
+For WASM and dependency checks, provide the Node.js version selected by mise, Corepack and npm, then install
 the additional tools. The wasm-bindgen CLI version comes from the root Cargo.lock.
 
 ```bash
 rustup target add wasm32-unknown-unknown
 bash scripts/ci/install-wasm-tools.sh all
-bash scripts/check-local.sh all
+mise exec -- bash scripts/check-local.sh all
 ```
 
 `all` covers these Linux checks. Coverage gates, npm artifact assembly and consumer

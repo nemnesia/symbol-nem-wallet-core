@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = { version = "=3.12.2", default-features = false, features = ["compat-mode", "napi8", "dyn-symbols"] }
 napi-derive = "=3.6.3"
-symbol-nem-wallet-core = { path = "../core" }
+symbol-nem-wallet-core = { path = "../../rust/core" }
 uuid = { version = "1.18.1", default-features = false }
 zeroize = "1.8.2"
 
